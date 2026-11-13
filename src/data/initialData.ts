@@ -1,6 +1,147 @@
-import { EightDoorsSubRound, KrampusGameState, QuestionPreset, RoundConfig, Team, TeamId } from '../types/game';
+import {
+  ChronoSubRound,
+  EightDoorsSubRound,
+  KrampusGameState,
+  QuestionPreset,
+  RoundConfig,
+  Team,
+  TeamId,
+} from '../types/game';
 
 export const TEAM_ORDER: TeamId[] = ['team1', 'team2', 'team3', 'team4'];
+
+export function getActiveTeamIds(teams: Record<TeamId, Team>): TeamId[] {
+  const reg = TEAM_ORDER.filter((tid) => teams[tid]?.isRegistered);
+  return reg.length >= 2 ? reg : [...TEAM_ORDER];
+}
+
+export function computeChronoRankings(teams: Record<TeamId, Team>): {
+  ordered: TeamId[];
+  quotas: Partial<Record<TeamId, number>>;
+  shields: Partial<Record<TeamId, number>>;
+} {
+  const active = getActiveTeamIds(teams);
+  const ordered = [...active].sort(
+    (a, b) => (teams[b]?.coins ?? 0) - (teams[a]?.coins ?? 0)
+  );
+  const quotas: Partial<Record<TeamId, number>> = {};
+  const shields: Partial<Record<TeamId, number>> = {};
+  ordered.forEach((tid, idx) => {
+    if (idx === 0) {
+      quotas[tid] = 1;
+      shields[tid] = 1;
+    } else if (idx === 1) {
+      quotas[tid] = 1;
+      shields[tid] = 1;
+    } else if (idx === 2) {
+      quotas[tid] = 2;
+      shields[tid] = 0;
+    } else {
+      quotas[tid] = 3;
+      shields[tid] = 0;
+    }
+  });
+  return { ordered, quotas, shields };
+}
+
+export function getChronoTrapsReceived(round: RoundConfig, targetTid: TeamId): number {
+  const placed = round.chronoTrapsPlaced || {};
+  let total = 0;
+  for (const fromTid of TEAM_ORDER) {
+    total += placed[fromTid]?.[targetTid] ?? 0;
+  }
+  return total;
+}
+
+export function getChronoNetTraps(round: RoundConfig, targetTid: TeamId): number {
+  const received = getChronoTrapsReceived(round, targetTid);
+  const shield = round.chronoShields?.[targetTid] ?? 0;
+  return Math.max(0, received - shield);
+}
+
+export function getChronoSliderStep(netTraps: number): 1 | 5 | 10 {
+  if (netTraps >= 2) return 10;
+  if (netTraps === 1) return 5;
+  return 1;
+}
+
+export function scoreChronoTeam(
+  round: RoundConfig,
+  tid: TeamId,
+  guessedYear: number,
+  maxDiffAmongSubmitted: number
+): { diff: number; delta: number; label: string; netTraps: number } {
+  const subRound: ChronoSubRound = round.chronoSubRound || 'CHRONO_SUB1_CLASSIC';
+  const diff = Math.abs(guessedYear - round.targetYear);
+  const isFarthest = maxDiffAmongSubmitted > 0 && diff === maxDiffAmongSubmitted;
+
+  if (subRound === 'CHRONO_SUB3_FAST_FINGER') {
+    if (diff === 0) {
+      return { diff, delta: 1000, label: '🎯 ตรงเป๊ะ! แจ็กพอต +1,000 ฿', netTraps: 0 };
+    }
+    if (diff <= 2) {
+      return { diff, delta: 400, label: `✨ ห่าง ${diff} ปี (+400 ฿)`, netTraps: 0 };
+    }
+    const penalty = Math.min(1500, diff * 150);
+    return {
+      diff,
+      delta: -penalty,
+      label: `💥 โดนกงล้อบดขยี้! ห่าง ${diff} ปี (-${penalty.toLocaleString()} ฿)`,
+      netTraps: 0,
+    };
+  }
+
+  const netTraps = subRound === 'CHRONO_SUB2_TRAP' ? getChronoNetTraps(round, tid) : 0;
+  const hasTrapBonus = subRound === 'CHRONO_SUB2_TRAP' && netTraps >= 1;
+
+  if (diff === 0) {
+    const reward = hasTrapBonus ? 1200 : 600;
+    return {
+      diff,
+      delta: reward,
+      label: hasTrapBonus
+        ? `🔥 TRAP BREAKER x2! ตรงเป๊ะ (+1,200 ฿)`
+        : '🎯 ตรงเป๊ะ! (+600 ฿)',
+      netTraps,
+    };
+  }
+  if (diff <= 3 && !isFarthest) {
+    const reward = hasTrapBonus ? 600 : 300;
+    return {
+      diff,
+      delta: reward,
+      label: hasTrapBonus
+        ? `⚡ TRAP BREAKER x2! ห่าง ${diff} ปี (+600 ฿)`
+        : `✨ ห่าง ${diff} ปี (+300 ฿)`,
+      netTraps,
+    };
+  }
+  if (diff <= 3 && isFarthest) {
+    // Edge case: all teams within 1-3 years, team farthest still pays -50/year
+    const penalty = Math.min(1000, diff * 50);
+    return {
+      diff,
+      delta: -penalty,
+      label: `💀 ห่างสุดของข้อ (${diff} ปี) โดนทับ (-${penalty.toLocaleString()} ฿)`,
+      netTraps,
+    };
+  }
+  if (diff >= 8 || isFarthest) {
+    const penalty = Math.min(1000, diff * 50);
+    return {
+      diff,
+      delta: -penalty,
+      label: `${isFarthest ? '💀 ห่างสุดของข้อ' : '💥 ห่าง ≥8 ปี'} (${diff} ปี) (-${penalty.toLocaleString()} ฿)`,
+      netTraps,
+    };
+  }
+  return {
+    diff,
+    delta: 0,
+    label: `🛡️ รอดตัว! ห่าง ${diff} ปี (0 ฿)`,
+    netTraps,
+  };
+}
 
 export const DOOR_LABELS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'] as const;
 
@@ -153,47 +294,169 @@ export const DEFAULT_PRESETS: QuestionPreset[] = [
   // ==========================================
   // GAME 2: TIMEJINX (กงล้อกาลเวลาของครามปุส)
   // ==========================================
+  // GAME 2: THE CHRONO CRUSH (กงล้อกาลเวลาของครามปุส) — 3 Sub-Rounds x 3 = 9 ข้อ
+  // ==========================================
   {
     id: 'tj-1',
     gameStage: 'TIMEJINX',
     inputMode: 'MODE_B_YEAR',
-    title: 'ด่านที่ 2: กงล้อกาลเวลาของครามปุส (ข้อ 1)',
-    subtitle: 'พิมพ์ปี ค.ศ. (เช่น 2018) ยิ่งตอบใกล้เคียงและไวที่สุดได้รับโบนัส ยิ่งห่างโดนปรับปีละ 20 เหรียญ!',
+    chronoSubRound: 'CHRONO_SUB1_CLASSIC',
+    yearUnit: 'AD',
+    yearMin: 1990,
+    yearMax: 2026,
+    title: 'THE CHRONO CRUSH • ด่านย่อยที่ 1 (ข้อ 1/3)',
+    subtitle: 'หยุดเข็มนาฬิกา (Classic Timeline): เลื่อนแถบปี ค.ศ. ทีละ 1 ปี — ตรงเป๊ะ +600 ฿ | ห่าง 1-3 ปี +300 ฿ | ห่าง ≥8 ปี/ห่างสุด -50 ฿/ปี',
     questionText: 'เพลง "คุกกี้เสี่ยงทาย (Koisuru Fortune Cookie)" ของ BNK48 ปล่อย MV ครั้งแรกในปี ค.ศ. ใด?',
     targetYear: 2017,
-    yearPenaltyPerDiff: 20,
-    yearFastestBonus: 200,
-    rewardCoins: 200,
-    penaltyCoins: 20,
+    yearPenaltyPerDiff: 50,
+    yearFastestBonus: 0,
+    rewardCoins: 600,
+    penaltyCoins: 50,
     durationSeconds: 30,
   },
   {
     id: 'tj-2',
     gameStage: 'TIMEJINX',
     inputMode: 'MODE_B_YEAR',
-    title: 'ด่านที่ 2: กงล้อกาลเวลาของครามปุส (ข้อ 2)',
-    subtitle: 'พิมพ์ปี ค.ศ. — ตอบตรงเป๊ะรับ +300 เหรียญ! ตอบพลาดโดนหักปีละ 25 เหรียญ!',
-    questionText: 'ซีรีส์ "Squid Game (สควิดเกม เล่นลุ้นตาย)" ซีซั่นแรก สร้างปรากฏการณ์ทั่วโลกในปี ค.ศ. ใด?',
-    targetYear: 2021,
-    yearPenaltyPerDiff: 25,
-    yearFastestBonus: 250,
-    rewardCoins: 300,
-    penaltyCoins: 25,
+    chronoSubRound: 'CHRONO_SUB1_CLASSIC',
+    yearUnit: 'BE',
+    yearMin: 2530,
+    yearMax: 2569,
+    title: 'THE CHRONO CRUSH • ด่านย่อยที่ 1 (ข้อ 2/3)',
+    subtitle: 'หยุดเข็มนาฬิกา (Classic Timeline): เลื่อนแถบปี พ.ศ. ทีละ 1 ปี — ตรงเป๊ะ +600 ฿ | ห่าง 1-3 ปี +300 ฿ | ห่าง ≥8 ปี/ห่างสุด -50 ฿/ปี',
+    questionText: 'รถไฟฟ้า BTS สายสุขุมวิท (หมอชิต – อ่อนนุช) เปิดให้บริการวันแรกในประเทศไทยในปี พ.ศ. ใด?',
+    targetYear: 2542,
+    yearPenaltyPerDiff: 50,
+    yearFastestBonus: 0,
+    rewardCoins: 600,
+    penaltyCoins: 50,
     durationSeconds: 30,
   },
   {
     id: 'tj-3',
     gameStage: 'TIMEJINX',
     inputMode: 'MODE_B_YEAR',
-    title: 'ด่านที่ 2: กงล้อกาลเวลาของครามปุส (ข้อ 3)',
-    subtitle: 'ย้อนเวลาหาตำนานไวรัล — พิมพ์ปี ค.ศ. ให้แม่นและเร็วที่สุด!',
+    chronoSubRound: 'CHRONO_SUB1_CLASSIC',
+    yearUnit: 'AD',
+    yearMin: 1990,
+    yearMax: 2026,
+    title: 'THE CHRONO CRUSH • ด่านย่อยที่ 1 (ข้อ 3/3)',
+    subtitle: 'หยุดเข็มนาฬิกา (Classic Timeline): เลื่อนแถบปี ค.ศ. ทีละ 1 ปี — ตรงเป๊ะ +600 ฿ | ห่าง 1-3 ปี +300 ฿ | ห่าง ≥8 ปี/ห่างสุด -50 ฿/ปี',
     questionText: 'เพลง "กังนัมสไตล์ (Gangnam Style - PSY)" กลายเป็นไวรัลทะลุพันล้านวิวครั้งแรกในปี ค.ศ. ใด?',
     targetYear: 2012,
-    yearPenaltyPerDiff: 20,
-    yearFastestBonus: 200,
-    rewardCoins: 250,
-    penaltyCoins: 20,
+    yearPenaltyPerDiff: 50,
+    yearFastestBonus: 0,
+    rewardCoins: 600,
+    penaltyCoins: 50,
     durationSeconds: 30,
+  },
+  {
+    id: 'tj-4',
+    gameStage: 'TIMEJINX',
+    inputMode: 'MODE_B_YEAR',
+    chronoSubRound: 'CHRONO_SUB2_TRAP',
+    yearUnit: 'AD',
+    yearMin: 1980,
+    yearMax: 2026,
+    title: 'THE CHRONO CRUSH • ด่านย่อยที่ 2 (ข้อ 4/9)',
+    subtitle: 'วางกับดักเวลา (Time Trap): วางกับดักลดความละเอียดแถบปี (5 ปี / 10 ปี) • ฝ่ากับดักสำเร็จรับรางวัล x2!',
+    questionText: 'iPhone รุ่นแรกของโลกถูกเปิดตัวโดย Steve Jobs บนเวที Macworld ในปี ค.ศ. ใด?',
+    targetYear: 2007,
+    yearPenaltyPerDiff: 50,
+    yearFastestBonus: 0,
+    rewardCoins: 600,
+    penaltyCoins: 50,
+    durationSeconds: 35,
+  },
+  {
+    id: 'tj-5',
+    gameStage: 'TIMEJINX',
+    inputMode: 'MODE_B_YEAR',
+    chronoSubRound: 'CHRONO_SUB2_TRAP',
+    yearUnit: 'BE',
+    yearMin: 2520,
+    yearMax: 2569,
+    title: 'THE CHRONO CRUSH • ด่านย่อยที่ 2 (ข้อ 5/9)',
+    subtitle: 'วางกับดักเวลา (Time Trap): วางกับดักลดความละเอียดแถบปี (5 ปี / 10 ปี) • ฝ่ากับดักสำเร็จรับรางวัล x2!',
+    questionText: 'ภาพยนตร์ไทย "พี่มาก..พระโขนง" ทำรายได้ถล่มทลายทะลุพันล้านบาทเข้าฉายในปี พ.ศ. ใด?',
+    targetYear: 2556,
+    yearPenaltyPerDiff: 50,
+    yearFastestBonus: 0,
+    rewardCoins: 600,
+    penaltyCoins: 50,
+    durationSeconds: 35,
+  },
+  {
+    id: 'tj-6',
+    gameStage: 'TIMEJINX',
+    inputMode: 'MODE_B_YEAR',
+    chronoSubRound: 'CHRONO_SUB2_TRAP',
+    yearUnit: 'AD',
+    yearMin: 1985,
+    yearMax: 2026,
+    title: 'THE CHRONO CRUSH • ด่านย่อยที่ 2 (ข้อ 6/9)',
+    subtitle: 'วางกับดักเวลา (Time Trap): วางกับดักลดความละเอียดแถบปี (5 ปี / 10 ปี) • ฝ่ากับดักสำเร็จรับรางวัล x2!',
+    questionText: 'แพลตฟอร์ม YouTube ถูกก่อตั้งขึ้นและอัปโหลดคลิปแรก "Me at the zoo" ในปี ค.ศ. ใด?',
+    targetYear: 2005,
+    yearPenaltyPerDiff: 50,
+    yearFastestBonus: 0,
+    rewardCoins: 600,
+    penaltyCoins: 50,
+    durationSeconds: 35,
+  },
+  {
+    id: 'tj-7',
+    gameStage: 'TIMEJINX',
+    inputMode: 'MODE_B_YEAR',
+    chronoSubRound: 'CHRONO_SUB3_FAST_FINGER',
+    yearUnit: 'AD',
+    yearMin: 2012,
+    yearMax: 2021,
+    title: 'THE CHRONO CRUSH • ด่านย่อยที่ 3 (ข้อ 7/9)',
+    subtitle: 'สงครามแย่งปี (Fast Finger Year): แย่งกดล็อกปีก่อนใคร (1 ปีต่อ 1 ทีม) — ตรงเป๊ะ +1,000 ฿ | ห่าง 1-2 ปี +400 ฿ | ห่าง ≥3 ปี -150 ฿/ปี',
+    questionText: 'ซีรีส์ "Squid Game (สควิดเกม เล่นลุ้นตาย)" ซีซั่นแรก ฉายทาง Netflix ปี ค.ศ. ใด?',
+    targetYear: 2021,
+    yearPenaltyPerDiff: 150,
+    yearFastestBonus: 0,
+    rewardCoins: 1000,
+    penaltyCoins: 150,
+    durationSeconds: 20,
+  },
+  {
+    id: 'tj-8',
+    gameStage: 'TIMEJINX',
+    inputMode: 'MODE_B_YEAR',
+    chronoSubRound: 'CHRONO_SUB3_FAST_FINGER',
+    yearUnit: 'BE',
+    yearMin: 2557,
+    yearMax: 2566,
+    title: 'THE CHRONO CRUSH • ด่านย่อยที่ 3 (ข้อ 8/9)',
+    subtitle: 'สงครามแย่งปี (Fast Finger Year): แย่งกดล็อกปีก่อนใคร (1 ปีต่อ 1 ทีม) — ตรงเป๊ะ +1,000 ฿ | ห่าง 1-2 ปี +400 ฿ | ห่าง ≥3 ปี -150 ฿/ปี',
+    questionText: 'ละคร "บุพเพสันนิวาส" สร้างปรากฏการณ์ออเจ้าทั่วไทย ออกอากาศครั้งแรกในปี พ.ศ. ใด?',
+    targetYear: 2561,
+    yearPenaltyPerDiff: 150,
+    yearFastestBonus: 0,
+    rewardCoins: 1000,
+    penaltyCoins: 150,
+    durationSeconds: 20,
+  },
+  {
+    id: 'tj-9',
+    gameStage: 'TIMEJINX',
+    inputMode: 'MODE_B_YEAR',
+    chronoSubRound: 'CHRONO_SUB3_FAST_FINGER',
+    yearUnit: 'AD',
+    yearMin: 2015,
+    yearMax: 2024,
+    title: 'THE CHRONO CRUSH • ด่านย่อยที่ 3 (ข้อ 9/9)',
+    subtitle: 'สงครามแย่งปี (Fast Finger Year): แย่งกดล็อกปีก่อนใคร (1 ปีต่อ 1 ทีม) — ตรงเป๊ะ +1,000 ฿ | ห่าง 1-2 ปี +400 ฿ | ห่าง ≥3 ปี -150 ฿/ปี',
+    questionText: 'เกม "Among Us" ระเบิดความนิยมทั่วโลกในช่วงล็อกดาวน์ปี ค.ศ. ใด?',
+    targetYear: 2020,
+    yearPenaltyPerDiff: 150,
+    yearFastestBonus: 0,
+    rewardCoins: 1000,
+    penaltyCoins: 150,
+    durationSeconds: 20,
   },
 
   // ==========================================
@@ -376,7 +639,16 @@ export function createRoundFromPreset(preset: QuestionPreset): RoundConfig {
     correctChoices: preset.correctChoices || ['A'],
     trapChoices: preset.trapChoices || [],
     targetYear: preset.targetYear ?? 2020,
-    yearPenaltyPerDiff: preset.yearPenaltyPerDiff ?? 20,
+    yearUnit: preset.yearUnit ?? 'AD',
+    yearMin: preset.yearMin ?? (preset.yearUnit === 'BE' ? 2520 : 1980),
+    yearMax: preset.yearMax ?? (preset.yearUnit === 'BE' ? 2569 : 2026),
+    chronoSubRound: preset.chronoSubRound ?? 'CHRONO_SUB1_CLASSIC',
+    chronoPhase: preset.chronoSubRound === 'CHRONO_SUB2_TRAP' ? 'TRAP_PLACEMENT' : 'YEAR_GUESS',
+    chronoTrapsPlaced: {},
+    chronoShields: {},
+    chronoQuotas: {},
+    chronoFastFingerClaims: {},
+    yearPenaltyPerDiff: preset.yearPenaltyPerDiff ?? 50,
     yearFastestBonus: preset.yearFastestBonus ?? 200,
     activeTeamId: preset.activeTeamId || 'team1',
     quixortRule: preset.quixortRule || 'เรียงลำดับให้ถูกต้องภายในเวลาที่กำหนด',

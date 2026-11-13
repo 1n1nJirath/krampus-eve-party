@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 import {
   ChoiceOption,
+  ChronoSubRound,
   CoinTransaction,
   EightDoorsSubRound,
   GameStage,
@@ -14,12 +15,14 @@ import {
   TeamId,
 } from '../types/game';
 import {
+  computeChronoRankings,
   createRoundFromPreset,
   DEFAULT_PRESETS,
   DOOR_LABELS,
   getSuggestedSafeRange,
   INITIAL_GAME_STATE,
   INITIAL_TEAMS,
+  scoreChronoTeam,
   TEAM_ORDER,
 } from '../data/initialData';
 import { soundFX } from '../utils/sound';
@@ -199,6 +202,87 @@ function applySnakePickToState(
   return true;
 }
 
+function applyChronoTrapsToState(
+  next: KrampusGameState,
+  fromTid: TeamId,
+  allocations: Partial<Record<TeamId, number>>,
+  now: number
+): boolean {
+  const r = next.round;
+  if (
+    r.gameStage !== 'TIMEJINX' ||
+    r.chronoSubRound !== 'CHRONO_SUB2_TRAP' ||
+    r.chronoPhase !== 'TRAP_PLACEMENT' ||
+    r.status !== 'ACTIVE'
+  ) {
+    return false;
+  }
+  const quota = r.chronoQuotas?.[fromTid] ?? 1;
+  const cleaned: Partial<Record<TeamId, number>> = {};
+  let sum = 0;
+  for (const targetTid of TEAM_ORDER) {
+    if (targetTid === fromTid) continue;
+    const count = Math.max(0, Math.floor(Number(allocations[targetTid] ?? 0)));
+    if (count > 0) {
+      cleaned[targetTid] = count;
+      sum += count;
+    }
+  }
+  if (sum > quota) return false;
+
+  r.chronoTrapsPlaced = {
+    ...(r.chronoTrapsPlaced || {}),
+    [fromTid]: cleaned,
+  };
+
+  const elapsedMs = r.timerStartedAt ? Math.max(0, now - r.timerStartedAt) : 0;
+  next.submissions[fromTid] = {
+    teamId: fromTid,
+    value: sum,
+    submittedAt: now,
+    elapsedMs,
+    locked: true,
+  };
+  return true;
+}
+
+function applyChronoClaimToState(
+  next: KrampusGameState,
+  tid: TeamId,
+  year: number,
+  now: number
+): boolean {
+  const r = next.round;
+  if (
+    r.gameStage !== 'TIMEJINX' ||
+    r.chronoSubRound !== 'CHRONO_SUB3_FAST_FINGER' ||
+    r.status !== 'ACTIVE'
+  ) {
+    return false;
+  }
+  if (next.submissions[tid]) return false;
+  const minY = r.yearMin ?? 2012;
+  const maxY = r.yearMax ?? 2021;
+  if (year < minY || year > maxY) return false;
+
+  const claims = { ...(r.chronoFastFingerClaims || {}) };
+  const key = String(year);
+  if (claims[key]) return false;
+
+  claims[key] = tid;
+  r.chronoFastFingerClaims = claims;
+
+  const elapsedMs = r.timerStartedAt ? Math.max(0, now - r.timerStartedAt) : 0;
+  next.submissions[tid] = {
+    teamId: tid,
+    value: year,
+    submittedAt: now,
+    elapsedMs,
+    locked: true,
+  };
+  return true;
+}
+
 interface GameContextValue {
   state: KrampusGameState;
   lanIp: string;
@@ -240,6 +324,15 @@ interface GameContextValue {
     subRound: EightDoorsSubRound,
     options?: { auctionIteration?: 1 | 2; revealRemaining2To4?: boolean; loadPresetQuestion?: boolean }
   ) => void;
+  // Game 2: THE CHRONO CRUSH
+  switchChronoSubRound: (
+    subRound: ChronoSubRound,
+    options?: { presetId?: string; phase?: 'TRAP_PLACEMENT' | 'YEAR_GUESS' }
+  ) => void;
+  launchChronoTrapGuessPhase: () => void;
+  placeChronoTraps: (teamId: TeamId, allocations: Partial<Record<TeamId, number>>) => void;
+  claimChronoYear: (teamId: TeamId, year: number) => void;
+  finishChronoGame: () => void;
   resolveSubRound2Auction: (overrideWinnerTeamId?: TeamId) => {
     winnerTeamId: TeamId | null;
     winningBid: number;
@@ -551,6 +644,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               applyBailoutToState(next, teamId as TeamId, now);
             } else if (action === 'SNAKE_PICK') {
               applySnakePickToState(next, teamId as TeamId, String(data?.doorKey || ''), now);
+            } else if (action === 'PLACE_CHRONO_TRAPS') {
+              applyChronoTrapsToState(next, teamId as TeamId, data?.allocations || {}, now);
+            } else if (action === 'CLAIM_CHRONO_YEAR') {
+              applyChronoClaimToState(next, teamId as TeamId, Number(data?.year), now);
             }
             return next;
           });
@@ -769,13 +866,22 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loadPreset = useCallback(
     (preset: QuestionPreset) => {
-      commitState((prev) => ({
-        ...prev,
-        showLeaderboardOverlay: false,
-        round: createRoundFromPreset(preset),
-        submissions: {},
-        buzzerQueue: [],
-      }));
+      commitState((prev) => {
+        const round = createRoundFromPreset(preset);
+        if (round.gameStage === 'TIMEJINX' && round.chronoSubRound === 'CHRONO_SUB2_TRAP') {
+          const rankings = computeChronoRankings(prev.teams);
+          round.chronoQuotas = rankings.quotas;
+          round.chronoShields = rankings.shields;
+          round.chronoPhase = 'TRAP_PLACEMENT';
+        }
+        return {
+          ...prev,
+          showLeaderboardOverlay: false,
+          round,
+          submissions: {},
+          buzzerQueue: [],
+        };
+      });
     },
     [commitState]
   );
@@ -1121,6 +1227,174 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const finishEightDoorsGame = useCallback(() => {
+    commitState((prev) => ({
+      ...prev,
+      submissions: {},
+      buzzerQueue: [],
+      round: {
+        ...prev.round,
+        gameStage: 'WORLD_MAP',
+        status: 'IDLE',
+        timerStartedAt: null,
+        timerRemainingMs: 0,
+      },
+    }));
+  }, [commitState]);
+
+  const switchChronoSubRound = useCallback(
+    (
+      subRound: ChronoSubRound,
+      options?: { presetId?: string; phase?: 'TRAP_PLACEMENT' | 'YEAR_GUESS' }
+    ) => {
+      const now = getAuthoritativeNow();
+      commitState((prev) => {
+        const defaultPresetId =
+          subRound === 'CHRONO_SUB1_CLASSIC'
+            ? 'tj-1'
+            : subRound === 'CHRONO_SUB2_TRAP'
+            ? 'tj-4'
+            : 'tj-7';
+        const targetPreset =
+          prev.presets.find((p) => p.id === (options?.presetId || defaultPresetId)) ||
+          prev.presets.find((p) => p.gameStage === 'TIMEJINX');
+
+        const baseRound = targetPreset
+          ? createRoundFromPreset(targetPreset)
+          : {
+              ...prev.round,
+              gameStage: 'TIMEJINX' as GameStage,
+              inputMode: 'MODE_B_YEAR' as InputMode,
+              chronoSubRound: subRound,
+            };
+
+        const phase =
+          options?.phase ??
+          (subRound === 'CHRONO_SUB2_TRAP' ? 'TRAP_PLACEMENT' : 'YEAR_GUESS');
+
+        const rankings =
+          subRound === 'CHRONO_SUB2_TRAP' ? computeChronoRankings(prev.teams) : null;
+        const duration =
+          subRound === 'CHRONO_SUB3_FAST_FINGER'
+            ? 20
+            : subRound === 'CHRONO_SUB2_TRAP' && phase === 'TRAP_PLACEMENT'
+            ? 25
+            : baseRound.durationSeconds || 30;
+
+        return {
+          ...prev,
+          submissions: {},
+          buzzerQueue: [],
+          round: {
+            ...baseRound,
+            gameStage: 'TIMEJINX',
+            inputMode: 'MODE_B_YEAR',
+            chronoSubRound: subRound,
+            chronoPhase: phase,
+            chronoTrapsPlaced: {},
+            chronoQuotas: rankings?.quotas ?? {},
+            chronoShields: rankings?.shields ?? {},
+            chronoFastFingerClaims: {},
+            durationSeconds: duration,
+            timerStartedAt: now,
+            timerRemainingMs: duration * 1000,
+            status: 'ACTIVE',
+            rewardsApplied: false,
+          },
+        };
+      });
+    },
+    [commitState, getAuthoritativeNow]
+  );
+
+  const launchChronoTrapGuessPhase = useCallback(() => {
+    const now = getAuthoritativeNow();
+    commitState((prev) => ({
+      ...prev,
+      submissions: {},
+      buzzerQueue: [],
+      round: {
+        ...prev.round,
+        chronoSubRound: 'CHRONO_SUB2_TRAP',
+        chronoPhase: 'YEAR_GUESS',
+        durationSeconds: 35,
+        timerStartedAt: now,
+        timerRemainingMs: 35 * 1000,
+        status: 'ACTIVE',
+        rewardsApplied: false,
+      },
+    }));
+    soundFX.playReveal();
+  }, [commitState, getAuthoritativeNow]);
+
+  const placeChronoTraps = useCallback(
+    (teamId: TeamId, allocations: Partial<Record<TeamId, number>>) => {
+      const now = getAuthoritativeNow();
+      fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'TEAM_ACTION',
+          teamId,
+          action: 'PLACE_CHRONO_TRAPS',
+          payload: { allocations },
+        }),
+      }).catch(() => {});
+
+      if (supaChannelRef.current) {
+        supaChannelRef.current
+          .send({
+            type: 'broadcast',
+            event: 'TEAM_ACTION',
+            payload: { teamId, action: 'PLACE_CHRONO_TRAPS', data: { allocations }, clientNow: now },
+          })
+          .catch(() => {});
+      }
+
+      commitState((prev) => {
+        const next = structuredClone(prev);
+        if (!applyChronoTrapsToState(next, teamId, allocations, now)) return prev;
+        return next;
+      });
+      soundFX.playReveal();
+    },
+    [commitState, getAuthoritativeNow]
+  );
+
+  const claimChronoYear = useCallback(
+    (teamId: TeamId, year: number) => {
+      const now = getAuthoritativeNow();
+      fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'TEAM_ACTION',
+          teamId,
+          action: 'CLAIM_CHRONO_YEAR',
+          payload: { year },
+        }),
+      }).catch(() => {});
+
+      if (supaChannelRef.current) {
+        supaChannelRef.current
+          .send({
+            type: 'broadcast',
+            event: 'TEAM_ACTION',
+            payload: { teamId, action: 'CLAIM_CHRONO_YEAR', data: { year }, clientNow: now },
+          })
+          .catch(() => {});
+      }
+
+      commitState((prev) => {
+        const next = structuredClone(prev);
+        if (!applyChronoClaimToState(next, teamId, year, now)) return prev;
+        return next;
+      });
+      soundFX.playBuzzer(1);
+    },
+    [commitState, getAuthoritativeNow]
+  );
+
+  const finishChronoGame = useCallback(() => {
     commitState((prev) => ({
       ...prev,
       submissions: {},
@@ -1825,38 +2099,23 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           }
         } else if (r.inputMode === 'MODE_B_YEAR') {
-          let bestDiff = Infinity;
-          let bestElapsed = Infinity;
-          let winnerTeam: TeamId | null = null;
-
+          let maxDiff = 0;
           for (const tid of TEAM_ORDER) {
             const sub = subs[tid];
             if (!sub) continue;
-            const year = Number(sub.value);
-            const diff = Math.abs(year - r.targetYear);
-            if (diff < bestDiff || (diff === bestDiff && sub.elapsedMs < bestElapsed)) {
-              bestDiff = diff;
-              bestElapsed = sub.elapsedMs;
-              winnerTeam = tid;
-            }
+            const d = Math.abs(Number(sub.value) - r.targetYear);
+            if (d > maxDiff) maxDiff = d;
           }
 
           for (const tid of TEAM_ORDER) {
             const sub = subs[tid];
             if (!sub) continue;
             const year = Number(sub.value);
-            const diff = Math.abs(year - r.targetYear);
-            const penalty = diff * r.yearPenaltyPerDiff;
-            let net = -penalty;
-            if (diff === 0) {
-              net += r.rewardCoins;
-            }
-            if (tid === winnerTeam) {
-              net += r.yearFastestBonus;
-            }
-            nextTeams[tid].coins += net;
+            const res = scoreChronoTeam(r, tid, year, maxDiff);
+            nextTeams[tid].coins += res.delta;
+            const unitLabel = r.yearUnit === 'BE' ? 'พ.ศ.' : 'ค.ศ.';
             summary.push(
-              `${nextTeams[tid].name}: ตอบ ${year} (ห่าง ${diff} ปี)${tid === winnerTeam ? ' [ใกล้&ไวสุด!]' : ''} (${net >= 0 ? '+' : ''}${net} เหรียญ)`
+              `${nextTeams[tid].name}: ตอบ ${unitLabel} ${year} — ${res.label}`
             );
           }
         } else if (r.inputMode === 'MODE_C_BUZZER') {
@@ -2151,6 +2410,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         submitSnakeDraftPick,
         finishEightDoorsGame,
         switchEightDoorsSubRound,
+        switchChronoSubRound,
+        launchChronoTrapGuessPhase,
+        placeChronoTraps,
+        claimChronoYear,
+        finishChronoGame,
         resolveSubRound2Auction,
         startTimer,
         pauseTimer,

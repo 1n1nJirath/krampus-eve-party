@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import { TEAM_ORDER, getSuggestedSafeRange } from '../data/initialData';
-import { GameStage, TeamId } from '../types/game';
+import { ChronoSubRound, GameStage, TeamId, YearUnit } from '../types/game';
 import { CountdownTimer } from '../components/CountdownTimer';
 import { QrCodeModal } from '../components/QrCodeModal';
 
@@ -46,6 +46,9 @@ export const AdminControl: React.FC = () => {
     shuffleDoors,
     finishEightDoorsGame,
     switchEightDoorsSubRound,
+    switchChronoSubRound,
+    launchChronoTrapGuessPhase,
+    finishChronoGame,
     resolveSubRound2Auction,
     startTimer,
     pauseTimer,
@@ -694,6 +697,107 @@ export const AdminControl: React.FC = () => {
                 </div>
               )}
 
+              {/* GAME 2 SPECIAL: THE CHRONO CRUSH SUB-ROUND & 9-QUESTION DECK */}
+              {round.gameStage === 'TIMEJINX' && (
+                <div className="mb-4 p-4 rounded-2xl bg-slate-950/90 border border-emerald-500/40 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-extrabold text-sm text-emerald-300">
+                        ⏳ คอนโซลควบคุมเกมที่ 2: THE CHRONO CRUSH (3 ด่านย่อย x 3 ข้อ = 9 ข้อ)
+                      </span>
+                    </div>
+                    <span className="text-xs font-mono text-amber-300">
+                      หน่วย: {round.yearUnit === 'BE' ? 'พ.ศ. (BE)' : 'ค.ศ. (AD)'} • ช่วง {round.yearMin ?? 1980}–{round.yearMax ?? 2026}
+                    </span>
+                  </div>
+
+                  {/* 3 Sub-Rounds x 3 Questions */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                    {[
+                      {
+                        sub: 'CHRONO_SUB1_CLASSIC' as ChronoSubRound,
+                        title: '1. หยุดเข็มนาฬิกา (Classic)',
+                        desc: '+600 / +300 / ห่าง ≥8 ปีหรือห่างสุด -50 ฿/ปี',
+                        ids: ['tj-1', 'tj-2', 'tj-3'],
+                      },
+                      {
+                        sub: 'CHRONO_SUB2_TRAP' as ChronoSubRound,
+                        title: '2. วางกับดักเวลา (Time Trap)',
+                        desc: 'วางกับดักลดสเต็ป 5/10 ปี • ฝ่าได้ x2 (+1,200 ฿)',
+                        ids: ['tj-4', 'tj-5', 'tj-6'],
+                      },
+                      {
+                        sub: 'CHRONO_SUB3_FAST_FINGER' as ChronoSubRound,
+                        title: '3. สงครามแย่งปี (Fast Finger)',
+                        desc: 'แย่งล็อกปี Realtime • +1,000 / +400 / -150 ฿/ปี',
+                        ids: ['tj-7', 'tj-8', 'tj-9'],
+                      },
+                    ].map((group) => {
+                      const isActiveGroup = (round.chronoSubRound || 'CHRONO_SUB1_CLASSIC') === group.sub;
+                      return (
+                        <div
+                          key={group.sub}
+                          className={`p-2.5 rounded-xl border space-y-2 ${
+                            isActiveGroup
+                              ? 'bg-emerald-950/60 border-emerald-400'
+                              : 'bg-slate-900/80 border-slate-800'
+                          }`}
+                        >
+                          <div>
+                            <div className="font-extrabold text-xs text-white">{group.title}</div>
+                            <div className="text-[10px] text-slate-300">{group.desc}</div>
+                          </div>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {group.ids.map((pid, idx) => (
+                              <button
+                                key={pid}
+                                type="button"
+                                onClick={() => switchChronoSubRound(group.sub, { presetId: pid })}
+                                className={`py-1.5 rounded-lg font-mono font-bold text-xs border transition ${
+                                  round.presetId === pid
+                                    ? 'bg-amber-400 text-slate-950 border-white shadow'
+                                    : 'bg-slate-950 text-slate-300 border-slate-700 hover:border-amber-400/60'
+                                }`}
+                              >
+                                ข้อ {idx + 1}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Sub2 Phase 1 -> Phase 2 Transition */}
+                  {round.chronoSubRound === 'CHRONO_SUB2_TRAP' &&
+                    round.chronoPhase === 'TRAP_PLACEMENT' && (
+                      <div className="p-3 rounded-xl bg-amber-950/60 border border-amber-400/60 flex flex-wrap items-center justify-between gap-3">
+                        <div className="text-xs text-amber-200 font-bold">
+                          💣 จังหวะที่ 1: ทุกทีมกำลังวางกับดักเวลา — เมื่อวางเสร็จแล้ว กดปุ่มนี้เพื่อคำนวณ Step (1/5/10 ปี) และเริ่มทายปี:
+                        </div>
+                        <button
+                          type="button"
+                          onClick={launchChronoTrapGuessPhase}
+                          className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs shadow-lg shrink-0"
+                        >
+                          🚀 จังหวะที่ 2: เปิดแถบเลื่อนทายปี!
+                        </button>
+                      </div>
+                    )}
+
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={finishChronoGame}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40 font-bold text-xs flex items-center gap-1.5 transition"
+                    >
+                      <Map className="w-3.5 h-3.5" />
+                      <span>จบเกมที่ 2 (ครบ 9 ข้อ) ➔ กลับ Mansion World Map</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Primary 3 Action Buttons (Separated from Reset to prevent misclicks!) */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 my-4">
                 <button
@@ -1060,43 +1164,70 @@ export const AdminControl: React.FC = () => {
               )}
 
               {round.inputMode === 'MODE_B_YEAR' && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-800">
-                  <div>
-                    <label className="text-xs text-amber-300 font-bold">
-                      ปี ค.ศ. เฉลย (Target Year):
-                    </label>
-                    <input
-                      type="number"
-                      value={round.targetYear}
-                      onChange={(e) => updateRoundConfig({ targetYear: Number(e.target.value) })}
-                      className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-950 border border-amber-500/60 font-mono text-lg font-black text-amber-300"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-400 font-semibold">
-                      หักเหรียญต่อปีที่ห่าง:
-                    </label>
-                    <input
-                      type="number"
-                      value={round.yearPenaltyPerDiff}
-                      onChange={(e) =>
-                        updateRoundConfig({ yearPenaltyPerDiff: Number(e.target.value) })
-                      }
-                      className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 font-mono text-base text-red-300"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-400 font-semibold">
-                      โบนัสทีมแม่น & ไวสุด:
-                    </label>
-                    <input
-                      type="number"
-                      value={round.yearFastestBonus}
-                      onChange={(e) =>
-                        updateRoundConfig({ yearFastestBonus: Number(e.target.value) })
-                      }
-                      className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 font-mono text-base text-emerald-300"
-                    />
+                <div className="space-y-3 pt-2 border-t border-slate-800">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                    <div>
+                      <label className="text-xs text-emerald-300 font-bold">ด่านย่อย:</label>
+                      <select
+                        value={round.chronoSubRound || 'CHRONO_SUB1_CLASSIC'}
+                        onChange={(e) =>
+                          updateRoundConfig({
+                            chronoSubRound: e.target.value as ChronoSubRound,
+                            chronoPhase:
+                              e.target.value === 'CHRONO_SUB2_TRAP'
+                                ? 'TRAP_PLACEMENT'
+                                : 'YEAR_GUESS',
+                          })
+                        }
+                        className="w-full mt-1 px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white"
+                      >
+                        <option value="CHRONO_SUB1_CLASSIC">1. Classic Timeline</option>
+                        <option value="CHRONO_SUB2_TRAP">2. Time Trap</option>
+                        <option value="CHRONO_SUB3_FAST_FINGER">3. Fast Finger Year</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-emerald-300 font-bold">หน่วยปี (AD/BE):</label>
+                      <select
+                        value={round.yearUnit || 'AD'}
+                        onChange={(e) =>
+                          updateRoundConfig({ yearUnit: e.target.value as YearUnit })
+                        }
+                        className="w-full mt-1 px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-amber-300"
+                      >
+                        <option value="AD">ค.ศ. (AD)</option>
+                        <option value="BE">พ.ศ. (BE)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400 font-semibold">Min Year:</label>
+                      <input
+                        type="number"
+                        value={round.yearMin ?? 1980}
+                        onChange={(e) => updateRoundConfig({ yearMin: Number(e.target.value) })}
+                        className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 font-mono text-sm text-white font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400 font-semibold">Max Year:</label>
+                      <input
+                        type="number"
+                        value={round.yearMax ?? 2026}
+                        onChange={(e) => updateRoundConfig({ yearMax: Number(e.target.value) })}
+                        className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 font-mono text-sm text-white font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-amber-300 font-bold">
+                        Correct Year ({round.yearUnit === 'BE' ? 'พ.ศ.' : 'ค.ศ.'}):
+                      </label>
+                      <input
+                        type="number"
+                        value={round.targetYear}
+                        onChange={(e) => updateRoundConfig({ targetYear: Number(e.target.value) })}
+                        className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-950 border border-amber-500/60 font-mono text-lg font-black text-amber-300"
+                      />
+                    </div>
                   </div>
                 </div>
               )}

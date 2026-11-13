@@ -13,12 +13,27 @@ import {
   Skull,
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
-import { TEAM_ORDER, getSuggestedSafeRange } from '../data/initialData';
+import {
+  TEAM_ORDER,
+  getChronoNetTraps,
+  getChronoSliderStep,
+  getChronoTrapsReceived,
+  getSuggestedSafeRange,
+} from '../data/initialData';
 import { TeamId } from '../types/game';
 import { CountdownTimer } from '../components/CountdownTimer';
 
 export const TeamController: React.FC = () => {
-  const { state, registerTeam, submitTeamAnswer, pressTeamBuzzer, bailoutNiceShield, submitSnakeDraftPick } = useGame();
+  const {
+    state,
+    registerTeam,
+    submitTeamAnswer,
+    pressTeamBuzzer,
+    bailoutNiceShield,
+    submitSnakeDraftPick,
+    placeChronoTraps,
+    claimChronoYear,
+  } = useGame();
   const { round, teams, submissions, buzzerQueue } = state;
 
   // Read ?team=1..4 from URL query parameter or localStorage
@@ -66,6 +81,10 @@ export const TeamController: React.FC = () => {
   const [draftRank8Door, setDraftRank8Door] = useState<string | null>(null);
   const [activePolaritySlot, setActivePolaritySlot] = useState<'RANK1' | 'RANK8'>('RANK1');
 
+  // Game 2 ("THE CHRONO CRUSH") specific drafts
+  const [draftSliderYear, setDraftSliderYear] = useState<number>(2000);
+  const [draftTrapAllocations, setDraftTrapAllocations] = useState<Partial<Record<TeamId, number>>>({});
+
   // Reset local drafts whenever round ID, sub-round, or status changes
   useEffect(() => {
     setDraftChoice(null);
@@ -78,7 +97,11 @@ export const TeamController: React.FC = () => {
     setDraftRank1Door(null);
     setDraftRank8Door(null);
     setActivePolaritySlot('RANK1');
-  }, [round.id, round.eightDoorsSubRound, round.auctionIteration, round.status]);
+    const minY = round.yearMin ?? (round.yearUnit === 'BE' ? 2520 : 1980);
+    const maxY = round.yearMax ?? (round.yearUnit === 'BE' ? 2569 : 2026);
+    setDraftSliderYear(Math.round((minY + maxY) / 2));
+    setDraftTrapAllocations({});
+  }, [round.id, round.eightDoorsSubRound, round.auctionIteration, round.chronoSubRound, round.chronoPhase, round.status]);
 
   const handleSelectTeam = (tid: TeamId) => {
     setSelectedTeamId(tid);
@@ -1040,78 +1063,233 @@ export const TeamController: React.FC = () => {
           )}
 
         {/* ==========================================================
-            MODE B: NUMBER / YEAR NUMPAD CONTROLLER (Timejinx)
+            MODE B: GAME 2 — THE CHRONO CRUSH (3 SUB-ROUNDS ON MOBILE)
         ========================================================== */}
         {round.status !== 'IDLE' &&
           round.inputMode === 'MODE_B_YEAR' &&
-          !mySubmission && (
+          !mySubmission && (() => {
+            const chronoSub = round.chronoSubRound || 'CHRONO_SUB1_CLASSIC';
+            const chronoPhase = round.chronoPhase || 'YEAR_GUESS';
+            const unitLabel = round.yearUnit === 'BE' ? 'พ.ศ.' : 'ค.ศ.';
+            const minY = round.yearMin ?? (round.yearUnit === 'BE' ? 2520 : 1980);
+            const maxY = round.yearMax ?? (round.yearUnit === 'BE' ? 2569 : 2026);
+            const netTraps = chronoSub === 'CHRONO_SUB2_TRAP' ? getChronoNetTraps(round, selectedTeamId) : 0;
+            const step = chronoSub === 'CHRONO_SUB2_TRAP' ? getChronoSliderStep(netTraps) : 1;
+            const sliderMin = step > 1 ? Math.ceil(minY / step) * step : minY;
+            const sliderMax = step > 1 ? Math.floor(maxY / step) * step : maxY;
+            const clampedSliderYear = Math.min(
+              sliderMax,
+              Math.max(sliderMin, Math.round((draftSliderYear - sliderMin) / step) * step + sliderMin)
+            );
+
+            const myQuota = round.chronoQuotas?.[selectedTeamId] ?? 1;
+            const myShield = round.chronoShields?.[selectedTeamId] ?? 0;
+            const usedQuota = Object.values(draftTrapAllocations).reduce(
+              (acc, v) => acc + (v ?? 0),
+              0
+            );
+            const remainingQuota = Math.max(0, myQuota - usedQuota);
+
+            const allYears: number[] = [];
+            if (chronoSub === 'CHRONO_SUB3_FAST_FINGER') {
+              for (let y = minY; y <= maxY; y++) allYears.push(y);
+            }
+
+            return (
             <div className="flex-1 flex flex-col justify-between gap-3">
               {!isRoundActive ? (
                 <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-red-950/40 border-2 border-red-600/60 p-6 text-center">
                   <Lock className="w-12 h-12 text-red-400 mb-2" />
-                  <h3 className="text-xl font-extrabold text-white">หมดเวลาส่งตัวเลข!</h3>
+                  <h3 className="text-xl font-extrabold text-white">หมดเวลารอบนี้แล้ว!</h3>
                 </div>
-              ) : (
+              ) : chronoSub === 'CHRONO_SUB2_TRAP' && chronoPhase === 'TRAP_PLACEMENT' ? (
+                /* Sub2 จังหวะที่ 1: วางกับดักเวลา */
                 <>
-                  <div className="rounded-2xl bg-black/80 border-2 border-amber-500/60 py-3 px-4 text-center">
-                    <div className="text-xs font-mono text-amber-400 uppercase">
-                      ระบุปี ค.ศ. (4 หลัก) เช่น 2017
+                  <div className="rounded-2xl bg-amber-950/70 border-2 border-amber-400 p-3 text-center">
+                    <div className="text-sm font-black text-amber-300">
+                      💣 วางกับดักเวลา • โควตาของคุณ: {remainingQuota} / {myQuota} ลูก
                     </div>
-                    <div className="text-4xl font-mono font-black text-white tracking-[0.25em] h-12 flex items-center justify-center">
-                      {draftYear || '____'}
+                    <div className="text-xs text-slate-200 mt-0.5">
+                      โล่ป้องกันของคุณ: {myShield} 🛡️ • แปะซ้ำทีมเดิมได้ไม่จำกัด! (0 ลูก=1 ปี, 1 ลูก=5 ปี, 2+ ลูก=10 ปี)
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2.5">
-                    {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
-                      <button
-                        key={digit}
-                        type="button"
-                        onClick={() => appendDigit(digit, draftYear, setDraftYear, 4)}
-                        className="py-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 active:bg-amber-500 active:text-slate-950 border border-slate-700 font-mono font-black text-2xl text-white transition"
-                      >
-                        {digit}
-                      </button>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => setDraftYear('')}
-                      className="py-3.5 rounded-2xl bg-red-950/70 hover:bg-red-900 border border-red-700/60 font-bold text-sm text-red-200 flex items-center justify-center gap-1"
-                    >
-                      <RefreshCw className="w-4 h-4" /> ล้าง
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => appendDigit('0', draftYear, setDraftYear, 4)}
-                      className="py-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 active:bg-amber-500 active:text-slate-950 border border-slate-700 font-mono font-black text-2xl text-white transition"
-                    >
-                      0
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDraftYear((prev) => prev.slice(0, -1))}
-                      className="py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-600 font-bold text-sm text-slate-200 flex items-center justify-center gap-1"
-                    >
-                      <Delete className="w-5 h-5" /> ลบ
-                    </button>
+                  <div className="space-y-2.5 flex-1 overflow-y-auto">
+                    {TEAM_ORDER.filter((tid) => tid !== selectedTeamId).map((targetTid) => {
+                      const targetTeam = teams[targetTid];
+                      const count = draftTrapAllocations[targetTid] ?? 0;
+                      const targetShield = round.chronoShields?.[targetTid] ?? 0;
+                      const alreadyRecv = getChronoTrapsReceived(round, targetTid);
+                      return (
+                        <div
+                          key={targetTid}
+                          className="p-3 rounded-2xl bg-slate-900 border-2 border-slate-700 flex items-center justify-between gap-2"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-extrabold text-sm text-white truncate">
+                              {targetTeam.icon} {targetTeam.name}
+                            </div>
+                            <div className="text-[11px] text-slate-300">
+                              เงิน: {targetTeam.coins.toLocaleString()} ฿ • โล่ {targetShield} 🛡️ • โดนรวม {alreadyRecv}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              disabled={count <= 0}
+                              onClick={() =>
+                                setDraftTrapAllocations((prev) => ({
+                                  ...prev,
+                                  [targetTid]: Math.max(0, (prev[targetTid] ?? 0) - 1),
+                                }))
+                              }
+                              className="w-9 h-9 rounded-xl bg-slate-800 disabled:opacity-35 text-white font-black text-lg"
+                            >
+                              -
+                            </button>
+                            <span className="w-7 text-center font-mono font-black text-xl text-amber-300">
+                              {count}
+                            </span>
+                            <button
+                              type="button"
+                              disabled={remainingQuota <= 0}
+                              onClick={() =>
+                                setDraftTrapAllocations((prev) => ({
+                                  ...prev,
+                                  [targetTid]: (prev[targetTid] ?? 0) + 1,
+                                }))
+                              }
+                              className="w-9 h-9 rounded-xl bg-red-600 disabled:opacity-35 text-white font-black text-lg"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
 
                   <button
                     type="button"
-                    disabled={draftYear.length === 0}
-                    onClick={() => submitTeamAnswer(selectedTeamId, Number(draftYear))}
-                    className={`w-full py-4 rounded-2xl font-black text-lg uppercase tracking-wider transition-all shadow-xl ${
-                      draftYear.length > 0
-                        ? 'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 shadow-[0_0_25px_rgba(234,179,8,0.5)] active:scale-95'
-                        : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                    }`}
+                    onClick={() => placeChronoTraps(selectedTeamId, draftTrapAllocations)}
+                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-black text-lg shadow-xl active:scale-95"
                   >
-                    ส่งคำตอบปี ค.ศ. {draftYear}
+                    💣 ยืนยันวางกับดัก ({usedQuota}/{myQuota} ลูก)
+                  </button>
+                </>
+              ) : chronoSub === 'CHRONO_SUB3_FAST_FINGER' ? (
+                /* Sub3: สงครามแย่งปี (Exclusive Realtime Lock) */
+                <>
+                  <div className="rounded-xl bg-red-950/70 border-2 border-red-400 px-3 py-2 text-center text-xs font-black text-red-100">
+                    ⚡ ใครไวใครได้! แตะเลือก 1 ปี (ล็อกทันที เปลี่ยนใจไม่ได้) — ตรงเป๊ะ +1,000 ฿ / ห่าง 1-2 ปี +400 ฿ / ห่าง ≥3 ปี -150 ฿/ปี
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 my-auto">
+                    {allYears.map((yr) => {
+                      const claimTid = round.chronoFastFingerClaims?.[String(yr)];
+                      const claimTeam = claimTid ? teams[claimTid] : null;
+                      return (
+                        <button
+                          key={yr}
+                          type="button"
+                          disabled={Boolean(claimTid)}
+                          onClick={() => claimChronoYear(selectedTeamId, yr)}
+                          className={`p-3 rounded-2xl border-2 text-center transition-all ${
+                            claimTeam
+                              ? 'bg-slate-950 border-red-500/60 opacity-60 cursor-not-allowed'
+                              : 'bg-slate-900 hover:bg-amber-500/20 border-amber-400/70 active:scale-95'
+                          }`}
+                        >
+                          <div className="font-mono font-black text-2xl text-white">
+                            {unitLabel} {yr}
+                          </div>
+                          {claimTeam ? (
+                            <div className="text-xs font-extrabold text-amber-300 mt-0.5 truncate">
+                              🔒 {claimTeam.icon} {claimTeam.name}
+                            </div>
+                          ) : (
+                            <div className="text-[11px] font-bold text-emerald-300 mt-0.5">
+                              แตะเพื่อแย่งล็อก!
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                /* Sub1 & Sub2 จังหวะที่ 2: Timeline Slider */
+                <>
+                  {chronoSub === 'CHRONO_SUB2_TRAP' && (
+                    <div
+                      className={`rounded-xl px-3 py-2 text-center text-xs font-black border ${
+                        netTraps >= 1
+                          ? 'bg-red-950/70 border-red-400 text-red-200'
+                          : 'bg-emerald-950/70 border-emerald-400 text-emerald-200'
+                      }`}
+                    >
+                      {netTraps >= 1
+                        ? `⚠️ โดนกับดักสุทธิ ${netTraps} ลูก! เลื่อนได้ทีละ ${step} ปี (ฝ่าสำเร็จรับรางวัล x2!)`
+                        : '🛡️ ปลอดภัยจากกับดัก! เลื่อนได้ปกติทีละ 1 ปี'}
+                    </div>
+                  )}
+
+                  <div className="rounded-3xl bg-black/80 border-2 border-amber-500/60 p-5 text-center space-y-4 my-auto">
+                    <div className="text-xs font-mono text-amber-400 uppercase">
+                      แถบเลื่อนเลือกปี ({unitLabel}) • ช่วง {minY} – {maxY} • ขยับทีละ {step} ปี
+                    </div>
+                    <div className="text-5xl font-mono font-black text-white tracking-wider">
+                      {unitLabel} {clampedSliderYear}
+                    </div>
+
+                    <input
+                      type="range"
+                      min={sliderMin}
+                      max={sliderMax}
+                      step={step}
+                      value={clampedSliderYear}
+                      onChange={(e) => setDraftSliderYear(Number(e.target.value))}
+                      className="w-full h-3 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-400"
+                    />
+
+                    <div className="flex items-center justify-between text-xs font-mono text-slate-400">
+                      <span>{sliderMin}</span>
+                      <span>{sliderMax}</span>
+                    </div>
+
+                    <div className="flex items-center justify-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDraftSliderYear(Math.max(sliderMin, clampedSliderYear - step))
+                        }
+                        className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 font-mono font-black text-base text-white active:scale-95"
+                      >
+                        -{step} ปี
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDraftSliderYear(Math.min(sliderMax, clampedSliderYear + step))
+                        }
+                        className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 font-mono font-black text-base text-white active:scale-95"
+                      >
+                        +{step} ปี
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => submitTeamAnswer(selectedTeamId, clampedSliderYear)}
+                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-black text-lg uppercase tracking-wider shadow-xl active:scale-95"
+                  >
+                    ยืนยันปี {unitLabel} {clampedSliderYear}
                   </button>
                 </>
               )}
             </div>
-          )}
+            );
+          })()}
 
         {/* ==========================================================
             MODE C: GIANT BUZZER / REACTION CONTROLLER

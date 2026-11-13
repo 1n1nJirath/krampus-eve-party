@@ -236,6 +236,63 @@ function krampusRealtimeServerPlugin(): Plugin {
                     }
                   }
                 }
+              } else if (action === 'PLACE_CHRONO_TRAPS') {
+                const r = updated.round;
+                if (
+                  r?.gameStage === 'TIMEJINX' &&
+                  r?.chronoSubRound === 'CHRONO_SUB2_TRAP' &&
+                  r?.chronoPhase === 'TRAP_PLACEMENT' &&
+                  r?.status === 'ACTIVE'
+                ) {
+                  const quota = r.chronoQuotas?.[teamId] ?? 1;
+                  const alloc = payload.allocations || {};
+                  const cleaned: Record<string, number> = {};
+                  let sum = 0;
+                  for (const targetTid of ['team1', 'team2', 'team3', 'team4']) {
+                    if (targetTid === teamId) continue;
+                    const cnt = Math.max(0, Math.floor(Number(alloc[targetTid] ?? 0)));
+                    if (cnt > 0) {
+                      cleaned[targetTid] = cnt;
+                      sum += cnt;
+                    }
+                  }
+                  if (sum <= quota) {
+                    r.chronoTrapsPlaced = { ...(r.chronoTrapsPlaced || {}), [teamId]: cleaned };
+                    const elapsedMs = r.timerStartedAt ? Math.max(0, now - r.timerStartedAt) : 0;
+                    updated.submissions[teamId] = {
+                      teamId,
+                      value: sum,
+                      submittedAt: now,
+                      elapsedMs,
+                      locked: true,
+                    };
+                  }
+                }
+              } else if (action === 'CLAIM_CHRONO_YEAR') {
+                const r = updated.round;
+                const yr = Number(payload.year);
+                if (
+                  r?.gameStage === 'TIMEJINX' &&
+                  r?.chronoSubRound === 'CHRONO_SUB3_FAST_FINGER' &&
+                  r?.status === 'ACTIVE' &&
+                  !updated.submissions[teamId]
+                ) {
+                  const minY = r.yearMin ?? 2012;
+                  const maxY = r.yearMax ?? 2021;
+                  const claims = { ...(r.chronoFastFingerClaims || {}) };
+                  if (yr >= minY && yr <= maxY && !claims[String(yr)]) {
+                    claims[String(yr)] = teamId;
+                    r.chronoFastFingerClaims = claims;
+                    const elapsedMs = r.timerStartedAt ? Math.max(0, now - r.timerStartedAt) : 0;
+                    updated.submissions[teamId] = {
+                      teamId,
+                      value: yr,
+                      submittedAt: now,
+                      elapsedMs,
+                      locked: true,
+                    };
+                  }
+                }
               }
 
               saveAndBroadcast(updated);

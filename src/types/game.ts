@@ -34,6 +34,13 @@ export type EightDoorsSubRound =
   | 'SUB2_DOOR_AND_BET'
   | 'SUB3_POLARITY';
 
+export type ChronoSubRound =
+  | 'CHRONO_SUB1_CLASSIC'
+  | 'CHRONO_SUB2_TRAP'
+  | 'CHRONO_SUB3_FAST_FINGER';
+
+export type YearUnit = 'AD' | 'BE';
+
 export type RoundStatus = 'IDLE' | 'ACTIVE' | 'LOCKED' | 'REVEALED';
 
 export interface Team {
@@ -93,8 +100,17 @@ export interface RoundConfig {
   choices: ChoiceOption[];
   correctChoices: string[]; // Keys like ['A', 'C']
   trapChoices: string[];    // Keys that deduct coins/shields
-  targetYear: number;       // For Mode B (Timejinx)
-  yearPenaltyPerDiff: number; // Coins lost per 1 year off (e.g. 15)
+  targetYear: number;       // For Mode B (THE CHRONO CRUSH)
+  yearUnit?: YearUnit;      // 'AD' (ค.ศ.) or 'BE' (พ.ศ.)
+  yearMin?: number;         // Min Year bound for slider / board
+  yearMax?: number;         // Max Year bound for slider / board
+  chronoSubRound?: ChronoSubRound;
+  chronoPhase?: 'TRAP_PLACEMENT' | 'YEAR_GUESS';
+  chronoTrapsPlaced?: Partial<Record<TeamId, Partial<Record<TeamId, number>>>>;
+  chronoShields?: Partial<Record<TeamId, number>>;
+  chronoQuotas?: Partial<Record<TeamId, number>>;
+  chronoFastFingerClaims?: Record<string, TeamId>;
+  yearPenaltyPerDiff: number; // Coins lost per 1 year off (e.g. 50 or 150)
   yearFastestBonus: number;   // Bonus coins for closest/fastest
   activeTeamId?: TeamId;      // For Quixort live action team on stage
   quixortRule?: string;       // e.g. "เรียงจากเกิดก่อน -> เกิดหลัง"
@@ -151,6 +167,10 @@ export interface QuestionPreset {
   correctChoices?: string[];
   trapChoices?: string[];
   targetYear?: number;
+  yearUnit?: YearUnit;
+  yearMin?: number;
+  yearMax?: number;
+  chronoSubRound?: ChronoSubRound;
   yearPenaltyPerDiff?: number;
   yearFastestBonus?: number;
   activeTeamId?: TeamId;

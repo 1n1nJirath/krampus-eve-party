@@ -18,7 +18,14 @@ import {
   Gavel,
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
-import { TEAM_ORDER, getSuggestedSafeRange } from '../data/initialData';
+import {
+  TEAM_ORDER,
+  getChronoNetTraps,
+  getChronoSliderStep,
+  getChronoTrapsReceived,
+  getSuggestedSafeRange,
+  scoreChronoTeam,
+} from '../data/initialData';
 import { CountdownTimer } from '../components/CountdownTimer';
 import { GameStage, TeamId } from '../types/game';
 
@@ -39,8 +46,8 @@ const STAGE_META: Record<GameStage, { badge: string; name: string; color: string
     color: 'from-amber-900/80 via-red-950 to-slate-950',
   },
   TIMEJINX: {
-    badge: 'GAME 2 • TIMEJINX',
-    name: 'กงล้อกาลเวลาของครามปุส',
+    badge: 'GAME 2 • THE CHRONO CRUSH',
+    name: 'THE CHRONO CRUSH (กงล้อกาลเวลาของครามปุส)',
     color: 'from-emerald-950 via-slate-900 to-amber-950',
   },
   QUIXORT: {
@@ -583,9 +590,9 @@ export const ProjectorDisplay: React.FC = () => {
                   stage: 'TIMEJINX' as GameStage,
                   roomNo: 'ROOM 2',
                   icon: '⏳',
-                  title: 'Timejinx',
+                  title: 'THE CHRONO CRUSH',
                   thaiTitle: 'กงล้อกาลเวลาของครามปุส',
-                  desc: 'ทายปี ค.ศ. วัดความแม่นยำและความไวระดับมิลลิวินาที ยิ่งทายเพี้ยนยิ่งโดนหักเหรียญ!',
+                  desc: '3 ด่านย่อยทายปี (ค.ศ./พ.ศ.): หยุดเข็มนาฬิกา, วางกับดักเวลา (Step 5/10 ปี • ฝ่าได้ x2) และสงครามแย่งปี Realtime!',
                   bg: 'bg-[#047857]',
                 },
                 {
@@ -1262,134 +1269,251 @@ export const ProjectorDisplay: React.FC = () => {
         )}
 
         {/* ==========================================================
-            MODE B: NUMBER / YEAR INPUT (Timejinx + ms Timestamp + Diff)
+            MODE B: GAME 2 — THE CHRONO CRUSH (3 Sub-Rounds)
         ========================================================== */}
-        {round.inputMode === 'MODE_B_YEAR' && (
-          <div className="flex-1 flex flex-col justify-between gap-6">
-            <div className="flex flex-col items-center justify-center py-5 px-8 rounded-3xl bg-gradient-to-r from-slate-950 via-amber-950/40 to-slate-950 border-2 border-amber-500/60 shadow-2xl">
-              <div className="text-sm md:text-base font-mono uppercase tracking-widest text-amber-200 font-bold mb-1">
-                {round.status === 'REVEALED'
-                  ? '✨ ปี ค.ศ. เฉลยที่ถูกต้อง (TRUE YEAR) ✨'
-                  : '⏳ ทายปี ค.ศ. 4 หลัก — วัดความแม่นยำและความเร็วระดับมิลลิวินาที (ms)'}
+        {round.inputMode === 'MODE_B_YEAR' && (() => {
+          const chronoSub = round.chronoSubRound || 'CHRONO_SUB1_CLASSIC';
+          const chronoPhase = round.chronoPhase || 'YEAR_GUESS';
+          const unitLabel = round.yearUnit === 'BE' ? 'พ.ศ.' : 'ค.ศ.';
+          const minY = round.yearMin ?? (round.yearUnit === 'BE' ? 2520 : 1980);
+          const maxY = round.yearMax ?? (round.yearUnit === 'BE' ? 2569 : 2026);
+          const span = Math.max(1, maxY - minY);
+          const targetPct = Math.min(100, Math.max(0, ((round.targetYear - minY) / span) * 100));
+          const isRevealed = round.status === 'REVEALED';
+
+          let maxDiff = 0;
+          for (const tid of TEAM_ORDER) {
+            const s = submissions[tid];
+            if (!s) continue;
+            const d = Math.abs(Number(s.value) - round.targetYear);
+            if (d > maxDiff) maxDiff = d;
+          }
+
+          const allYears: number[] = [];
+          if (chronoSub === 'CHRONO_SUB3_FAST_FINGER') {
+            for (let y = minY; y <= maxY; y++) allYears.push(y);
+          }
+
+          return (
+          <div className="flex-1 flex flex-col justify-between gap-4">
+            {/* Timeline / Chrono Wheel Banner */}
+            <div className="flex flex-col items-center justify-center py-4 px-6 rounded-3xl bg-gradient-to-r from-slate-950 via-emerald-950/50 to-slate-950 border-4 border-black shadow-[8px_8px_0px_#000]">
+              <div className="flex flex-wrap items-center justify-center gap-2 mb-2">
+                <span className="px-3 py-0.5 rounded-full bg-amber-400 text-black font-mono font-black text-xs border-2 border-black">
+                  {chronoSub === 'CHRONO_SUB1_CLASSIC'
+                    ? 'SUB-ROUND 1 • CLASSIC TIMELINE'
+                    : chronoSub === 'CHRONO_SUB2_TRAP'
+                    ? chronoPhase === 'TRAP_PLACEMENT'
+                      ? 'SUB-ROUND 2 • จังหวะที่ 1: วางกับดักเวลา'
+                      : 'SUB-ROUND 2 • จังหวะที่ 2: ทายปีฝ่ากับดัก (x2)'
+                    : 'SUB-ROUND 3 • FAST FINGER YEAR'}
+                </span>
+                <span className="px-3 py-0.5 rounded-full bg-slate-900 text-amber-300 font-mono font-bold text-xs border border-amber-500/40">
+                  ช่วงปี: {unitLabel} {minY} – {maxY}
+                </span>
               </div>
 
-              {round.status === 'REVEALED' ? (
-                <div className="text-6xl md:text-8xl font-mono font-black text-amber-300 drop-shadow-[0_0_30px_rgba(234,179,8,0.6)] tracking-widest">
-                  {round.targetYear}
+              {chronoSub === 'CHRONO_SUB2_TRAP' && chronoPhase === 'TRAP_PLACEMENT' ? (
+                <div className="text-center py-2">
+                  <div className="text-3xl md:text-5xl font-black text-amber-300">
+                    💣 กำลังวางกับดักเวลาใส่คู่แข่ง!
+                  </div>
+                  <div className="text-sm md:text-base text-slate-200 mt-1">
+                    0 ลูก = เลื่อนทีละ 1 ปี • 1 ลูก = ทีละ 5 ปี • 2+ ลูก = ทีละ 10 ปี (ฝ่ากับดักได้รางวัล x2!)
+                  </div>
                 </div>
               ) : (
-                <div className="text-5xl md:text-7xl font-mono font-black text-slate-500 tracking-widest">
-                  ? ? ? ?
+                <div className="w-full max-w-4xl space-y-3">
+                  <div className="text-center">
+                    {isRevealed ? (
+                      <div className="text-5xl md:text-7xl font-mono font-black text-amber-300 drop-shadow-[0_0_25px_rgba(234,179,8,0.6)]">
+                        ✨ {unitLabel} {round.targetYear} ✨
+                      </div>
+                    ) : (
+                      <div className="text-4xl md:text-5xl font-mono font-black text-slate-400 tracking-widest">
+                        {unitLabel} ? ? ? ?
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Animated Chrono Needle Timeline Bar */}
+                  <div className="relative pt-6 pb-2 px-2">
+                    <div className="h-4 rounded-full bg-slate-900 border-2 border-amber-500/50 relative overflow-visible">
+                      {/* Target Needle */}
+                      <div
+                        className={`absolute -top-6 -translate-x-1/2 transition-all duration-1000 ease-out flex flex-col items-center ${
+                          isRevealed ? 'opacity-100 scale-110' : 'opacity-0 scale-75'
+                        }`}
+                        style={{ left: `${targetPct}%` }}
+                      >
+                        <span className="px-2 py-0.5 rounded bg-amber-400 text-black font-mono font-black text-xs border-2 border-black shadow">
+                          {round.targetYear}
+                        </span>
+                        <div className="w-1 h-7 bg-amber-400 shadow-[0_0_12px_#facc15]" />
+                      </div>
+                    </div>
+                    <div className="flex justify-between text-xs font-mono font-bold text-slate-300 mt-1.5">
+                      <span>{unitLabel} {minY}</span>
+                      <span>{unitLabel} {Math.round((minY + maxY) / 2)}</span>
+                      <span>{unitLabel} {maxY}</span>
+                    </div>
+                  </div>
                 </div>
               )}
 
-              <div className="mt-2 flex flex-wrap items-center gap-4 text-sm md:text-base text-slate-200">
-                <span className="px-3.5 py-1 rounded-full bg-red-950/90 border border-red-700/70 text-red-200 font-bold">
-                  บทลงโทษ: ห่างปีละ -{round.yearPenaltyPerDiff} เหรียญ
-                </span>
-                <span className="px-3.5 py-1 rounded-full bg-amber-950/90 border border-amber-600/70 text-amber-200 font-bold">
-                  โบนัสทีมแม่น & ไวที่สุด: +{round.yearFastestBonus} เหรียญ
-                </span>
-              </div>
+              {/* Sub-Round 3 Fast Finger Shared Board */}
+              {chronoSub === 'CHRONO_SUB3_FAST_FINGER' && (
+                <div className="w-full max-w-5xl mt-3 pt-3 border-t border-white/10">
+                  <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-10 gap-2">
+                    {allYears.map((yr) => {
+                      const claimTid = round.chronoFastFingerClaims?.[String(yr)];
+                      const claimTeam = claimTid ? teams[claimTid] : null;
+                      const isTarget = isRevealed && yr === round.targetYear;
+                      return (
+                        <div
+                          key={yr}
+                          className={`rounded-xl p-2 border-2 text-center transition-all ${
+                            isTarget
+                              ? 'bg-amber-400 text-black border-white scale-105 shadow-[0_0_20px_rgba(250,204,21,0.8)]'
+                              : claimTeam
+                              ? 'bg-slate-900 border-amber-400 text-white shadow'
+                              : 'bg-slate-900/70 border-slate-700 text-slate-300'
+                          }`}
+                        >
+                          <div className="font-mono font-black text-base md:text-lg">{yr}</div>
+                          {claimTeam ? (
+                            <div className="text-xs font-extrabold truncate mt-0.5 text-amber-300">
+                              {claimTeam.icon} T{claimTeam.number}
+                            </div>
+                          ) : (
+                            <div className="text-[10px] text-slate-500 font-bold">ว่าง</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+            {/* 4 Team Status Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {TEAM_ORDER.map((tid) => {
                 const team = teams[tid];
                 const sub = submissions[tid];
-                const speedRank = timejinxRanking.speedRankMap[tid];
-                const isBest = round.status === 'REVEALED' && timejinxRanking.bestTeamId === tid;
+                const quota = round.chronoQuotas?.[tid] ?? 1;
+                const shield = round.chronoShields?.[tid] ?? 0;
+                const trapsRecv = getChronoTrapsReceived(round, tid);
+                const netTraps = getChronoNetTraps(round, tid);
+                const step = getChronoSliderStep(netTraps);
+
                 const submittedYear = sub ? Number(sub.value) : null;
-                const absDiff =
-                  submittedYear !== null ? Math.abs(submittedYear - round.targetYear) : null;
+                const scoreRes =
+                  isRevealed && submittedYear !== null && chronoPhase === 'YEAR_GUESS'
+                    ? scoreChronoTeam(round, tid, submittedYear, maxDiff)
+                    : null;
 
                 return (
                   <div
                     key={tid}
-                    className={`relative rounded-3xl p-5 border-2 transition-all duration-500 flex flex-col justify-between ${
-                      isBest
-                        ? 'bg-gradient-to-b from-amber-950/90 via-emerald-950/80 to-slate-950 border-amber-300 shadow-[0_0_35px_rgba(234,179,8,0.45)] scale-[1.02]'
+                    className={`relative rounded-3xl p-4 border-4 border-black shadow-[6px_6px_0px_#000] transition-all flex flex-col justify-between ${
+                      scoreRes && scoreRes.delta > 0
+                        ? 'bg-emerald-950/95'
+                        : scoreRes && scoreRes.delta < 0
+                        ? 'bg-red-950/95'
                         : sub
-                        ? 'bg-slate-900/95 border-amber-500/60'
-                        : 'bg-slate-900/70 border-slate-800'
+                        ? 'bg-slate-900'
+                        : 'bg-slate-900/80'
                     }`}
                   >
-                    {isBest && (
-                      <div className="absolute -top-3.5 inset-x-0 flex justify-center">
-                        <span className="px-4 py-1 rounded-full bg-amber-400 text-slate-950 font-extrabold text-xs uppercase tracking-wider shadow-lg flex items-center gap-1">
-                          <Crown className="w-4 h-4" /> แม่นยำ & ไวที่สุด!
-                        </span>
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between gap-2 mb-3">
-                      <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2 min-w-0">
                         <span className="text-3xl shrink-0">{team.icon}</span>
                         <div className="truncate">
                           <div className="text-xs font-mono text-amber-400 font-bold">
-                            TEAM {team.number}
+                            TEAM {team.number} • {team.coins.toLocaleString()} ฿
                           </div>
-                          <div className="font-extrabold text-base text-white truncate">
+                          <div className="font-extrabold text-sm md:text-base text-white truncate">
                             {team.name}
                           </div>
                         </div>
                       </div>
-                      {speedRank && (
-                        <span className="px-2.5 py-1 rounded-xl bg-slate-800 border border-amber-500/40 font-mono text-xs font-bold text-amber-300 whitespace-nowrap shrink-0">
-                          ส่งอันดับ #{speedRank}
+                      {chronoSub === 'CHRONO_SUB2_TRAP' && (
+                        <span className="px-2 py-0.5 rounded-lg bg-black/70 border border-amber-400/50 text-[11px] font-mono font-bold text-amber-300 shrink-0">
+                          Step {step} ปี
                         </span>
                       )}
                     </div>
 
-                    <div className="my-2 py-4 rounded-2xl bg-black/60 border border-white/10 text-center">
-                      {!sub ? (
-                        <div className="text-xl font-bold text-slate-200 animate-pulse py-2">
-                          กำลังกรอกตัวเลข...
+                    {chronoSub === 'CHRONO_SUB2_TRAP' && chronoPhase === 'TRAP_PLACEMENT' ? (
+                      <div className="my-2 p-3 rounded-2xl bg-black/60 border border-white/10 text-center space-y-1.5">
+                        <div className="flex justify-center gap-2 text-xs font-bold">
+                          <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300">
+                            โควตา: {quota} 💣
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300">
+                            โล่: {shield} 🛡️
+                          </span>
                         </div>
-                      ) : round.status !== 'REVEALED' ? (
-                        <div>
-                          <div className="text-3xl font-extrabold text-emerald-400 flex items-center justify-center gap-2">
-                            <Lock className="w-6 h-6" /> ล็อกคำตอบแล้ว
-                          </div>
-                          <div className="text-sm font-mono text-amber-300 mt-1">
-                            Timestamp: {(sub.elapsedMs / 1000).toFixed(3)}s ({sub.elapsedMs} ms)
-                          </div>
+                        <div className="text-sm font-black text-red-300">
+                          โดนเล็ง: {trapsRecv} ลูก (สุทธิ {netTraps} ลูก → Step {step} ปี)
                         </div>
-                      ) : (
-                        <div>
-                          <div className="text-xs text-slate-300">ปีที่ตอบ:</div>
-                          <div className="text-4xl md:text-5xl font-mono font-black text-white tracking-wider my-1">
-                            {submittedYear}
-                          </div>
-                          <div
-                            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-extrabold mt-1 ${
-                              absDiff === 0
-                                ? 'bg-emerald-400 text-slate-950'
-                                : absDiff! <= 3
-                                ? 'bg-amber-500/30 border border-amber-400 text-amber-200'
-                                : 'bg-red-900/70 border border-red-500 text-red-200'
-                            }`}
-                          >
-                            {absDiff === 0
-                              ? '🎯 ตรงเป๊ะ! (คลาดเคลื่อน 0 ปี)'
-                              : `ผลต่าง: ห่าง ${absDiff} ปี (-${absDiff! * round.yearPenaltyPerDiff} เหรียญ)`}
-                          </div>
+                        <div className="text-xs font-bold text-emerald-300">
+                          {sub ? '✓ วางกับดักครบแล้ว' : '⏳ กำลังเลือกเป้าหมาย...'}
                         </div>
-                      )}
-                    </div>
-
-                    <div className="flex items-center justify-between text-xs font-mono text-slate-300 pt-2 border-t border-slate-800">
-                      <span>ความเร็วที่ส่ง:</span>
-                      <span className="text-amber-300 font-bold">
-                        {sub ? `${(sub.elapsedMs / 1000).toFixed(3)} วินาที` : '—'}
-                      </span>
-                    </div>
+                      </div>
+                    ) : (
+                      <div className="my-2 py-3 px-2 rounded-2xl bg-black/60 border border-white/10 text-center">
+                        {!sub ? (
+                          <div className="text-lg font-bold text-slate-300 animate-pulse py-2">
+                            {chronoSub === 'CHRONO_SUB3_FAST_FINGER'
+                              ? 'กำลังแย่งกดปี...'
+                              : 'กำลังเลื่อนแถบปี...'}
+                          </div>
+                        ) : !isRevealed ? (
+                          <div>
+                            <div className="text-2xl font-extrabold text-emerald-400 flex items-center justify-center gap-2">
+                              <Lock className="w-5 h-5" />
+                              {chronoSub === 'CHRONO_SUB3_FAST_FINGER'
+                                ? `ล็อกปี ${submittedYear}`
+                                : 'ล็อกคำตอบแล้ว'}
+                            </div>
+                            {chronoSub === 'CHRONO_SUB2_TRAP' && netTraps >= 1 && (
+                              <div className="text-xs font-bold text-amber-300 mt-1">
+                                🔥 ติดกับดัก Step {step} ปี (ลุ้นโบนัส x2!)
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div>
+                            <div className="text-xs text-slate-300">ปีที่ทาย ({unitLabel}):</div>
+                            <div className="text-4xl font-mono font-black text-white my-0.5">
+                              {submittedYear}
+                            </div>
+                            {scoreRes && (
+                              <div
+                                className={`inline-block px-3 py-1 rounded-full text-xs font-black mt-1 ${
+                                  scoreRes.delta > 0
+                                    ? 'bg-emerald-400 text-black'
+                                    : scoreRes.delta < 0
+                                    ? 'bg-red-600 text-white'
+                                    : 'bg-slate-700 text-slate-200'
+                                }`}
+                              >
+                                {scoreRes.label}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* ==========================================================
             MODE C: BUZZER / REACTION (Instant Queue 1, 2, 3, 4 by ms)
