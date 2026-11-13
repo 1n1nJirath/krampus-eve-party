@@ -13,7 +13,15 @@ import {
   Team,
   TeamId,
 } from '../types/game';
-import { createRoundFromPreset, DEFAULT_PRESETS, INITIAL_GAME_STATE, INITIAL_TEAMS, TEAM_ORDER } from '../data/initialData';
+import {
+  createRoundFromPreset,
+  DEFAULT_PRESETS,
+  DOOR_LABELS,
+  getSuggestedSafeRange,
+  INITIAL_GAME_STATE,
+  INITIAL_TEAMS,
+  TEAM_ORDER,
+} from '../data/initialData';
 import { soundFX } from '../utils/sound';
 
 const STORAGE_KEY = 'krampus_eve_state_v2';
@@ -60,6 +68,137 @@ function normalizeGameState(raw: KrampusGameState): KrampusGameState {
   };
 }
 
+function buildSnakeDraftOrder(teams: Record<TeamId, Team>): TeamId[] {
+  const registered = TEAM_ORDER.filter((tid) => teams[tid]?.isRegistered);
+  const active = registered.length >= 2 ? registered : [...TEAM_ORDER];
+  return [...active, ...[...active].reverse()];
+}
+
+function applyBailoutToState(next: KrampusGameState, tid: TeamId, now: number): boolean {
+  const team = next.teams?.[tid];
+  if (!team || team.shields > 0) return false;
+  const prevBalances = {
+    team1: next.teams.team1.coins,
+    team2: next.teams.team2.coins,
+    team3: next.teams.team3.coins,
+    team4: next.teams.team4.coins,
+  };
+  const prevShields = {
+    team1: next.teams.team1.shields,
+    team2: next.teams.team2.shields,
+    team3: next.teams.team3.shields,
+    team4: next.teams.team4.shields,
+  };
+  team.coins -= 500;
+  team.shields = 2;
+  team.candles = 2;
+  next.transactions.unshift({
+    id: `tx-${now}-${Math.random().toString(36).slice(2, 6)}`,
+    timestamp: now,
+    teamId: tid,
+    delta: -500,
+    reason: `${team.name} ไถ่เกราะเด็กดี +2 🛡️ (Naughty List Bailout)`,
+    prevBalances,
+    prevShields,
+  });
+  return true;
+}
+
+function applySnakePickToState(
+  next: KrampusGameState,
+  tid: TeamId,
+  doorKey: string,
+  now: number
+): boolean {
+  const r = next.round;
+  if (r.gameStage !== 'POLL_MINE' || r.eightDoorsSubRound !== 'SUB1_SURVIVAL' || r.status !== 'ACTIVE') {
+    return false;
+  }
+  const order =
+    r.snakeDraftOrder && r.snakeDraftOrder.length > 0
+      ? r.snakeDraftOrder
+      : buildSnakeDraftOrder(next.teams);
+  const idx = r.snakeDraftIndex ?? 0;
+  if (idx >= order.length || order[idx] !== tid) return false;
+
+  const doorIdx = r.choices.slice(0, r.choiceCount).findIndex((c) => c.key === doorKey);
+  if (doorIdx === -1 || r.choices[doorIdx].isOpened) return false;
+
+  const door = r.choices[doorIdx];
+  const rank = door.rank ?? doorIdx + 1;
+  const suggested = getSuggestedSafeRange(r.choiceCount, 'SUB1_SURVIVAL');
+  const safeMin = r.safeRankMin ?? suggested.min;
+  const safeMax = r.safeRankMax ?? suggested.max;
+  const isSafe = rank >= safeMin && rank <= safeMax;
+
+  r.choices[doorIdx] = { ...door, isOpened: true };
+  r.lastOpenedDoorKey = doorKey;
+
+  const picks = [...(r.snakeDraftPicks || [])];
+  const prevSafeCount = picks.filter((p) => p.teamId === tid && p.isSafe).length;
+  picks.push({ teamId: tid, doorKey, rank, isSafe });
+  r.snakeDraftPicks = picks;
+  r.snakeDraftOrder = order;
+
+  const team = next.teams[tid];
+  const prevBalances = {
+    team1: next.teams.team1.coins,
+    team2: next.teams.team2.coins,
+    team3: next.teams.team3.coins,
+    team4: next.teams.team4.coins,
+  };
+  const prevShields = {
+    team1: next.teams.team1.shields,
+    team2: next.teams.team2.shields,
+    team3: next.teams.team3.shields,
+    team4: next.teams.team4.shields,
+  };
+
+  let deltaCoins = 0;
+  let reason = '';
+  if (isSafe) {
+    deltaCoins = prevSafeCount >= 1 ? 500 : 300;
+    team.coins += deltaCoins;
+    reason =
+      prevSafeCount >= 1
+        ? `${team.name} เปิดประตู ${doorKey} (#${rank}) ถูกทั้ง 2 บาน! โบนัสรวม +800 ฿`
+        : `${team.name} เปิดประตู ${doorKey} (#${rank}) โซนปลอดภัย +300 ฿`;
+  } else {
+    team.shields = Math.max(0, team.shields - 1);
+    team.candles = team.shields;
+    reason = `${team.name} เปิดประตู ${doorKey} (#${rank}) พลาด! เสียเกราะ -1 🛡️`;
+  }
+
+  next.transactions.unshift({
+    id: `tx-${now}-${Math.random().toString(36).slice(2, 6)}`,
+    timestamp: now,
+    teamId: tid,
+    delta: deltaCoins,
+    reason,
+    prevBalances,
+    prevShields,
+  });
+
+  // Check if all safe-zone doors are now opened OR draft finished
+  const nextIdx = idx + 1;
+  r.snakeDraftIndex = nextIdx;
+  const activeDoors = r.choices.slice(0, r.choiceCount);
+  const allSafeOpened = activeDoors
+    .filter((c) => {
+      const cr = c.rank ?? 99;
+      return cr >= safeMin && cr <= safeMax;
+    })
+    .every((c) => c.isOpened);
+
+  if (allSafeOpened || nextIdx >= order.length) {
+    r.status = 'REVEALED';
+    r.rewardsApplied = true;
+    r.timerStartedAt = null;
+    r.timerRemainingMs = 0;
+  }
+  return true;
+}
+
 interface GameContextValue {
   state: KrampusGameState;
   lanIp: string;
@@ -93,9 +232,13 @@ interface GameContextValue {
   updateRoundConfig: (patch: Partial<RoundConfig>) => void;
   updateChoiceOption: (key: string, patch: Partial<ChoiceOption>) => void;
   toggleDoorOpened: (key: string) => void;
+  shuffleDoors: () => void;
+  bailoutNiceShield: (teamId: TeamId) => void;
+  submitSnakeDraftPick: (teamId: TeamId, doorKey: string) => void;
+  finishEightDoorsGame: () => void;
   switchEightDoorsSubRound: (
     subRound: EightDoorsSubRound,
-    options?: { auctionIteration?: 1 | 2; revealRemaining2To4?: boolean }
+    options?: { auctionIteration?: 1 | 2; revealRemaining2To4?: boolean; loadPresetQuestion?: boolean }
   ) => void;
   resolveSubRound2Auction: (overrideWinnerTeamId?: TeamId) => {
     winnerTeamId: TeamId | null;
@@ -404,6 +547,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   rank: next.buzzerQueue.length + 1,
                 });
               }
+            } else if (action === 'BAILOUT_SHIELD') {
+              applyBailoutToState(next, teamId as TeamId, now);
+            } else if (action === 'SNAKE_PICK') {
+              applySnakePickToState(next, teamId as TeamId, String(data?.doorKey || ''), now);
             }
             return next;
           });
@@ -772,19 +919,57 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       commitState((prev) => {
         const nextRound = { ...prev.round, ...patch };
         if (patch.choiceCount && patch.choiceCount !== prev.round.choiceCount) {
-          const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-          nextRound.choices = letters.slice(0, patch.choiceCount).map((key, idx) => {
+          const usedRanks = new Set(
+            prev.round.choices
+              .slice(0, patch.choiceCount)
+              .map((c) => c.rank)
+              .filter((r): r is number => typeof r === 'number' && r <= patch.choiceCount!)
+          );
+          const availableRanks: number[] = [];
+          for (let r = 1; r <= patch.choiceCount; r++) {
+            if (!usedRanks.has(r)) availableRanks.push(r);
+          }
+
+          let nextSafeMin = patch.safeRankMin ?? prev.round.safeRankMin;
+          let nextSafeMax = patch.safeRankMax ?? prev.round.safeRankMax;
+          if (
+            prev.round.gameStage === 'POLL_MINE' &&
+            patch.safeRankMin === undefined &&
+            patch.safeRankMax === undefined
+          ) {
+            const suggested = getSuggestedSafeRange(patch.choiceCount, prev.round.eightDoorsSubRound);
+            nextSafeMin = suggested.min;
+            nextSafeMax = suggested.max;
+          }
+          nextRound.safeRankMin = nextSafeMin;
+          nextRound.safeRankMax = nextSafeMax;
+
+          nextRound.choices = DOOR_LABELS.slice(0, patch.choiceCount).map((key, idx) => {
             const existing = prev.round.choices.find((c) => c.key === key);
-            return (
-              existing || {
-                key,
-                label: `ตัวเลือก ${key}`,
-                rank: idx + 1,
-                isCorrect: idx < 3,
-                isTrap: idx >= 3,
-                isOpened: false,
-              }
-            );
+            if (existing) {
+              const rank =
+                existing.rank && existing.rank <= patch.choiceCount!
+                  ? existing.rank
+                  : availableRanks.shift() ?? idx + 1;
+              const isSafe =
+                nextSafeMin !== undefined && nextSafeMax !== undefined
+                  ? rank >= nextSafeMin && rank <= nextSafeMax
+                  : existing.isCorrect;
+              return { ...existing, rank, isCorrect: isSafe, isTrap: !isSafe };
+            }
+            const rank = availableRanks.shift() ?? idx + 1;
+            const isSafe =
+              nextSafeMin !== undefined && nextSafeMax !== undefined
+                ? rank >= nextSafeMin && rank <= nextSafeMax
+                : idx < 3;
+            return {
+              key,
+              label: `ตัวเลือก ${key}`,
+              rank,
+              isCorrect: isSafe,
+              isTrap: !isSafe,
+              isOpened: false,
+            };
           });
         }
         return {
@@ -831,46 +1016,210 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [commitState]
   );
 
-  // Switch between Sub-Rounds 1, 2 (2.1 / 2.2), and 3 of "The 8 Doors of Krampus" while preserving opened doors!
+  const shuffleDoors = useCallback(() => {
+    commitState((prev) => {
+      const count = prev.round.choiceCount;
+      const active = prev.round.choices.slice(0, count);
+      const payloads = active.map((c) => ({
+        label: c.label,
+        rank: c.rank,
+        votes: c.votes,
+        isCorrect: c.isCorrect,
+        isTrap: c.isTrap,
+      }));
+      for (let i = payloads.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [payloads[i], payloads[j]] = [payloads[j], payloads[i]];
+      }
+      const nextChoices = prev.round.choices.map((c, idx) =>
+        idx < count
+          ? {
+              ...c,
+              ...payloads[idx],
+              isOpened: false,
+            }
+          : c
+      );
+      return {
+        ...prev,
+        round: {
+          ...prev.round,
+          choices: nextChoices,
+          correctChoices: nextChoices.filter((c) => c.isCorrect).map((c) => c.key),
+          trapChoices: nextChoices.filter((c) => c.isTrap).map((c) => c.key),
+        },
+      };
+    });
+  }, [commitState]);
+
+  const bailoutNiceShield = useCallback(
+    (teamId: TeamId) => {
+      const now = getAuthoritativeNow();
+      fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'TEAM_ACTION',
+          teamId,
+          action: 'BAILOUT_SHIELD',
+          payload: {},
+        }),
+      }).catch(() => {});
+
+      if (supaChannelRef.current) {
+        supaChannelRef.current
+          .send({
+            type: 'broadcast',
+            event: 'TEAM_ACTION',
+            payload: { teamId, action: 'BAILOUT_SHIELD', data: {}, clientNow: now },
+          })
+          .catch(() => {});
+      }
+
+      commitState((prev) => {
+        const next = structuredClone(prev);
+        if (!applyBailoutToState(next, teamId, now)) return prev;
+        return next;
+      });
+      soundFX.playReveal();
+    },
+    [commitState, getAuthoritativeNow]
+  );
+
+  const submitSnakeDraftPick = useCallback(
+    (teamId: TeamId, doorKey: string) => {
+      const now = getAuthoritativeNow();
+      fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'TEAM_ACTION',
+          teamId,
+          action: 'SNAKE_PICK',
+          payload: { doorKey },
+        }),
+      }).catch(() => {});
+
+      if (supaChannelRef.current) {
+        supaChannelRef.current
+          .send({
+            type: 'broadcast',
+            event: 'TEAM_ACTION',
+            payload: { teamId, action: 'SNAKE_PICK', data: { doorKey }, clientNow: now },
+          })
+          .catch(() => {});
+      }
+
+      commitState((prev) => {
+        const next = structuredClone(prev);
+        if (!applySnakePickToState(next, teamId, doorKey, now)) return prev;
+        return next;
+      });
+      soundFX.playReveal();
+    },
+    [commitState, getAuthoritativeNow]
+  );
+
+  const finishEightDoorsGame = useCallback(() => {
+    commitState((prev) => ({
+      ...prev,
+      submissions: {},
+      buzzerQueue: [],
+      round: {
+        ...prev.round,
+        gameStage: 'WORLD_MAP',
+        status: 'IDLE',
+        timerStartedAt: null,
+        timerRemainingMs: 0,
+      },
+    }));
+  }, [commitState]);
+
+  // Switch between Sub-Rounds 1, 2 (2.1 / 2.2), and 3 of "THE DOORS OF DOOM"
+  // Spec: Each Sub-Round (1, 2, 3) uses a separate question and resets all 8-12 doors to unopened.
   const switchEightDoorsSubRound = useCallback(
     (
       subRound: EightDoorsSubRound,
-      options?: { auctionIteration?: 1 | 2; revealRemaining2To4?: boolean }
+      options?: { auctionIteration?: 1 | 2; revealRemaining2To4?: boolean; loadPresetQuestion?: boolean }
     ) => {
       const now = getAuthoritativeNow();
       commitState((prev) => {
         const iter = options?.auctionIteration ?? prev.round.auctionIteration ?? 1;
-        let nextChoices = [...prev.round.choices];
+        const isFreshSubRound =
+          subRound !== 'SUB2_DOOR_AND_BET' &&
+          !(subRound === 'SUB2_AUCTION' && iter === 2) &&
+          options?.loadPresetQuestion !== false;
 
-        // If moving to Sub-Round 3 and instructed to reveal any remaining rank 2, 3, 4 doors on the board:
+        let baseRound = prev.round;
+        if (isFreshSubRound) {
+          const targetPresetId =
+            subRound === 'SUB1_SURVIVAL'
+              ? 'pm-1'
+              : subRound === 'SUB2_AUCTION'
+              ? 'pm-2'
+              : 'pm-3';
+          const matchedPreset = prev.presets.find((p) => p.id === targetPresetId);
+          if (matchedPreset && prev.round.presetId !== targetPresetId) {
+            baseRound = createRoundFromPreset(matchedPreset);
+          }
+        }
+
+        const choiceCount = baseRound.choiceCount || 8;
+        const suggested = getSuggestedSafeRange(choiceCount, subRound);
+        const safeMin =
+          isFreshSubRound || prev.round.eightDoorsSubRound !== subRound
+            ? suggested.min
+            : baseRound.safeRankMin ?? suggested.min;
+        const safeMax =
+          isFreshSubRound || prev.round.eightDoorsSubRound !== subRound
+            ? suggested.max
+            : baseRound.safeRankMax ?? suggested.max;
+
+        let nextChoices = baseRound.choices.map((c) => {
+          const resetOpen = isFreshSubRound ? false : Boolean(c.isOpened);
+          const isSafe = (c.rank ?? 99) >= safeMin && (c.rank ?? 99) <= safeMax;
+          return {
+            ...c,
+            isOpened: resetOpen,
+            isCorrect: isSafe,
+            isTrap: !isSafe,
+          };
+        });
+
         if (options?.revealRemaining2To4) {
           nextChoices = nextChoices.map((c) =>
-            c.rank === 2 || c.rank === 3 || c.rank === 4 ? { ...c, isOpened: true } : c
+            (c.rank ?? 99) >= safeMin && (c.rank ?? 99) <= safeMax ? { ...c, isOpened: true } : c
           );
         }
 
         const subtitles: Record<EightDoorsSubRound, string> = {
-          SUB1_SURVIVAL:
-            'ด่านย่อยที่ 1: เปิดทางรอด — เลือกประตู A-H ค้นหาอันดับ 1, 2 หรือ 3 (ถูก +300🪙 / พลาดเสีย -1🛡️)',
-          SUB2_AUCTION: `ด่านย่อยที่ 2 (รอบ 2.${iter} ประมูลชิงสิทธิ์): บิดเหรียญเพิ่มทีละ 50🪙 เพื่อชิงสิทธิ์เปิดประตูหาอันดับ 2-4!`,
-          SUB2_DOOR_AND_BET: `ด่านย่อยที่ 2 (รอบ 2.${iter} เลือกประตู & แทงข้าง): ทีมชนะประมูลเลือกประตู (+500🪙 / -1🛡️) • อีก 3 ทีมแทงว่ารอดหรือพัง (+200🪙 / -100🪙)!`,
-          SUB3_POLARITY:
-            'ด่านย่อยที่ 3: วัดใจขั้วตรงข้าม — เลือก 2 ประตู: อันดับ #1 และ อันดับ #8 (ถูกคู่ +1,000🪙 / ถูก 1 บาน +400🪙 / ผิดคู่ -300🪙 & -2🛡️)',
+          SUB1_SURVIVAL: `ด่านย่อยที่ 1: Snake Draft (ทีมละ 2 บาน) — ค้นหาประตูอันดับ ${safeMin}-${safeMax} (+300 ฿/บาน, ถูก 2 บานรับ +800 ฿ / พลาด -1 🛡️)`,
+          SUB2_AUCTION: `ด่านย่อยที่ 2 (รอบ 2.${iter} ประมูลชิงสิทธิ์): บิดเพิ่มทีละ 50 ฿ เพื่อเปิดประตูอันดับ ${safeMin}-${safeMax} (+700 ฿) • ไม่บิดเลยโดน Coward's Tax -100 ฿!`,
+          SUB2_DOOR_AND_BET: `ด่านย่อยที่ 2 (รอบ 2.${iter} เลือกประตู & แทงข้าง): ทีมชนะเปิดประตู (+700 ฿ / -1 🛡️) • ทีมอื่นแทงข้าง (+200 ฿ / -100 ฿)!`,
+          SUB3_POLARITY: `ด่านย่อยที่ 3: วัดใจขั้วตรงข้าม — เลือก 2 ประตู: อันดับ #1 และ อันดับ #${choiceCount} (ถูกคู่ +1,000 ฿ / ถูก 1 +400 ฿ / ผิดคู่ -300 ฿ & -2 🛡️)`,
         };
 
         const duration = subRound === 'SUB2_AUCTION' ? 30 : 45;
+        const snakeOrder =
+          subRound === 'SUB1_SURVIVAL' ? buildSnakeDraftOrder(prev.teams) : [];
 
         return {
           ...prev,
           submissions: {},
           buzzerQueue: [],
           round: {
-            ...prev.round,
+            ...baseRound,
             gameStage: 'POLL_MINE',
             inputMode: 'MODE_A_CHOICE',
-            choiceCount: 8,
+            choiceCount,
             eightDoorsSubRound: subRound,
             auctionIteration: iter,
+            safeRankMin: safeMin,
+            safeRankMax: safeMax,
+            snakeDraftOrder: snakeOrder,
+            snakeDraftIndex: 0,
+            snakeDraftPicks: [],
+            cowardFreePick: false,
             subRound2LockedTeamId:
               subRound === 'SUB1_SURVIVAL'
                 ? null
@@ -896,7 +1245,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [commitState, getAuthoritativeNow]
   );
 
-  // Resolve Phase 1 of Sub-Round 2 (Auction): find highest bidder, deduct coins, and launch Phase 2 (Door pick + Side bet)
+  // Resolve Phase 1 of Sub-Round 2 (Auction): find highest bidder, or apply Coward's Tax if 0 bids
   const resolveSubRound2Auction = useCallback(
     (overrideWinnerTeamId?: TeamId) => {
       let resultWinner: TeamId | null = null;
@@ -909,7 +1258,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           prev.round.auctionIteration === 2 ? prev.round.subRound2LockedTeamId : null;
 
         let bestTeam: TeamId | null = overrideWinnerTeamId || null;
-        let bestBid = -1;
+        let bestBid = 0;
         let bestTime = Infinity;
 
         if (bestTeam) {
@@ -920,23 +1269,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const sub = prev.submissions[tid];
             if (!sub) continue;
             const bid = Math.max(0, Number(sub.value) || 0);
-            if (bid > bestBid || (bid === bestBid && sub.submittedAt < bestTime)) {
+            if (bid > bestBid || (bid > 0 && bid === bestBid && sub.submittedAt < bestTime)) {
               bestBid = bid;
               bestTime = sub.submittedAt;
               bestTeam = tid;
             }
           }
         }
-
-        if (!bestTeam) {
-          // Fallback to team1 if nobody bid
-          bestTeam = TEAM_ORDER.find((tid) => tid !== lockedTid) || 'team1';
-          bestBid = 0;
-        }
-
-        resultWinner = bestTeam;
-        resultBid = bestBid;
-        resultMsg = `${prev.teams[bestTeam].name} ชนะการประมูลด้วยยอด ${bestBid} 🪙 (หักเหรียญทันที & ได้สิทธิ์เลือกประตู!)`;
 
         const prevBalances: Record<TeamId, number> = {
           team1: prev.teams.team1.coins,
@@ -946,31 +1285,65 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
 
         const nextTeams = structuredClone(prev.teams);
-        nextTeams[bestTeam].coins -= bestBid;
-
-        const tx: CoinTransaction = {
-          id: `tx-auction-${Date.now()}`,
-          timestamp: Date.now(),
-          teamId: bestTeam,
-          delta: -bestBid,
-          reason: `ชนะประมูลด่านย่อยที่ 2.${prev.round.auctionIteration || 1} (-${bestBid} 🪙)`,
-          prevBalances,
-        };
-
         const iter = prev.round.auctionIteration || 1;
+        let isCowardTax = false;
+        let tx: CoinTransaction | null = null;
+
+        if (!bestTeam || (bestBid <= 0 && !overrideWinnerTeamId)) {
+          // Coward's Tax: 0 ฿ total bids -> deduct -100 ฿ from all eligible teams, random 1 eligible team opens free (no reward)
+          isCowardTax = true;
+          const registered = TEAM_ORDER.filter((tid) => prev.teams[tid]?.isRegistered);
+          const pool = registered.length >= 2 ? registered : [...TEAM_ORDER];
+          const eligible = pool.filter((tid) => tid !== lockedTid);
+          const targetPool = eligible.length > 0 ? eligible : TEAM_ORDER.filter((tid) => tid !== lockedTid);
+
+          for (const tid of targetPool) {
+            nextTeams[tid].coins -= 100;
+          }
+          bestTeam = targetPool[Math.floor(Math.random() * targetPool.length)] || 'team1';
+          bestBid = 0;
+          resultMsg = `⚠️ Coward's Tax! ไม่มีทีมใดประมูล (-100 ฿ ทุกทีมที่มีสิทธิ์) • สุ่มให้ ${nextTeams[bestTeam].name} เปิดประตูฟรี (ไม่ได้รางวัลเงิน)`;
+          tx = {
+            id: `tx-coward-${Date.now()}`,
+            timestamp: Date.now(),
+            teamId: 'ALL',
+            delta: -100,
+            reason: `Coward's Tax รอบ 2.${iter}: ไม่มีทีมใดประมูล (-100 ฿) • สุ่ม ${nextTeams[bestTeam].name} เปิดฟรี`,
+            prevBalances,
+          };
+        } else {
+          resultMsg = `${nextTeams[bestTeam].name} ชนะการประมูลด้วยยอด ${bestBid} ฿ (หักเงินทันที & ได้สิทธิ์เลือกประตู!)`;
+          if (bestBid > 0) {
+            nextTeams[bestTeam].coins -= bestBid;
+            tx = {
+              id: `tx-auction-${Date.now()}`,
+              timestamp: Date.now(),
+              teamId: bestTeam,
+              delta: -bestBid,
+              reason: `ชนะประมูลด่านย่อยที่ 2.${iter} (-${bestBid} ฿)`,
+              prevBalances,
+            };
+          }
+        }
+
+        resultWinner = bestTeam;
+        resultBid = bestBid;
 
         return {
           ...prev,
           teams: nextTeams,
           submissions: {},
-          transactions: bestBid > 0 ? [tx, ...prev.transactions.slice(0, 49)] : prev.transactions,
+          transactions: tx ? [tx, ...prev.transactions.slice(0, 49)] : prev.transactions,
           round: {
             ...prev.round,
             eightDoorsSubRound: 'SUB2_DOOR_AND_BET',
             auctionWinnerTeamId: bestTeam,
             auctionWinningBid: bestBid,
+            cowardFreePick: isCowardTax,
             subRound2LockedTeamId: iter === 1 ? bestTeam : prev.round.subRound2LockedTeamId,
-            subtitle: `ด่านย่อยที่ 2.${iter} (เลือกประตู & แทงข้าง): ${nextTeams[bestTeam].name} เลือกเปิดประตู 1 บาน • อีก 3 ทีมแทงว่ารอดหรือพัง!`,
+            subtitle: isCowardTax
+              ? `Coward's Tax รอบ 2.${iter}: ${nextTeams[bestTeam].name} ถูกสุ่มเปิดประตูฟรี (ไม่ได้เงินรางวัล) • ทีมอื่นแทงข้าง!`
+              : `ด่านย่อยที่ 2.${iter} (เลือกประตู & แทงข้าง): ${nextTeams[bestTeam].name} เลือกเปิดประตู 1 บาน • ทีมอื่นแทงว่ารอดหรือพัง!`,
             durationSeconds: 35,
             timerStartedAt: now,
             timerRemainingMs: 35 * 1000,
@@ -1299,47 +1672,38 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const subRound = r.eightDoorsSubRound || 'SUB1_SURVIVAL';
 
           if (subRound === 'SUB1_SURVIVAL') {
-            // ด่านย่อยที่ 1: เปิดทางรอด (หาอันดับ 1-3 รับ +300🪙 / อันดับ 4-8 เสียเกราะ -1🛡️)
-            const pickedKeys = new Set(
-              TEAM_ORDER.map((tid) => subs[tid]?.value).filter(Boolean).map(String)
-            );
-            nextChoices = nextChoices.map((c) =>
-              pickedKeys.has(c.key) ? { ...c, isOpened: true } : c
-            );
-
-            for (const tid of TEAM_ORDER) {
-              const sub = subs[tid];
-              if (!sub) continue;
-              const doorKey = String(sub.value);
-              const door = nextChoices.find((c) => c.key === doorKey);
-              const rank = door?.rank ?? 8;
-
-              if (rank >= 1 && rank <= 3) {
-                nextTeams[tid].coins += 300;
+            // Snake Draft คำนวณคะแนนทันทีตอนกดเปิดประตูแต่ละบานแล้ว
+            const picks = r.snakeDraftPicks || [];
+            if (picks.length > 0) {
+              for (const tid of TEAM_ORDER) {
+                const teamPicks = picks.filter((p) => p.teamId === tid);
+                if (teamPicks.length === 0) continue;
+                const safeCount = teamPicks.filter((p) => p.isSafe).length;
+                const wrongCount = teamPicks.length - safeCount;
+                const earned = safeCount >= 2 ? 800 : safeCount * 300;
+                const doorsStr = teamPicks.map((p) => `${p.doorKey}(#${p.rank})`).join(', ');
                 summary.push(
-                  `${nextTeams[tid].name}: เปิดประตู ${doorKey} เจออันดับ #${rank} (+300 🪙)`
-                );
-              } else {
-                const newShields = Math.max(0, nextTeams[tid].shields - 1);
-                nextTeams[tid].shields = newShields;
-                nextTeams[tid].candles = newShields;
-                summary.push(
-                  `${nextTeams[tid].name}: เปิดประตู ${doorKey} เจออันดับ #${rank} (เสียเกราะเด็กดี -1 🛡️ เหลือ ${newShields} ดวง${
-                    newShields === 0 ? ' • ติดสถานะ NAUGHTY LIST!' : ''
-                  })`
+                  `${nextTeams[tid].name}: เปิด ${doorsStr} • ได้ +${earned} ฿${
+                    wrongCount > 0 ? ` / เสีย -${wrongCount} 🛡️` : ''
+                  }`
                 );
               }
+            } else {
+              summary.push('ด่านย่อยที่ 1 (Snake Draft): ยังไม่มีการเปิดประตู');
             }
           } else if (subRound === 'SUB2_DOOR_AND_BET') {
             // ด่านย่อยที่ 2 (Phase 3 เฉลยผล):
-            // ทีมชนะประมูล: เจออันดับ 2, 3, 4 รับ +500🪙 / ถ้าผิด ลดเกราะเด็กดี -1🛡️
-            // อีก 3 ทีมแทงข้าง: ทายถูก +200🪙 / ทายผิด -100🪙 (ไม่เสียเกราะ)
+            // ทีมชนะประมูล: เจออันดับ safeRankMin..safeRankMax รับ +700 ฿ (ยกเว้น cowardFreePick ได้ 0 ฿) / ถ้าผิด ลดเกราะ -1🛡️
+            // ทีมอื่นแทงข้าง: ทายถูก +200 ฿ / ทายผิด -100 ฿ (ไม่เสียเกราะ)
+            const suggested = getSuggestedSafeRange(r.choiceCount, 'SUB2_DOOR_AND_BET');
+            const safeMin = r.safeRankMin ?? suggested.min;
+            const safeMax = r.safeRankMax ?? suggested.max;
             const winnerTid = r.auctionWinnerTeamId;
             const winnerSub = winnerTid ? subs[winnerTid] : undefined;
             const doorKey = String(winnerSub?.value || r.lastOpenedDoorKey || '');
             const door = nextChoices.find((c) => c.key === doorKey);
-            const rank = door?.rank ?? 8;
-            const isSuccess = rank === 2 || rank === 3 || rank === 4;
+            const rank = door?.rank ?? r.choiceCount;
+            const isSuccess = rank >= safeMin && rank <= safeMax;
 
             if (doorKey) {
               lastOpenedDoorKey = doorKey;
@@ -1350,10 +1714,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             if (winnerTid) {
               if (isSuccess) {
-                nextTeams[winnerTid].coins += 500;
-                summary.push(
-                  `${nextTeams[winnerTid].name} (ผู้ชนะประมูล): เปิดประตู ${doorKey} เจออันดับ #${rank} สำเร็จ! (+500 🪙)`
-                );
+                if (r.cowardFreePick) {
+                  summary.push(
+                    `${nextTeams[winnerTid].name} (เปิดฟรี Coward's Tax): เปิดประตู ${doorKey} เจออันดับ #${rank} สำเร็จ! (ได้ 0 ฿ ตามกติกา Coward's Tax)`
+                  );
+                } else {
+                  nextTeams[winnerTid].coins += 700;
+                  summary.push(
+                    `${nextTeams[winnerTid].name} (ผู้ชนะประมูล): เปิดประตู ${doorKey} เจออันดับ #${rank} สำเร็จ! (+700 ฿)`
+                  );
+                }
               } else {
                 const newShields = Math.max(0, nextTeams[winnerTid].shields - 1);
                 nextTeams[winnerTid].shields = newShields;
@@ -1375,42 +1745,46 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               if (betCorrect) {
                 nextTeams[tid].coins += 200;
                 summary.push(
-                  `${nextTeams[tid].name}: แทงข้างว่า "${betSafe ? 'รอด' : 'พัง'}" ถูกต้อง! (+200 🪙)`
+                  `${nextTeams[tid].name}: แทงข้างว่า "${betSafe ? 'รอด' : 'พัง'}" ถูกต้อง! (+200 ฿)`
                 );
               } else {
                 nextTeams[tid].coins -= 100;
                 summary.push(
-                  `${nextTeams[tid].name}: แทงข้างว่า "${betSafe ? 'รอด' : 'พัง'}" ผิด! (-100 🪙 ไม่เสียเกราะ)`
+                  `${nextTeams[tid].name}: แทงข้างว่า "${betSafe ? 'รอด' : 'พัง'}" ผิด! (-100 ฿ ไม่เสียเกราะ)`
                 );
               }
             }
           } else if (subRound === 'SUB3_POLARITY') {
-            // ด่านย่อยที่ 3: วัดใจขั้วตรงข้าม (ค้นหาอันดับ #1 และ อันดับ #8)
-            // ถูก 2 ประตู: +1,000🪙 | ถูก 1 ประตู: +400🪙 | ผิดทั้ง 2 ประตู: -2🛡️ และ -300🪙
+            // ด่านย่อยที่ 3: วัดใจขั้วตรงข้าม (ค้นหาอันดับ #1 และ อันดับสุดท้าย #N)
+            // ถูก 2 ประตู: +1,000 ฿ | ถูก 1 ประตู: +400 ฿ | ผิดทั้ง 2 ประตู: -2🛡️ และ -300 ฿
             nextChoices = nextChoices.map((c) => ({ ...c, isOpened: true }));
-            const door1Key = nextChoices.find((c) => c.rank === 1)?.key || 'A';
-            const door8Key = nextChoices.find((c) => c.rank === 8)?.key || 'H';
+            const lastRank = r.choiceCount || 8;
+            const door1Key = nextChoices.slice(0, lastRank).find((c) => c.rank === 1)?.key || 'A';
+            const doorLastKey =
+              nextChoices.slice(0, lastRank).find((c) => c.rank === lastRank)?.key ||
+              DOOR_LABELS[lastRank - 1] ||
+              'H';
 
             for (const tid of TEAM_ORDER) {
               const sub = subs[tid];
               if (!sub) continue;
               const pick1 = String(sub.value || '');
-              const pick8 = String(sub.secondaryValue || '');
+              const pickLast = String(sub.secondaryValue || '');
               const hit1 = pick1 === door1Key;
-              const hit8 = pick8 === door8Key;
-              const hits = (hit1 ? 1 : 0) + (hit8 ? 1 : 0);
+              const hitLast = pickLast === doorLastKey;
+              const hits = (hit1 ? 1 : 0) + (hitLast ? 1 : 0);
 
               if (hits === 2) {
                 nextTeams[tid].coins += 1000;
                 summary.push(
-                  `${nextTeams[tid].name}: ทายถูกทั้งอันดับ #1 (${pick1}) และ #8 (${pick8})! รับโบนัสใหญ่ (+1,000 🪙)`
+                  `${nextTeams[tid].name}: ทายถูกทั้งอันดับ #1 (${pick1}) และ #${lastRank} (${pickLast})! รับโบนัสใหญ่ (+1,000 ฿)`
                 );
               } else if (hits === 1) {
                 nextTeams[tid].coins += 400;
                 summary.push(
                   `${nextTeams[tid].name}: ทายถูก 1 ประตู (${
-                    hit1 ? `#1=${pick1}` : `#8=${pick8}`
-                  }) (+400 🪙 ไม่เสียเกราะ)`
+                    hit1 ? `#1=${pick1}` : `#${lastRank}=${pickLast}`
+                  }) (+400 ฿ ไม่เสียเกราะ)`
                 );
               } else {
                 nextTeams[tid].coins -= 300;
@@ -1418,7 +1792,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 nextTeams[tid].shields = newShields;
                 nextTeams[tid].candles = newShields;
                 summary.push(
-                  `${nextTeams[tid].name}: ทายผิดทั้ง 2 ประตู (#1=${pick1}, #8=${pick8})! (-300 🪙 และเสียเกราะเด็กดี -2 🛡️ เหลือ ${newShields} ดวง)`
+                  `${nextTeams[tid].name}: ทายผิดทั้ง 2 ประตู (#1=${pick1}, #${lastRank}=${pickLast})! (-300 ฿ และเสียเกราะเด็กดี -2 🛡️ เหลือ ${newShields} ดวง)`
                 );
               }
             }
@@ -1772,6 +2146,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateRoundConfig,
         updateChoiceOption,
         toggleDoorOpened,
+        shuffleDoors,
+        bailoutNiceShield,
+        submitSnakeDraftPick,
+        finishEightDoorsGame,
         switchEightDoorsSubRound,
         resolveSubRound2Auction,
         startTimer,

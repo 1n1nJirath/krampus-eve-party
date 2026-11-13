@@ -67,18 +67,29 @@ export interface RoundConfig {
   inputMode: InputMode;
   modeDSubType?: ModeDSubType;
 
-  // Game 1: The 8 Doors of Krampus state
+  // Game 1: THE DOORS OF DOOM state
   eightDoorsSubRound?: EightDoorsSubRound;
   auctionIteration?: 1 | 2;               // รอบประมูล 2.1 หรือ 2.2
   subRound2LockedTeamId?: TeamId | null;  // ทีมที่ชนะประมูลรอบ 2.1 (ถูกล็อกในรอบ 2.2)
   auctionWinnerTeamId?: TeamId | null;    // ทีมที่ชนะการประมูลในรอบปัจจุบัน
   auctionWinningBid?: number;             // ยอดบิดที่ชนะประมูลในรอบปัจจุบัน
   lastOpenedDoorKey?: string | null;      // ประตูที่ทีมชนะประมูลเพิ่งเลือกในด่านย่อยที่ 2
+  safeRankMin?: number;                   // อันดับต่ำสุดของโซนปลอดภัย (Auto-suggest & editable)
+  safeRankMax?: number;                   // อันดับสูงสุดของโซนปลอดภัย (Auto-suggest & editable)
+  snakeDraftOrder?: TeamId[];             // ลำดับคิว Snake Draft (ด่านย่อยที่ 1)
+  snakeDraftIndex?: number;               // index คิวปัจจุบันใน snakeDraftOrder
+  snakeDraftPicks?: Array<{
+    teamId: TeamId;
+    doorKey: string;
+    rank: number;
+    isSafe: boolean;
+  }>;
+  cowardFreePick?: boolean;               // true เมื่อประมูล 0 ฿ (Coward's Tax): เปิดฟรีแต่ไม่ได้เงินรางวัล
 
   title: string;
   subtitle: string;
   questionText: string;
-  choiceCount: number; // 4 to 8
+  choiceCount: number; // 4 to 12
   choices: ChoiceOption[];
   correctChoices: string[]; // Keys like ['A', 'C']
   trapChoices: string[];    // Keys that deduct coins/shields
@@ -146,6 +157,8 @@ export interface QuestionPreset {
   quixortRule?: string;
   quixortItems?: string[];
   uniqueRule?: 'LOWEST' | 'HIGHEST';
+  safeRankMin?: number;
+  safeRankMax?: number;
   rewardCoins?: number;
   penaltyCoins?: number;
   durationSeconds: number;

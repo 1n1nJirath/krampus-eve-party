@@ -176,6 +176,66 @@ function krampusRealtimeServerPlugin(): Plugin {
                     rank: updated.buzzerQueue.length + 1,
                   });
                 }
+              } else if (action === 'BAILOUT_SHIELD') {
+                const t = updated.teams?.[teamId];
+                if (t && t.shields <= 0) {
+                  t.coins -= 500;
+                  t.shields = 2;
+                  t.candles = 2;
+                  updated.transactions = updated.transactions || [];
+                  updated.transactions.unshift({
+                    id: `tx-${now}`,
+                    timestamp: now,
+                    teamId,
+                    delta: -500,
+                    reason: `${t.name} ไถ่เกราะเด็กดี +2 🛡️ (Naughty List Bailout)`,
+                  });
+                }
+              } else if (action === 'SNAKE_PICK') {
+                const r = updated.round;
+                const doorKey = String(payload.doorKey || '');
+                if (r?.gameStage === 'POLL_MINE' && r?.eightDoorsSubRound === 'SUB1_SURVIVAL' && r?.status === 'ACTIVE') {
+                  const order: string[] = r.snakeDraftOrder || ['team1', 'team2', 'team3', 'team4', 'team4', 'team3', 'team2', 'team1'];
+                  const idx = r.snakeDraftIndex ?? 0;
+                  if (idx < order.length && order[idx] === teamId) {
+                    const count = r.choiceCount || 8;
+                    const doorIdx = (r.choices || []).slice(0, count).findIndex((c: any) => c.key === doorKey);
+                    if (doorIdx !== -1 && !r.choices[doorIdx].isOpened) {
+                      const door = r.choices[doorIdx];
+                      const rank = door.rank ?? doorIdx + 1;
+                      const safeMin = r.safeRankMin ?? 1;
+                      const safeMax = r.safeRankMax ?? (count >= 10 ? 4 : 3);
+                      const isSafe = rank >= safeMin && rank <= safeMax;
+                      r.choices[doorIdx] = { ...door, isOpened: true };
+                      r.lastOpenedDoorKey = doorKey;
+                      const picks = [...(r.snakeDraftPicks || [])];
+                      const prevSafeCount = picks.filter((p: any) => p.teamId === teamId && p.isSafe).length;
+                      picks.push({ teamId, doorKey, rank, isSafe });
+                      r.snakeDraftPicks = picks;
+                      const t = updated.teams?.[teamId];
+                      if (t) {
+                        if (isSafe) {
+                          t.coins += prevSafeCount >= 1 ? 500 : 300;
+                        } else {
+                          t.shields = Math.max(0, t.shields - 1);
+                          t.candles = t.shields;
+                        }
+                      }
+                      const nextIdx = idx + 1;
+                      r.snakeDraftIndex = nextIdx;
+                      const allSafeOpened = r.choices
+                        .slice(0, count)
+                        .filter((c: any) => (c.rank ?? 99) >= safeMin && (c.rank ?? 99) <= safeMax)
+                        .every((c: any) => c.isOpened);
+                      if (allSafeOpened || nextIdx >= order.length) {
+                        r.status = 'REVEALED';
+                        r.rewardsApplied = true;
+                        r.timerStartedAt = null;
+                        r.timerRemainingMs = 0;
+                      }
+                    }
+                  }
+                }
               }
 
               saveAndBroadcast(updated);

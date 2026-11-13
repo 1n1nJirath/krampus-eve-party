@@ -18,7 +18,7 @@ import {
   Gavel,
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
-import { TEAM_ORDER } from '../data/initialData';
+import { TEAM_ORDER, getSuggestedSafeRange } from '../data/initialData';
 import { CountdownTimer } from '../components/CountdownTimer';
 import { GameStage, TeamId } from '../types/game';
 
@@ -34,8 +34,8 @@ const STAGE_META: Record<GameStage, { badge: string; name: string; color: string
     color: 'from-amber-950 via-red-950 to-slate-950',
   },
   POLL_MINE: {
-    badge: 'GAME 1 • THE 8 DOORS OF KRAMPUS',
-    name: '8 ประตูวัดใจครามปุส (The 8 Doors of Krampus)',
+    badge: 'GAME 1 • THE DOORS OF DOOM',
+    name: 'THE DOORS OF DOOM',
     color: 'from-amber-900/80 via-red-950 to-slate-950',
   },
   TIMEJINX: {
@@ -574,9 +574,9 @@ export const ProjectorDisplay: React.FC = () => {
                   stage: 'POLL_MINE' as GameStage,
                   roomNo: 'ROOM 1',
                   icon: '🚪',
-                  title: 'The 8 Doors of Krampus',
-                  thaiTitle: '8 ประตูวัดใจครามปุส',
-                  desc: 'เปิดประตูโพลมหาลัย 3 ด่านย่อย: เปิดทางรอด, ประมูลแทงข้าง และวัดใจขั้วตรงข้าม #1 & #8',
+                  title: 'THE DOORS OF DOOM',
+                  thaiTitle: 'THE DOORS OF DOOM',
+                  desc: 'เปิดประตูโพล 3 ด่านย่อย: Snake Draft 2 บาน, ประมูลแทงข้าง (+700 ฿) และวัดใจขั้วตรงข้าม #1 & #N',
                   bg: 'bg-[#b45309]',
                 },
                 {
@@ -632,6 +632,29 @@ export const ProjectorDisplay: React.FC = () => {
                 </button>
               ))}
             </div>
+
+            {/* World Map Bottom Team Status Bar: Only Team Name, Icon & Aligned ฿ Balance (No Shields) */}
+            <div className="max-w-6xl w-full mx-auto mt-4 rounded-2xl bg-slate-950/90 border-2 border-amber-500/50 p-3 shadow-xl">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {TEAM_ORDER.map((tid) => {
+                  const t = teams[tid];
+                  return (
+                    <div
+                      key={tid}
+                      className="flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-2xl shrink-0">{t.icon}</span>
+                        <span className="font-extrabold text-sm text-white truncate">{t.name}</span>
+                      </div>
+                      <span className="font-mono font-black text-lg text-amber-300 tabular-nums text-right shrink-0">
+                        {t.coins.toLocaleString()} ฿
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
 
@@ -652,41 +675,99 @@ export const ProjectorDisplay: React.FC = () => {
         </div>
 
         {/* ==========================================================
-            GAME 1 SPECIAL: THE 8 DOORS OF KRAMPUS (Persistent 2x4 Board + 3 Sub-Rounds)
+            GAME 1 SPECIAL: THE DOORS OF DOOM (8-12 Doors Board + 3 Sub-Rounds)
         ========================================================== */}
-        {isEightDoorsGame && (
+        {isEightDoorsGame && (() => {
+          const suggested = getSuggestedSafeRange(round.choiceCount, subRound);
+          const safeMin = round.safeRankMin ?? suggested.min;
+          const safeMax = round.safeRankMax ?? suggested.max;
+          const snakeOrder = round.snakeDraftOrder || [];
+          const snakeIdx = round.snakeDraftIndex ?? 0;
+          const currentTurnTid =
+            subRound === 'SUB1_SURVIVAL' && round.status === 'ACTIVE' && snakeIdx < snakeOrder.length
+              ? snakeOrder[snakeIdx]
+              : null;
+
+          // Live Auction Leader
+          let liveTopBid = 0;
+          let liveTopTid: TeamId | null = null;
+          if (subRound === 'SUB2_AUCTION') {
+            for (const tid of TEAM_ORDER) {
+              const bid = Number(submissions[tid]?.value) || 0;
+              if (bid > liveTopBid) {
+                liveTopBid = bid;
+                liveTopTid = tid;
+              }
+            }
+          }
+
+          return (
           <div className="flex-1 flex flex-col justify-between gap-4">
-            {/* Persistent 2x4 8-Door Board */}
+            {/* Live Sub-Round Status Banner (Snake Draft Turn / Auction Live Leader) */}
+            {subRound === 'SUB1_SURVIVAL' && snakeOrder.length > 0 && (
+              <div className="rounded-2xl bg-slate-900/95 border-2 border-amber-400/70 px-5 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+                <div className="flex items-center gap-2.5">
+                  <span className="px-2.5 py-0.5 rounded-lg bg-amber-400 text-slate-950 font-mono font-black text-xs">
+                    SNAKE DRAFT • คิว {Math.min(snakeIdx + 1, snakeOrder.length)}/{snakeOrder.length}
+                  </span>
+                  {currentTurnTid ? (
+                    <span className="text-base md:text-lg font-black text-white">
+                      🎯 ตาของทีม: <span className="text-amber-300">{teams[currentTurnTid].icon} {teams[currentTurnTid].name}</span>
+                    </span>
+                  ) : (
+                    <span className="text-base md:text-lg font-black text-emerald-300">
+                      ✅ จบรอบ Snake Draft แล้ว!
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs md:text-sm font-bold text-slate-300">
+                  โซนปลอดภัย: อันดับ <span className="text-emerald-300 font-black">#{safeMin} – #{safeMax}</span>
+                </div>
+              </div>
+            )}
+
+            {subRound === 'SUB2_AUCTION' && (
+              <div className="rounded-2xl bg-amber-950/70 border-2 border-amber-400 px-5 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+                <div className="flex items-center gap-2.5">
+                  <Gavel className="w-5 h-5 text-amber-300 shrink-0" />
+                  <span className="text-base md:text-lg font-black text-white">
+                    {liveTopTid
+                      ? `👑 ผู้นำประมูลล่าสุด: ${teams[liveTopTid].icon} ${teams[liveTopTid].name} (${liveTopBid.toLocaleString()} ฿)`
+                      : '⏳ ยังไม่มีทีมใดเสนอราคาประมูล (ระวัง Coward\'s Tax -100 ฿!)'}
+                  </span>
+                </div>
+                <div className="text-xs md:text-sm font-bold text-amber-200">
+                  เป้าหมายโซนปลอดภัย: อันดับ <span className="text-emerald-300 font-black">#{safeMin} – #{safeMax}</span> (+700 ฿)
+                </div>
+              </div>
+            )}
+
+            {/* Persistent 8-12 Door Board */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
-              {round.choices.slice(0, 8).map((choice) => {
+              {round.choices.slice(0, round.choiceCount).map((choice) => {
                 const isOpened = Boolean(choice.isOpened);
-                const rank = choice.rank ?? 8;
+                const rank = choice.rank ?? round.choiceCount;
+                const isSafe = rank >= safeMin && rank <= safeMax;
 
-                // Color coding when opened:
-                // Green = Rank 1-3, Yellow = Rank 4, Red = Rank 5-8
-                const openedColorClass =
-                  rank >= 1 && rank <= 3
-                    ? 'bg-gradient-to-br from-emerald-950 via-emerald-900/90 to-slate-950 border-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.45)]'
-                    : rank === 4
-                    ? 'bg-gradient-to-br from-amber-950 via-amber-800/85 to-slate-950 border-amber-400 shadow-[0_0_25px_rgba(245,158,11,0.4)]'
-                    : 'bg-gradient-to-br from-red-950 via-red-900/85 to-slate-950 border-red-500 shadow-[0_0_25px_rgba(239,68,68,0.4)]';
+                // Color coding when opened: Green = Safe Zone, Red = Danger Zone
+                const openedColorClass = isSafe
+                  ? 'bg-gradient-to-br from-emerald-950 via-emerald-900/90 to-slate-950 border-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.45)]'
+                  : 'bg-gradient-to-br from-red-950 via-red-900/85 to-slate-950 border-red-500 shadow-[0_0_25px_rgba(239,68,68,0.4)]';
 
-                const rankBadgeClass =
-                  rank >= 1 && rank <= 3
-                    ? 'bg-emerald-400 text-slate-950 border-white'
-                    : rank === 4
-                    ? 'bg-amber-400 text-slate-950 border-white'
-                    : 'bg-red-600 text-white border-red-300';
+                const rankBadgeClass = isSafe
+                  ? 'bg-emerald-400 text-slate-950 border-white'
+                  : 'bg-red-600 text-white border-red-300';
 
-                // Teams that picked this door in current sub-round (shown upon REVEALED)
+                // Teams that picked this door in current sub-round
                 const teamsWhoPicked =
-                  round.status === 'REVEALED'
+                  subRound === 'SUB1_SURVIVAL'
+                    ? (round.snakeDraftPicks || [])
+                        .filter((p) => p.doorKey === choice.key)
+                        .map((p) => p.teamId)
+                    : round.status === 'REVEALED'
                     ? TEAM_ORDER.filter((tid) => {
                         const sub = submissions[tid];
                         if (!sub) return false;
-                        if (subRound === 'SUB1_SURVIVAL') {
-                          return String(sub.value) === choice.key;
-                        }
                         if (subRound === 'SUB2_DOOR_AND_BET') {
                           return (
                             tid === round.auctionWinnerTeamId && String(sub.value) === choice.key
@@ -705,14 +786,14 @@ export const ProjectorDisplay: React.FC = () => {
                 return (
                   <div
                     key={choice.key}
-                    className={`relative rounded-2xl p-4 md:p-5 border-2 transition-all duration-500 min-h-[132px] flex flex-col justify-between ${
+                    className={`relative rounded-2xl p-4 md:p-5 border-2 transition-all duration-500 min-h-[124px] flex flex-col justify-between ${
                       isOpened
                         ? openedColorClass
                         : 'bg-slate-900/95 border-slate-700 hover:border-amber-500/60 shadow-lg'
                     }`}
                   >
                     {!isOpened ? (
-                      /* Unopened Door State: Big A-H + Large Clear Label */
+                      /* Unopened Door State: Big A-L + Large Clear Label */
                       <div className="flex items-center gap-4 my-auto">
                         <div className="w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-red-950 text-amber-300 border-2 border-amber-500/60 font-mono font-black text-3xl md:text-4xl flex items-center justify-center shrink-0 shadow-lg">
                           {choice.key}
@@ -721,13 +802,13 @@ export const ProjectorDisplay: React.FC = () => {
                           <div className="text-xs font-mono uppercase tracking-wider text-amber-400/90 font-bold">
                             DOOR {choice.key} • ประตูยังไม่เปิด
                           </div>
-                          <div className="text-xl md:text-2xl font-extrabold text-white leading-snug mt-0.5">
+                          <div className="text-lg md:text-xl font-extrabold text-white leading-snug mt-0.5">
                             {choice.label}
                           </div>
                         </div>
                       </div>
                     ) : (
-                      /* Opened Door State: Giant Rank #1-#8 in Center + Compact Option Label Below */
+                      /* Opened Door State: Giant Rank #1-#N in Center + Compact Option Label Below */
                       <div className="flex flex-col items-center justify-center text-center my-auto py-1">
                         <div className="w-full flex items-center justify-between text-xs font-mono font-bold mb-1">
                           <span className="px-2 py-0.5 rounded bg-black/50 text-amber-300 border border-white/15">
@@ -735,18 +816,14 @@ export const ProjectorDisplay: React.FC = () => {
                           </span>
                           <span
                             className={`px-2.5 py-0.5 rounded-full font-extrabold ${
-                              rank <= 3
+                              isSafe
                                 ? 'bg-emerald-500/30 text-emerald-200 border border-emerald-400/50'
-                                : rank === 4
-                                ? 'bg-amber-500/30 text-amber-200 border border-amber-400/50'
                                 : 'bg-red-500/30 text-red-200 border border-red-400/50'
                             }`}
                           >
-                            {rank <= 3
-                              ? '★ TOP 1-3 (รอด)'
-                              : rank === 4
-                              ? '⚡ อันดับ 4 (กลาง)'
-                              : '💀 อันดับ 5-8 (โซนอันตราย)'}
+                            {isSafe
+                              ? `★ โซนปลอดภัย (#${safeMin}-#${safeMax})`
+                              : '💀 โซนอันตราย'}
                           </span>
                         </div>
 
@@ -762,14 +839,14 @@ export const ProjectorDisplay: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Show which teams picked this door on Reveal */}
+                    {/* Show which teams picked this door */}
                     {teamsWhoPicked.length > 0 && (
                       <div className="mt-2 pt-2 border-t border-white/15 flex flex-wrap justify-center gap-1.5">
-                        {teamsWhoPicked.map((tid) => {
+                        {teamsWhoPicked.map((tid, pIdx) => {
                           const t = teams[tid];
                           return (
                             <span
-                              key={tid}
+                              key={`${tid}-${pIdx}`}
                               className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-black/70 border border-amber-400 text-xs font-extrabold text-amber-200"
                             >
                               <span>{t.icon}</span>
@@ -784,7 +861,7 @@ export const ProjectorDisplay: React.FC = () => {
               })}
             </div>
 
-            {/* 4 Team Status Cards for The 8 Doors of Krampus (Adapts to Sub-Round 1 / 2 / 3) */}
+            {/* 4 Team Status Cards for THE DOORS OF DOOM (Adapts to Sub-Round 1 / 2 / 3) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {TEAM_ORDER.map((tid) => {
                 const team = teams[tid];
@@ -798,13 +875,16 @@ export const ProjectorDisplay: React.FC = () => {
                   round.subRound2LockedTeamId === tid;
                 const isAuctionWinner =
                   subRound === 'SUB2_DOOR_AND_BET' && round.auctionWinnerTeamId === tid;
+                const isCurrentSnakeTurn = currentTurnTid === tid;
+                const isLiveAuctionLeader = subRound === 'SUB2_AUCTION' && liveTopTid === tid;
+                const teamSnakePicks = (round.snakeDraftPicks || []).filter((p) => p.teamId === tid);
 
                 return (
                   <div
                     key={tid}
                     className={`rounded-2xl p-4 border-2 transition-all duration-300 flex flex-col justify-between ${
-                      isAuctionWinner
-                        ? 'bg-gradient-to-b from-amber-950/90 to-slate-950 border-amber-400 shadow-[0_0_25px_rgba(234,179,8,0.4)]'
+                      isAuctionWinner || isCurrentSnakeTurn || isLiveAuctionLeader
+                        ? 'bg-gradient-to-b from-amber-950/90 to-slate-950 border-amber-400 shadow-[0_0_25px_rgba(234,179,8,0.45)]'
                         : hasSubmitted
                         ? 'bg-slate-900/95 border-amber-400/80 shadow-[0_0_15px_rgba(234,179,8,0.2)]'
                         : 'bg-slate-900/80 border-slate-800'
@@ -816,7 +896,7 @@ export const ProjectorDisplay: React.FC = () => {
                         <span className="text-2xl shrink-0">{team.icon}</span>
                         <div className="truncate">
                           <div className="text-xs font-mono uppercase text-amber-400 font-bold">
-                            TEAM {team.number}
+                            TEAM {team.number} • {team.coins.toLocaleString()} ฿
                           </div>
                           <div className="font-extrabold text-sm md:text-base text-white truncate">
                             {team.name}
@@ -842,107 +922,70 @@ export const ProjectorDisplay: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Sub-Round 1: Pick 1 Door (Find Rank 1-3) */}
+                    {/* Sub-Round 1: Snake Draft Picks */}
                     {subRound === 'SUB1_SURVIVAL' && (
-                      <div>
-                        {!isRevealed ? (
-                          <div className="py-3 px-3 rounded-xl bg-black/50 border border-white/10 text-center">
-                            {hasSubmitted ? (
-                              <div className="flex items-center justify-center gap-2 text-emerald-300 font-extrabold text-lg">
-                                <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0" />
-                                <span>เลือกประตูแล้ว!</span>
-                              </div>
-                            ) : (
-                              <div className="flex items-center justify-center gap-2 text-slate-200 font-bold text-lg animate-pulse">
-                                <Clock className="w-5 h-5 text-amber-400 shrink-0" />
-                                <span>กำลังเลือกประตู A-H...</span>
-                              </div>
-                            )}
+                      <div className="py-2.5 px-3 rounded-xl bg-black/55 border border-white/15 text-center space-y-1">
+                        {isCurrentSnakeTurn ? (
+                          <div className="text-amber-300 font-black text-base animate-pulse">
+                            🎯 กำลังเลือกประตู...
+                          </div>
+                        ) : teamSnakePicks.length > 0 ? (
+                          <div className="flex flex-wrap items-center justify-center gap-1.5">
+                            {teamSnakePicks.map((p, i) => (
+                              <span
+                                key={i}
+                                className={`px-2.5 py-0.5 rounded-lg text-xs font-black ${
+                                  p.isSafe
+                                    ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-400/50'
+                                    : 'bg-red-500/25 text-red-300 border border-red-400/50'
+                                }`}
+                              >
+                                {p.doorKey} (#{p.rank})
+                              </span>
+                            ))}
                           </div>
                         ) : (
-                          <div className="py-2.5 px-3 rounded-xl bg-black/60 border border-white/15 flex items-center justify-between">
-                            {hasSubmitted ? (
-                              (() => {
-                                const key = String(sub!.value);
-                                const door = round.choices.find((c) => c.key === key);
-                                const rank = door?.rank ?? 8;
-                                const isSafe = rank >= 1 && rank <= 3;
-                                return (
-                                  <>
-                                    <div>
-                                      <div className="text-xs text-slate-300 font-bold">
-                                        เลือกประตู {key} (อันดับ #{rank})
-                                      </div>
-                                      <div
-                                        className={`text-sm font-extrabold ${
-                                          isSafe ? 'text-emerald-300' : 'text-red-300'
-                                        }`}
-                                      >
-                                        {isSafe ? '+300 เหรียญ 🪙' : 'เสียเกราะเด็กดี -1 🛡️'}
-                                      </div>
-                                    </div>
-                                    <div
-                                      className={`w-12 h-12 rounded-xl font-mono font-black text-2xl flex items-center justify-center ${
-                                        isSafe
-                                          ? 'bg-emerald-400 text-slate-950'
-                                          : 'bg-red-600 text-white'
-                                      }`}
-                                    >
-                                      {key}
-                                    </div>
-                                  </>
-                                );
-                              })()
-                            ) : (
-                              <div className="w-full text-center text-red-400 font-bold py-2">
-                                ไม่ได้เลือกประตู!
-                              </div>
-                            )}
-                          </div>
+                          <div className="text-slate-400 font-bold text-sm">รอคิว Snake Draft...</div>
                         )}
                       </div>
                     )}
 
-                    {/* Sub-Round 2 Phase 1: Auction Bidding */}
+                    {/* Sub-Round 2 Phase 1: Live Auction Bidding */}
                     {subRound === 'SUB2_AUCTION' && (
                       <div className="py-3 px-3 rounded-xl bg-black/50 border border-white/10 text-center">
                         {isLockedInAuction ? (
-                          <div className="text-amber-300 font-extrabold text-base">
+                          <div className="text-amber-300 font-extrabold text-sm">
                             🔒 ชนะประมูลรอบ 2.1 แล้ว (ล็อกรอบ 2.2)
                           </div>
-                        ) : !isRevealed ? (
-                          hasSubmitted ? (
-                            <div className="flex items-center justify-center gap-2 text-amber-300 font-extrabold text-lg">
-                              <Gavel className="w-5 h-5 text-emerald-400 shrink-0" />
-                              <span>ส่งยอดบิดประมูลแล้ว!</span>
-                            </div>
-                          ) : (
-                            <div className="text-slate-200 font-bold text-lg animate-pulse">
-                              กำลังบิดเหรียญประมูล...
-                            </div>
-                          )
                         ) : hasSubmitted ? (
                           <div>
-                            <div className="text-xs text-slate-300">ยอดบิดประมูล:</div>
-                            <div className="text-3xl font-mono font-black text-amber-300">
-                              {Number(sub!.value).toLocaleString()} 🪙
+                            <div className="text-xs text-slate-300 flex items-center justify-center gap-1">
+                              {isLiveAuctionLeader && <span>👑</span>}
+                              <span>ยอดบิดปัจจุบัน:</span>
+                            </div>
+                            <div className="text-3xl font-mono font-black text-amber-300 tabular-nums">
+                              {Number(sub!.value).toLocaleString()} ฿
                             </div>
                           </div>
                         ) : (
-                          <div className="text-slate-300 font-bold py-1">ไม่ร่วมประมูล (0 🪙)</div>
+                          <div className="text-slate-300 font-bold text-base animate-pulse">
+                            กำลังตัดสินใจบิด... (0 ฿)
+                          </div>
                         )}
                       </div>
                     )}
 
-                    {/* Sub-Round 2 Phase 2: Winner Picks Door & 3 Teams Side Bet */}
+                    {/* Sub-Round 2 Phase 2: Winner Picks Door & Side Bet */}
                     {subRound === 'SUB2_DOOR_AND_BET' && (
                       <div className="py-2.5 px-3 rounded-xl bg-black/55 border border-white/15 text-center">
                         {isAuctionWinner ? (
                           !isRevealed ? (
-                            <div className="text-amber-300 font-extrabold text-base">
+                            <div className="text-amber-300 font-extrabold text-sm">
                               {hasSubmitted
                                 ? '👑 เลือกประตูแล้ว! รอเปิดพร้อมกัน'
-                                : `👑 ชนะประมูล (${round.auctionWinningBid}🪙) • กำลังเลือกประตู...`}
+                                : round.cowardFreePick
+                                ? '⚠️ สุ่มเปิดฟรี (Coward\'s Tax • ได้ 0 ฿)...'
+                                : `👑 ชนะประมูล (${round.auctionWinningBid} ฿) • กำลังเลือกประตู...`}
                             </div>
                           ) : (
                             <div className="text-amber-300 font-extrabold text-lg">
@@ -974,18 +1017,18 @@ export const ProjectorDisplay: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Sub-Round 3: Polarity (#1 & #8 Dual Selection) */}
+                    {/* Sub-Round 3: Polarity (#1 & #N Dual Selection) */}
                     {subRound === 'SUB3_POLARITY' && (
                       <div className="py-2.5 px-3 rounded-xl bg-black/55 border border-white/15 text-center">
                         {!isRevealed ? (
                           hasSubmitted ? (
                             <div className="flex items-center justify-center gap-2 text-emerald-300 font-extrabold text-lg">
                               <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                              <span>ล็อก 2 ประตู (#1 & #8) แล้ว!</span>
+                              <span>ล็อก 2 ประตู (#1 & #{round.choiceCount}) แล้ว!</span>
                             </div>
                           ) : (
                             <div className="text-slate-200 font-bold text-base animate-pulse">
-                              กำลังเลือกประตู #1 และ #8...
+                              กำลังเลือกประตู #1 และ #{round.choiceCount}...
                             </div>
                           )
                         ) : hasSubmitted ? (
@@ -997,7 +1040,9 @@ export const ProjectorDisplay: React.FC = () => {
                               </div>
                             </div>
                             <div className="px-3 py-1 rounded-xl bg-red-950 border border-red-400">
-                              <div className="text-[11px] text-red-300 font-bold">ทาย #8</div>
+                              <div className="text-[11px] text-red-300 font-bold">
+                                ทาย #{round.choiceCount}
+                              </div>
                               <div className="text-2xl font-mono font-black text-white">
                                 {String(sub!.secondaryValue || '?')}
                               </div>
@@ -1013,7 +1058,8 @@ export const ProjectorDisplay: React.FC = () => {
               })}
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* ==========================================================
             STANDARD MODE A: MULTIPLE CHOICE (e.g. Trivia Murder Party)
@@ -1648,8 +1694,9 @@ export const ProjectorDisplay: React.FC = () => {
       </main>
 
       {/* ============================================================
-          3. PERSISTENT REALTIME LEADERBOARD & ECONOMY FOOTER
+          3. PERSISTENT REALTIME LEADERBOARD & ECONOMY FOOTER (Hidden on LOBBY & WORLD_MAP)
       ============================================================ */}
+      {round.gameStage !== 'LOBBY' && round.gameStage !== 'WORLD_MAP' && (
       <footer className="relative z-20 bg-slate-950/95 border-t-2 border-amber-500/40 px-6 py-3.5 backdrop-blur-md">
         <div className="max-w-[1800px] mx-auto flex flex-col xl:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3 shrink-0">
@@ -1746,6 +1793,7 @@ export const ProjectorDisplay: React.FC = () => {
           </div>
         </div>
       </footer>
+      )}
 
       {/* ============================================================
           4. FULLSCREEN LEADERBOARD / FINALE CEREMONY OVERLAY

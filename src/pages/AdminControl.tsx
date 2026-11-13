@@ -22,9 +22,11 @@ import {
   Gavel,
   DoorOpen,
   Shield,
+  Shuffle,
+  Map,
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
-import { TEAM_ORDER } from '../data/initialData';
+import { TEAM_ORDER, getSuggestedSafeRange } from '../data/initialData';
 import { GameStage, TeamId } from '../types/game';
 import { CountdownTimer } from '../components/CountdownTimer';
 import { QrCodeModal } from '../components/QrCodeModal';
@@ -41,6 +43,8 @@ export const AdminControl: React.FC = () => {
     updateRoundConfig,
     updateChoiceOption,
     toggleDoorOpened,
+    shuffleDoors,
+    finishEightDoorsGame,
     switchEightDoorsSubRound,
     resolveSubRound2Auction,
     startTimer,
@@ -627,11 +631,7 @@ export const AdminControl: React.FC = () => {
                     </button>
 
                     <button
-                      onClick={() =>
-                        switchEightDoorsSubRound('SUB3_POLARITY', {
-                          revealRemaining2To4: true,
-                        })
-                      }
+                      onClick={() => switchEightDoorsSubRound('SUB3_POLARITY')}
                       className={`p-2.5 rounded-xl border text-left transition ${
                         subRound === 'SUB3_POLARITY'
                           ? 'bg-purple-900/70 border-purple-400 text-white shadow'
@@ -639,12 +639,25 @@ export const AdminControl: React.FC = () => {
                       }`}
                     >
                       <div className="text-[11px] font-mono font-black text-purple-300">
-                        ด่านย่อยที่ 3
+                        ด่านย่อยที่ 3 (ข้อ 3)
                       </div>
-                      <div className="font-extrabold text-xs">วัดใจขั้วตรงข้าม (#1 & #8)</div>
+                      <div className="font-extrabold text-xs">
+                        วัดใจขั้วตรงข้าม (#1 & #{round.choiceCount})
+                      </div>
                       <div className="text-[10px] text-slate-300 mt-0.5">
-                        เปิด #2-#4 ที่เหลือ & ทาย 2 ช่อง
+                        โหลดคำถามข้อ 3 & ปิดประตูใหม่
                       </div>
+                    </button>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={finishEightDoorsGame}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40 font-bold text-xs flex items-center gap-1.5 transition"
+                    >
+                      <Map className="w-3.5 h-3.5" />
+                      <span>จบเกมที่ 1 (ปิดเกราะเด็กดี) ➔ กลับ Mansion World Map</span>
                     </button>
                   </div>
 
@@ -652,7 +665,7 @@ export const AdminControl: React.FC = () => {
                   {subRound === 'SUB2_AUCTION' && (
                     <div className="p-3 rounded-xl bg-amber-950/60 border border-amber-400/60 flex flex-wrap items-center justify-between gap-3">
                       <div className="text-xs text-amber-200 font-bold">
-                        🔨 เมื่อทั้ง 4 ทีมบิดเหรียญเสร็จแล้ว กดปุ่มนี้เพื่อหักเงินผู้ชนะประมูลสูงสุด และสลับจอมือถือไปหน้า &ldquo;เลือกประตู & แทงข้าง&rdquo;:
+                        🔨 เมื่อทีมบิดเสร็จแล้ว กดปุ่มนี้เพื่อหักเงินผู้ชนะสูงสุด (หรือคิด Coward&apos;s Tax -100 ฿ หากไม่มีคนบิด) และไปหน้าเลือกประตู/แทงข้าง:
                       </div>
                       <button
                         onClick={() => {
@@ -671,9 +684,10 @@ export const AdminControl: React.FC = () => {
                   {subRound === 'SUB2_DOOR_AND_BET' && round.auctionWinnerTeamId && (
                     <div className="p-3 rounded-xl bg-purple-950/60 border border-purple-400/60 flex flex-wrap items-center justify-between gap-2 text-xs">
                       <span className="font-bold text-purple-200">
-                        👑 ผู้ชนะประมูลรอบนี้: {teams[round.auctionWinnerTeamId].icon}{' '}
-                        {teams[round.auctionWinnerTeamId].name} (จ่าย {round.auctionWinningBid} 🪙)
-                        — กำลังเลือกประตู 1 บาน ส่วนอีก 3 ทีมกำลังแทงข้าง (รอด/พัง)
+                        {round.cowardFreePick
+                          ? `⚠️ Coward's Tax: สุ่มให้ ${teams[round.auctionWinnerTeamId].icon} ${teams[round.auctionWinnerTeamId].name} เปิดประตูฟรี (ได้ 0 ฿)`
+                          : `👑 ผู้ชนะประมูลรอบนี้: ${teams[round.auctionWinnerTeamId].icon} ${teams[round.auctionWinnerTeamId].name} (จ่าย ${round.auctionWinningBid} ฿)`}{' '}
+                        — กำลังเลือกประตู 1 บาน ส่วนทีมอื่นกำลังแทงข้าง (รอด/พัง)
                       </span>
                     </div>
                   )}
@@ -852,12 +866,14 @@ export const AdminControl: React.FC = () => {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs font-bold text-amber-300">
                       {isEightDoorsGame
-                        ? 'จัดการประตูทั้ง 8 บาน (ตั้งเลขอันดับ #1-#8 และกดเปิด/ปิดประตูบนกระดานได้ตลอดเวลา):'
+                        ? `จัดการประตู ${round.choiceCount} บาน (A–${round.choices[round.choiceCount - 1]?.key || 'L'}) • ล็อกอันดับห้ามซ้ำ:`
                         : 'ตัวเลือกช้อยส์ (คลิกปุ่ม "✓ ถูก" หรือ "💀 กับดัก" เพื่อกำหนดเฉลย):'}
                     </span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs text-slate-400">จำนวนช้อยส์:</span>
-                      {[4, 5, 6, 7, 8].map((cnt) => (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs text-slate-400">
+                        {isEightDoorsGame ? 'จำนวนประตู:' : 'จำนวนช้อยส์:'}
+                      </span>
+                      {(isEightDoorsGame ? [8, 9, 10, 11, 12] : [4, 5, 6, 7, 8]).map((cnt) => (
                         <button
                           key={cnt}
                           onClick={() => updateRoundConfig({ choiceCount: cnt })}
@@ -870,11 +886,81 @@ export const AdminControl: React.FC = () => {
                           {cnt}
                         </button>
                       ))}
+                      {isEightDoorsGame && (
+                        <button
+                          type="button"
+                          onClick={shuffleDoors}
+                          className="ml-2 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1 transition"
+                          title="สุ่มสลับข้อความตัวเลือกและอันดับไปยังประตู A-L ใหม่"
+                        >
+                          <Shuffle className="w-3.5 h-3.5" />
+                          <span>สุ่มสลับประตู (Shuffle)</span>
+                        </button>
+                      )}
                     </div>
                   </div>
 
+                  {isEightDoorsGame && (() => {
+                    const suggested = getSuggestedSafeRange(round.choiceCount, round.eightDoorsSubRound);
+                    const safeMin = round.safeRankMin ?? suggested.min;
+                    const safeMax = round.safeRankMax ?? suggested.max;
+                    return (
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-xs">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-emerald-300">
+                            🛡️ โซนปลอดภัย (Auto-Suggest: #{suggested.min}–#{suggested.max}):
+                          </span>
+                          <label className="text-slate-300">อันดับ</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={round.choiceCount}
+                            value={safeMin}
+                            onChange={(e) =>
+                              updateRoundConfig({ safeRankMin: Math.max(1, Number(e.target.value)) })
+                            }
+                            className="w-14 px-2 py-0.5 rounded bg-slate-950 border border-slate-700 font-mono text-emerald-300 font-bold text-center"
+                          />
+                          <span className="text-slate-400">ถึง</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={round.choiceCount}
+                            value={safeMax}
+                            onChange={(e) =>
+                              updateRoundConfig({
+                                safeRankMax: Math.min(round.choiceCount, Number(e.target.value)),
+                              })
+                            }
+                            className="w-14 px-2 py-0.5 rounded bg-slate-950 border border-slate-700 font-mono text-emerald-300 font-bold text-center"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateRoundConfig({ safeRankMin: suggested.min, safeRankMax: suggested.max })
+                          }
+                          className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-emerald-300 font-semibold"
+                        >
+                          ใช้ค่าแนะนำ (#{suggested.min}–#{suggested.max})
+                        </button>
+                      </div>
+                    );
+                  })()}
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    {round.choices.slice(0, round.choiceCount).map((choice) => (
+                    {round.choices.slice(0, round.choiceCount).map((choice) => {
+                      const usedRanksElsewhere = new Set(
+                        round.choices
+                          .slice(0, round.choiceCount)
+                          .filter((c) => c.key !== choice.key)
+                          .map((c) => c.rank)
+                      );
+                      const suggested = getSuggestedSafeRange(round.choiceCount, round.eightDoorsSubRound);
+                      const safeMin = round.safeRankMin ?? suggested.min;
+                      const safeMax = round.safeRankMax ?? suggested.max;
+
+                      return (
                       <div
                         key={choice.key}
                         className="flex items-center gap-2 p-2 rounded-xl bg-slate-950 border border-slate-800"
@@ -897,18 +983,23 @@ export const AdminControl: React.FC = () => {
                               value={choice.rank ?? 1}
                               onChange={(e) => {
                                 const newRank = Number(e.target.value);
+                                const isSafe = newRank >= safeMin && newRank <= safeMax;
                                 updateChoiceOption(choice.key, {
                                   rank: newRank,
-                                  isCorrect: newRank <= 3,
-                                  isTrap: newRank >= 4,
+                                  isCorrect: isSafe,
+                                  isTrap: !isSafe,
                                 });
                               }}
                               className="px-1.5 py-1 rounded bg-slate-900 border border-slate-700 font-mono text-xs font-bold text-amber-300"
-                              title="เลขอันดับผลโพล #1 - #8"
+                              title={`เลขอันดับผลโพล #1 - #${round.choiceCount} (ล็อกห้ามซ้ำ)`}
                             >
-                              {[1, 2, 3, 4, 5, 6, 7, 8].map((rNum) => (
-                                <option key={rNum} value={rNum}>
-                                  #{rNum}
+                              {Array.from({ length: round.choiceCount }, (_, i) => i + 1).map((rNum) => (
+                                <option
+                                  key={rNum}
+                                  value={rNum}
+                                  disabled={usedRanksElsewhere.has(rNum)}
+                                >
+                                  #{rNum} {usedRanksElsewhere.has(rNum) ? '(ซ้ำ)' : ''}
                                 </option>
                               ))}
                             </select>
@@ -962,7 +1053,8 @@ export const AdminControl: React.FC = () => {
                           </>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

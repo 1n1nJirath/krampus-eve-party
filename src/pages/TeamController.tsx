@@ -13,12 +13,12 @@ import {
   Skull,
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
-import { TEAM_ORDER } from '../data/initialData';
+import { TEAM_ORDER, getSuggestedSafeRange } from '../data/initialData';
 import { TeamId } from '../types/game';
 import { CountdownTimer } from '../components/CountdownTimer';
 
 export const TeamController: React.FC = () => {
-  const { state, registerTeam, submitTeamAnswer, pressTeamBuzzer } = useGame();
+  const { state, registerTeam, submitTeamAnswer, pressTeamBuzzer, bailoutNiceShield, submitSnakeDraftPick } = useGame();
   const { round, teams, submissions, buzzerQueue } = state;
 
   // Read ?team=1..4 from URL query parameter or localStorage
@@ -486,9 +486,53 @@ export const TeamController: React.FC = () => {
           )}
 
         {/* ==========================================================
-            GAME 1: THE 8 DOORS OF KRAMPUS (3 SUB-ROUNDS ON MOBILE)
+            GAME 1: THE DOORS OF DOOM (3 SUB-ROUNDS ON MOBILE + NAUGHTY LIST BAILOUT)
         ========================================================== */}
-        {round.status !== 'IDLE' && isEightDoorsGame && !mySubmission && (
+        {round.status !== 'IDLE' && isEightDoorsGame && team.shields <= 0 && (
+          <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-gradient-to-b from-red-950 via-red-900/80 to-black border-4 border-red-500 p-6 text-center shadow-[0_0_40px_rgba(239,68,68,0.5)] gap-4">
+            <div className="w-20 h-20 rounded-full bg-red-600/30 border-2 border-red-400 flex items-center justify-center text-5xl">
+              👹
+            </div>
+            <div>
+              <span className="px-3 py-1 rounded-full bg-red-600 text-white text-xs font-black uppercase tracking-widest">
+                NAUGHTY LIST • เกราะเด็กดีหมด!
+              </span>
+              <h3 className="text-2xl font-black text-white mt-2">
+                ทีมของคุณติดบัญชีดำ (0 🛡️)
+              </h3>
+              <p className="text-sm text-red-200 mt-1">
+                ปุ่มเล่นเกมถูกล็อกชั่วคราว! ต้องจ่ายค่าไถ่เกราะเด็กดี +2 ดวง (สามารถติดลบได้) เพื่อกลับเข้าเล่นต่อ
+              </p>
+            </div>
+            <div className="px-4 py-2 rounded-xl bg-black/60 border border-red-500/40 text-xs font-mono text-amber-300">
+              ยอดเงินปัจจุบัน: {team.coins.toLocaleString()} ฿ → หลังไถ่: {(team.coins - 500).toLocaleString()} ฿
+            </div>
+            <button
+              type="button"
+              onClick={() => bailoutNiceShield(selectedTeamId)}
+              className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-black text-lg shadow-xl active:scale-95 transition"
+            >
+              🛡️ ไถ่เกราะเด็กดี +2 ดวง (ราคา 500 ฿)
+            </button>
+          </div>
+        )}
+
+        {round.status !== 'IDLE' && isEightDoorsGame && team.shields > 0 && !mySubmission && (() => {
+          const suggested = getSuggestedSafeRange(round.choiceCount, subRound);
+          const safeMin = round.safeRankMin ?? suggested.min;
+          const safeMax = round.safeRankMax ?? suggested.max;
+          const snakeOrder = round.snakeDraftOrder || [];
+          const snakeIdx = round.snakeDraftIndex ?? 0;
+          const currentTurnTid = snakeIdx < snakeOrder.length ? snakeOrder[snakeIdx] : null;
+          const isMySnakeTurn = currentTurnTid === selectedTeamId;
+          const highestBid = TEAM_ORDER.reduce(
+            (max, tid) => Math.max(max, Number(submissions[tid]?.value) || 0),
+            0
+          );
+          const minNextBid = highestBid > 0 ? highestBid + 50 : 50;
+          const cannotAffordBid = team.coins < minNextBid;
+
+          return (
           <div className="flex-1 flex flex-col justify-between gap-3">
             {!isRoundActive ? (
               <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-red-950/40 border-2 border-red-600/60 p-6 text-center">
@@ -496,13 +540,26 @@ export const TeamController: React.FC = () => {
                 <h3 className="text-xl font-extrabold text-white">ปิดรับคำตอบแล้ว!</h3>
               </div>
             ) : subRound === 'SUB1_SURVIVAL' ? (
-              /* ด่านย่อยที่ 1: เปิดทางรอด (เลือก 1 ประตู A-H ค้นหาอันดับ 1-3) */
+              /* ด่านย่อยที่ 1: Snake Draft (สลับคิวเปิดทันที ทีมละ 2 บาน) */
+              !isMySnakeTurn ? (
+                <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-slate-900/95 border-2 border-amber-500/40 p-6 text-center gap-3">
+                  <div className="text-4xl animate-pulse">⏳</div>
+                  <h3 className="text-xl font-black text-amber-300">
+                    {currentTurnTid
+                      ? `รอคิวของ ${teams[currentTurnTid].icon} ${teams[currentTurnTid].name}`
+                      : 'จบรอบ Snake Draft แล้ว!'}
+                  </h3>
+                  <p className="text-xs text-slate-300">
+                    คิวที่ {Math.min(snakeIdx + 1, snakeOrder.length)}/{snakeOrder.length} • โซนปลอดภัย: อันดับ #{safeMin}–#{safeMax} (+300 ฿/บาน, ถูก 2 บานรับ +800 ฿)
+                  </p>
+                </div>
+              ) : (
               <>
-                <div className="rounded-xl bg-emerald-950/60 border border-emerald-500/50 px-3 py-2 text-center text-xs font-bold text-emerald-200">
-                  🛡️ ด่านย่อยที่ 1: เลือกประตู A - H เพื่อหาอันดับ 1, 2 หรือ 3 (+300🪙 / พลาด -1🛡️)
+                <div className="rounded-xl bg-emerald-950/70 border-2 border-emerald-400 px-3 py-2 text-center text-xs font-black text-emerald-200">
+                  🎯 ตาคุณเลือกแล้ว! (คิว {snakeIdx + 1}/{snakeOrder.length}) — หาอันดับ #{safeMin}–#{safeMax} (+300 ฿ / ถูก 2 บาน +800 ฿)
                 </div>
                 <div className="grid grid-cols-2 gap-2.5">
-                  {round.choices.slice(0, 8).map((choice) => {
+                  {round.choices.slice(0, round.choiceCount).map((choice) => {
                     const isSelected = draftChoice === choice.key;
                     return (
                       <button
@@ -538,7 +595,12 @@ export const TeamController: React.FC = () => {
                 <button
                   type="button"
                   disabled={!draftChoice}
-                  onClick={() => draftChoice && submitTeamAnswer(selectedTeamId, draftChoice)}
+                  onClick={() => {
+                    if (draftChoice) {
+                      submitSnakeDraftPick(selectedTeamId, draftChoice);
+                      setDraftChoice(null);
+                    }
+                  }}
                   className={`w-full py-4 rounded-2xl font-black text-lg uppercase tracking-wider transition-all shadow-xl ${
                     draftChoice
                       ? 'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 shadow-[0_0_25px_rgba(234,179,8,0.5)] active:scale-95'
@@ -546,12 +608,13 @@ export const TeamController: React.FC = () => {
                   }`}
                 >
                   {draftChoice
-                    ? `ยืนยันเลือกประตู [ ${draftChoice} ]`
-                    : 'กรุณาแตะเลือกประตู A - H'}
+                    ? `ยืนยันเปิดประตู [ ${draftChoice} ] ทันที!`
+                    : 'กรุณาแตะเลือกประตูที่ยังไม่เปิด'}
                 </button>
               </>
+              )
             ) : subRound === 'SUB2_AUCTION' ? (
-              /* ด่านย่อยที่ 2 Phase 1: ประมูลชิงสิทธิ์ (บิดทีละ 50 เหรียญ, ล็อกผู้ชนะรอบ 2.1 ในรอบ 2.2) */
+              /* ด่านย่อยที่ 2 Phase 1: ประมูลชิงสิทธิ์ (Strict Balance Cap) */
               round.auctionIteration === 2 && round.subRound2LockedTeamId === selectedTeamId ? (
                 <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-amber-950/50 border-2 border-amber-400 p-6 text-center my-2">
                   <Lock className="w-14 h-14 text-amber-300 mb-3" />
@@ -559,21 +622,21 @@ export const TeamController: React.FC = () => {
                     คุณชนะการประมูลในรอบ 2.1 ไปแล้ว!
                   </h3>
                   <p className="text-sm text-amber-200 mt-2">
-                    ตามกติกา ปุ่มประมูลของทีมคุณจะถูกล็อกในรอบ 2.2 เพื่อให้ 3 ทีมที่เหลือประมูลแข่งกัน และคุณจะได้ร่วมแทงข้างในขั้นตอนถัดไป!
+                    ตามกติกา ปุ่มประมูลของทีมคุณจะถูกล็อกในรอบ 2.2 เพื่อให้ทีมที่เหลือประมูลแข่งกัน และคุณจะได้ร่วมแทงข้างในขั้นตอนถัดไป!
                   </p>
                 </div>
               ) : (
                 <>
                   <div className="rounded-xl bg-amber-950/60 border border-amber-500/50 px-3 py-2 text-center text-xs font-bold text-amber-200">
-                    🔨 ด่านย่อยที่ 2.{round.auctionIteration || 1} (ประมูลชิงสิทธิ์): บิดเงินเพิ่มทีละ 50🪙 ทีมที่บิดสูงสุดจะได้สิทธิ์เปิดประตูหาอันดับ 2-4!
+                    🔨 รอบ 2.{round.auctionIteration || 1} (ประมูลชิงสิทธิ์): หาอันดับ #{safeMin}–#{safeMax} (+700 ฿) • บิดขั้นต่ำถัดไป {minNextBid.toLocaleString()} ฿
                   </div>
 
                   <div className="rounded-2xl bg-black/80 border-2 border-amber-500/60 p-4 text-center">
                     <div className="text-xs text-slate-300">
-                      ยอดบิดประมูลของคุณ (มีเหรียญอยู่ {team.coins.toLocaleString()} 🪙)
+                      ยอดบิดประมูลของคุณ (เงินคงเหลือ {team.coins.toLocaleString()} ฿)
                     </div>
                     <div className="text-5xl font-mono font-black text-amber-300 my-2">
-                      {draftAuctionBid.toLocaleString()} 🪙
+                      {draftAuctionBid.toLocaleString()} ฿
                     </div>
                     <div className="flex items-center justify-center gap-3 mt-2">
                       <button
@@ -583,18 +646,19 @@ export const TeamController: React.FC = () => {
                         }
                         className="px-5 py-2.5 rounded-xl bg-red-900/70 hover:bg-red-800 border border-red-500 font-mono font-black text-lg text-white active:scale-95"
                       >
-                        -50 🪙
+                        -50 ฿
                       </button>
                       <button
                         type="button"
+                        disabled={cannotAffordBid}
                         onClick={() =>
                           setDraftAuctionBid((prev) =>
                             Math.min(Math.max(0, Math.floor(team.coins / 50) * 50), prev + 50)
                           )
                         }
-                        className="px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 border border-emerald-400 font-mono font-black text-lg text-white active:scale-95"
+                        className="px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 border border-emerald-400 font-mono font-black text-lg text-white active:scale-95"
                       >
-                        +50 🪙
+                        +50 ฿
                       </button>
                     </div>
                   </div>
@@ -605,43 +669,59 @@ export const TeamController: React.FC = () => {
                       <button
                         key={amt}
                         type="button"
+                        disabled={team.coins < amt}
                         onClick={() => setDraftAuctionBid(Math.min(Math.max(0, team.coins), amt))}
                         className={`py-2.5 rounded-xl border font-mono font-black text-sm transition ${
-                          draftAuctionBid === amt
+                          team.coins < amt
+                            ? 'bg-slate-950 text-slate-600 border-slate-800 cursor-not-allowed'
+                            : draftAuctionBid === amt
                             ? 'bg-amber-400 text-slate-950 border-white shadow'
                             : 'bg-slate-900 text-amber-300 border-amber-500/40'
                         }`}
                       >
-                        {amt} 🪙
+                        {amt} ฿
                       </button>
                     ))}
                   </div>
 
                   <button
                     type="button"
+                    disabled={cannotAffordBid || draftAuctionBid < minNextBid || draftAuctionBid > team.coins}
                     onClick={() => submitTeamAnswer(selectedTeamId, draftAuctionBid)}
-                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 font-black text-lg uppercase shadow-xl active:scale-95 flex items-center justify-center gap-2"
+                    className={`w-full py-4 rounded-2xl font-black text-lg uppercase shadow-xl flex items-center justify-center gap-2 ${
+                      cannotAffordBid || draftAuctionBid < minNextBid || draftAuctionBid > team.coins
+                        ? 'bg-slate-800 text-slate-400 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 active:scale-95'
+                    }`}
                   >
                     <Gavel className="w-5 h-5" />
-                    <span>ยืนยันบิดประมูล [ {draftAuctionBid} 🪙 ]</span>
+                    <span>
+                      {cannotAffordBid
+                        ? 'เงินไม่พอประมูล'
+                        : draftAuctionBid < minNextBid
+                        ? `ต้องบิดอย่างน้อย ${minNextBid.toLocaleString()} ฿`
+                        : `ยืนยันบิดประมูล [ ${draftAuctionBid.toLocaleString()} ฿ ]`}
+                    </span>
                   </button>
                 </>
               )
             ) : subRound === 'SUB2_DOOR_AND_BET' ? (
-              /* ด่านย่อยที่ 2 Phase 2: ทีมชนะประมูลเลือกประตู A-H / อีก 3 ทีมแทงข้าง รอด หรือ พัง */
+              /* ด่านย่อยที่ 2 Phase 2: ทีมชนะประมูลเลือกประตู / ทีมอื่นแทงข้าง รอด หรือ พัง */
               round.auctionWinnerTeamId === selectedTeamId ? (
                 <>
                   <div className="rounded-xl bg-amber-500/20 border-2 border-amber-400 p-3 text-center">
                     <div className="text-sm font-black text-amber-300">
-                      👑 คุณชนะการประมูล! เลือกเปิดประตู 1 บาน
+                      {round.cowardFreePick
+                        ? '⚠️ คุณถูกสุ่มเปิดประตูฟรี (Coward\'s Tax • ได้ 0 ฿)'
+                        : '👑 คุณชนะการประมูล! เลือกเปิดประตู 1 บาน'}
                     </div>
                     <div className="text-xs text-slate-200 mt-0.5">
-                      ค้นหาประตูอันดับ 2, 3 หรือ 4 (ถูกได้ +500🪙 / ผิดเสียเกราะ -1🛡️)
+                      ค้นหาประตูอันดับ #{safeMin}–#{safeMax} ({round.cowardFreePick ? 'ได้ 0 ฿' : 'ถูกได้ +700 ฿'} / ผิดเสียเกราะ -1 🛡️)
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2.5">
-                    {round.choices.slice(0, 8).map((choice) => {
+                    {round.choices.slice(0, round.choiceCount).map((choice) => {
                       const isSelected = draftChoice === choice.key;
                       return (
                         <button
@@ -754,7 +834,7 @@ export const TeamController: React.FC = () => {
                 </>
               )
             ) : (
-              /* ด่านย่อยที่ 3: วัดใจขั้วตรงข้าม (เลือก 2 ช่อง: อันดับ #1 และ อันดับ #8) */
+              /* ด่านย่อยที่ 3: วัดใจขั้วตรงข้าม (เลือก 2 ช่อง: อันดับ #1 และ อันดับ #N) */
               <>
                 <div className="grid grid-cols-2 gap-2.5">
                   <button
@@ -784,7 +864,7 @@ export const TeamController: React.FC = () => {
                     }`}
                   >
                     <div className="text-xs font-extrabold text-red-300">
-                      2. ประตูอันดับ #8 (น้อยสุด)
+                      2. ประตูอันดับ #{round.choiceCount} (น้อยสุด)
                     </div>
                     <div className="text-3xl font-mono font-black text-white mt-1">
                       {draftRank8Door || '?'}
@@ -796,11 +876,11 @@ export const TeamController: React.FC = () => {
                   กำลังเลือกช่อง:{' '}
                   {activePolaritySlot === 'RANK1'
                     ? '🌟 อันดับ #1 (คนเลือกเยอะสุด)'
-                    : '💀 อันดับ #8 (คนเลือกน้อยสุด)'}
+                    : `💀 อันดับ #${round.choiceCount} (คนเลือกน้อยสุด)`}
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  {round.choices.slice(0, 8).map((choice) => {
+                  {round.choices.slice(0, round.choiceCount).map((choice) => {
                     const isPicked1 = draftRank1Door === choice.key;
                     const isPicked8 = draftRank8Door === choice.key;
                     return (
@@ -850,7 +930,7 @@ export const TeamController: React.FC = () => {
                           )}
                           {isPicked8 && (
                             <span className="text-[10px] font-black text-red-300">
-                              💀 เลือกเป็น #8
+                              💀 เลือกเป็น #{round.choiceCount}
                             </span>
                           )}
                         </div>
@@ -874,13 +954,14 @@ export const TeamController: React.FC = () => {
                   }`}
                 >
                   {draftRank1Door && draftRank8Door
-                    ? `ยืนยันส่งคู่ [ #1 = ${draftRank1Door} | #8 = ${draftRank8Door} ]`
-                    : 'กรุณาเลือกประตูทั้งอันดับ #1 และ #8'}
+                    ? `ยืนยันส่งคู่ [ #1 = ${draftRank1Door} | #${round.choiceCount} = ${draftRank8Door} ]`
+                    : `กรุณาเลือกประตูทั้งอันดับ #1 และ #${round.choiceCount}`}
                 </button>
               </>
             )}
           </div>
-        )}
+          );
+        })()}
 
         {/* ==========================================================
             STANDARD MODE A: MULTIPLE CHOICE CONTROLLER (e.g. Trivia Murder Party)

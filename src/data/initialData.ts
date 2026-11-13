@@ -1,6 +1,19 @@
-import { KrampusGameState, QuestionPreset, RoundConfig, Team, TeamId } from '../types/game';
+import { EightDoorsSubRound, KrampusGameState, QuestionPreset, RoundConfig, Team, TeamId } from '../types/game';
 
 export const TEAM_ORDER: TeamId[] = ['team1', 'team2', 'team3', 'team4'];
+
+export const DOOR_LABELS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'] as const;
+
+export function getSuggestedSafeRange(
+  choiceCount: number,
+  subRound?: EightDoorsSubRound
+): { min: number; max: number } {
+  const isLargeBoard = choiceCount >= 10;
+  if (subRound === 'SUB2_AUCTION' || subRound === 'SUB2_DOOR_AND_BET') {
+    return isLargeBoard ? { min: 3, max: 6 } : { min: 2, max: 4 };
+  }
+  return isLargeBoard ? { min: 1, max: 4 } : { min: 1, max: 3 };
+}
 
 export const INITIAL_TEAMS: Record<TeamId, Team> = {
   team1: {
@@ -59,15 +72,15 @@ export const INITIAL_TEAMS: Record<TeamId, Team> = {
 
 export const DEFAULT_PRESETS: QuestionPreset[] = [
   // ==========================================
-  // GAME 1: THE 8 DOORS OF KRAMPUS (8 ประตูวัดใจครามปุส)
+  // GAME 1: THE DOORS OF DOOM
   // ==========================================
   {
     id: 'pm-1',
     gameStage: 'POLL_MINE',
     inputMode: 'MODE_A_CHOICE',
     eightDoorsSubRound: 'SUB1_SURVIVAL',
-    title: 'ด่านที่ 1: 8 ประตูวัดใจครามปุส (ข้อ 1)',
-    subtitle: 'ด่านย่อยที่ 1: เปิดทางรอด — ค้นหาประตูอันดับ 1, 2 หรือ 3 (+300🪙 / พลาดเสีย -1🛡️)',
+    title: 'THE DOORS OF DOOM • ด่านย่อยที่ 1 (Snake Draft)',
+    subtitle: 'เปิดทางรอดแบบสลับคิว (ทีมละ 2 บาน) — หาประตูโซนปลอดภัย (+300 ฿/บาน, ถูกทั้ง 2 บานรับ +800 ฿ / พลาด -1 🛡️)',
     questionText: 'ข้ออ้างยอดฮิตที่เด็กมหาลัยใช้ "โดดเรียนคาบเช้า" มากที่สุดคืออะไร?',
     choiceCount: 8,
     choices: [
@@ -90,9 +103,9 @@ export const DEFAULT_PRESETS: QuestionPreset[] = [
     id: 'pm-2',
     gameStage: 'POLL_MINE',
     inputMode: 'MODE_A_CHOICE',
-    eightDoorsSubRound: 'SUB1_SURVIVAL',
-    title: 'ด่านที่ 1: 8 ประตูวัดใจครามปุส (ข้อ 2)',
-    subtitle: 'ด่านย่อยที่ 1: เปิดทางรอด — ค้นหาประตูอันดับ 1, 2 หรือ 3 (+300🪙 / พลาดเสีย -1🛡️)',
+    eightDoorsSubRound: 'SUB2_AUCTION',
+    title: 'THE DOORS OF DOOM • ด่านย่อยที่ 2 (ประมูล & แทงข้าง)',
+    subtitle: 'ประมูลสิทธิ์เปิดประตูโซนปลอดภัย (+700 ฿ / พลาด -1 🛡️) • ทีมอื่นแทงข้าง (+200 ฿ / ผิด -100 ฿)',
     questionText: 'เมนูสิ้นคิดเวลาเงินใกล้หมดตอนสิ้นเดือนของเด็กหอคืออะไร?',
     choiceCount: 8,
     choices: [
@@ -115,9 +128,9 @@ export const DEFAULT_PRESETS: QuestionPreset[] = [
     id: 'pm-3',
     gameStage: 'POLL_MINE',
     inputMode: 'MODE_A_CHOICE',
-    eightDoorsSubRound: 'SUB1_SURVIVAL',
-    title: 'ด่านที่ 1: 8 ประตูวัดใจครามปุส (ข้อ 3)',
-    subtitle: 'ด่านย่อยที่ 1: เปิดทางรอด — ค้นหาประตูอันดับ 1, 2 หรือ 3 (+300🪙 / พลาดเสีย -1🛡️)',
+    eightDoorsSubRound: 'SUB3_POLARITY',
+    title: 'THE DOORS OF DOOM • ด่านย่อยที่ 3 (วัดใจขั้วตรงข้าม)',
+    subtitle: 'เลือก 2 บานพร้อมกัน: อันดับ #1 และอันดับสุดท้าย (#N) — ถูก 1 (+400 ฿), ถูก 2 (+1,000 ฿), ผิดหมด (-2 🛡️ & -300 ฿)',
     questionText: 'ของขวัญจับฉลากคริสต์มาส/ปีใหม่ที่เด็กมหาลัย "กุมขมับไม่อยากได้มากที่สุด" คืออะไร?',
     choiceCount: 8,
     choices: [
@@ -312,8 +325,11 @@ export const DEFAULT_PRESETS: QuestionPreset[] = [
 ];
 
 export function createRoundFromPreset(preset: QuestionPreset): RoundConfig {
-  const defaultLabels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
   const count = preset.choiceCount || (preset.gameStage === 'POLL_MINE' ? 8 : 4);
+  const subRound = preset.eightDoorsSubRound || 'SUB1_SURVIVAL';
+  const suggested = getSuggestedSafeRange(count, subRound);
+  const safeMin = preset.safeRankMin ?? suggested.min;
+  const safeMax = preset.safeRankMax ?? suggested.max;
   const choices =
     preset.choices && preset.choices.length > 0
       ? preset.choices.map((c, idx) => ({
@@ -321,14 +337,18 @@ export function createRoundFromPreset(preset: QuestionPreset): RoundConfig {
           rank: c.rank ?? idx + 1,
           isOpened: false,
         }))
-      : defaultLabels.slice(0, count).map((key, idx) => ({
-          key,
-          label: `ตัวเลือก ${key}`,
-          rank: idx + 1,
-          isCorrect: idx < 3,
-          isTrap: idx >= 3,
-          isOpened: false,
-        }));
+      : DOOR_LABELS.slice(0, count).map((key, idx) => {
+          const rank = idx + 1;
+          const isSafe = rank >= safeMin && rank <= safeMax;
+          return {
+            key,
+            label: `ตัวเลือก ${key}`,
+            rank,
+            isCorrect: isSafe,
+            isTrap: !isSafe,
+            isOpened: false,
+          };
+        });
 
   return {
     id: `round-${Date.now()}`,
@@ -336,12 +356,18 @@ export function createRoundFromPreset(preset: QuestionPreset): RoundConfig {
     gameStage: preset.gameStage,
     inputMode: preset.inputMode,
     modeDSubType: preset.modeDSubType || 'UNIQUE_NUMBER_1_10',
-    eightDoorsSubRound: preset.eightDoorsSubRound || 'SUB1_SURVIVAL',
+    eightDoorsSubRound: subRound,
     auctionIteration: 1,
     subRound2LockedTeamId: null,
     auctionWinnerTeamId: null,
     auctionWinningBid: 0,
     lastOpenedDoorKey: null,
+    safeRankMin: safeMin,
+    safeRankMax: safeMax,
+    snakeDraftOrder: [],
+    snakeDraftIndex: 0,
+    snakeDraftPicks: [],
+    cowardFreePick: false,
     title: preset.title,
     subtitle: preset.subtitle,
     questionText: preset.questionText,
