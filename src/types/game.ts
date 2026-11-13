@@ -41,6 +41,65 @@ export type ChronoSubRound =
 
 export type YearUnit = 'AD' | 'BE';
 
+export type ToyFactoryPhase =
+  | 'TOPIC_SELECT'
+  | 'PREP_10S'
+  | 'ACTION'
+  | 'SHUFFLE_BUFFER_10S'
+  | 'REVEAL_JUDGE';
+
+export interface ToyFactoryItem {
+  id: string;
+  label: string;
+  realValue: string;
+  isMystery?: boolean;
+  mysteryClue?: string;
+}
+
+export interface ToyFactoryDataset {
+  id: string;
+  title: string;
+  direction: string;
+  items: ToyFactoryItem[];
+}
+
+export interface ToyFactoryAssignment {
+  memberName: string;
+  itemId: string;
+  label: string;
+  realValue: string;
+  isMystery: boolean;
+  mysteryClue?: string;
+  changedOnShuffle?: boolean;
+}
+
+export interface ToyFactoryRevealSlot {
+  index: number;
+  itemId: string;
+  holderName: string;
+  label: string;
+  realValue: string;
+  isMystery: boolean;
+  mysteryClue?: string;
+  revealed: boolean;
+  verdict?: 'CORRECT' | 'WRONG';
+}
+
+export interface ToyFactoryState {
+  roundIndex: number; // 1..4
+  pairings: Array<{ sortingTeamId: TeamId; holdingTeamId: TeamId }>;
+  usedDatasetIds: string[];
+  selectedDatasetId: string | null;
+  phase: ToyFactoryPhase;
+  prepEndsAt: number | null;
+  bufferEndsAt: number | null;
+  assignments: ToyFactoryAssignment[];
+  shuffleUsedByTeams: TeamId[];
+  shuffleUsedThisRound: boolean;
+  revealSlots: ToyFactoryRevealSlot[];
+  mysterySpotlightActive?: boolean;
+}
+
 export type RoundStatus = 'IDLE' | 'ACTIVE' | 'LOCKED' | 'REVEALED';
 
 export interface Team {
@@ -55,6 +114,8 @@ export interface Team {
   candles: number;           // Legacy alias kept in sync with shields
   isInKillingFloor: boolean; // Trivia Murder Party penalty state
   isRegistered?: boolean;    // Sub-GM registration status for Lobby
+  roster?: string[];         // 4-10 member nicknames for Game 3 (Toy Factory Chaos)
+  toyFactoryCurse?: boolean; // Curse from Game 3: -1 heart in Game 4
 }
 
 export interface ChoiceOption {
@@ -110,6 +171,7 @@ export interface RoundConfig {
   chronoShields?: Partial<Record<TeamId, number>>;
   chronoQuotas?: Partial<Record<TeamId, number>>;
   chronoFastFingerClaims?: Record<string, TeamId>;
+  toyFactory?: ToyFactoryState;
   yearPenaltyPerDiff: number; // Coins lost per 1 year off (e.g. 50 or 150)
   yearFastestBonus: number;   // Bonus coins for closest/fastest
   activeTeamId?: TeamId;      // For Quixort live action team on stage
@@ -199,4 +261,5 @@ export interface KrampusGameState {
   buzzerQueue: BuzzerEntry[];
   transactions: CoinTransaction[];
   presets: QuestionPreset[];
+  toyFactoryDatasets?: ToyFactoryDataset[];
 }

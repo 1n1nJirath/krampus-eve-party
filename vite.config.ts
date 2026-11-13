@@ -156,6 +156,7 @@ function krampusRealtimeServerPlugin(): Plugin {
                     name: payload.name || updated.teams[teamId].name,
                     icon: payload.icon || updated.teams[teamId].icon,
                     motto: payload.motto ?? updated.teams[teamId].motto,
+                    roster: Array.isArray(payload.roster) ? payload.roster : updated.teams[teamId].roster,
                     isRegistered: true,
                   };
                 }
@@ -291,6 +292,85 @@ function krampusRealtimeServerPlugin(): Plugin {
                       elapsedMs,
                       locked: true,
                     };
+                  }
+                }
+              } else if (action === 'SELECT_TOY_DATASET') {
+                const tf = updated.round?.toyFactory;
+                const dsId = String(payload.datasetId || '');
+                const pair = tf?.pairings?.[tf.roundIndex - 1];
+                if (tf && tf.phase === 'TOPIC_SELECT' && pair?.sortingTeamId === teamId && !tf.usedDatasetIds?.includes(dsId)) {
+                  const ds = (updated.toyFactoryDatasets || []).find((d: any) => d.id === dsId);
+                  if (ds) {
+                    const roster: string[] = (updated.teams?.[pair.holdingTeamId]?.roster || []).filter((s: string) => s.trim());
+                    const items = [...(ds.items || [])];
+                    for (let i = items.length - 1; i > 0; i--) {
+                      const j = Math.floor(Math.random() * (i + 1));
+                      [items[i], items[j]] = [items[j], items[i]];
+                    }
+                    tf.selectedDatasetId = dsId;
+                    tf.usedDatasetIds = [...(tf.usedDatasetIds || []), dsId];
+                    tf.phase = 'PREP_10S';
+                    tf.prepEndsAt = now + 10000;
+                    tf.assignments = items.map((it: any, idx: number) => ({
+                      memberName: roster.length > 0 ? roster[idx % roster.length] : `สมาชิก #${idx + 1}`,
+                      itemId: it.id,
+                      label: it.label,
+                      realValue: it.realValue,
+                      isMystery: Boolean(it.isMystery),
+                      mysteryClue: it.mysteryClue,
+                      changedOnShuffle: false,
+                    }));
+                    updated.round.title = `THE TOY FACTORY CHAOS • รอบที่ ${tf.roundIndex}/${tf.pairings.length}`;
+                    updated.round.subtitle = `${ds.title} (${ds.direction})`;
+                    updated.round.questionText = `${ds.title} — ${ds.direction}`;
+                  }
+                }
+              } else if (action === 'TOY_SHUFFLE') {
+                const tf = updated.round?.toyFactory;
+                const r = updated.round;
+                const pair = tf?.pairings?.[tf.roundIndex - 1];
+                if (
+                  tf &&
+                  tf.phase === 'ACTION' &&
+                  r?.status === 'ACTIVE' &&
+                  pair &&
+                  teamId !== pair.sortingTeamId &&
+                  teamId !== pair.holdingTeamId &&
+                  !tf.shuffleUsedThisRound &&
+                  !(tf.shuffleUsedByTeams || []).includes(teamId)
+                ) {
+                  const elapsed = r.timerStartedAt ? Math.max(0, now - r.timerStartedAt) : 0;
+                  const rem = Math.max(0, r.durationSeconds * 1000 - elapsed);
+                  if (rem > 15000) {
+                    const ds = (updated.toyFactoryDatasets || []).find((d: any) => d.id === tf.selectedDatasetId);
+                    if (ds) {
+                      const prevMap = new Map((tf.assignments || []).map((a: any) => [a.memberName, a.itemId]));
+                      const roster: string[] = (updated.teams?.[pair.holdingTeamId]?.roster || []).filter((s: string) => s.trim());
+                      const items = [...(ds.items || [])];
+                      for (let i = items.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [items[i], items[j]] = [items[j], items[i]];
+                      }
+                      tf.assignments = items.map((it: any, idx: number) => {
+                        const memberName = roster.length > 0 ? roster[idx % roster.length] : `สมาชิก #${idx + 1}`;
+                        return {
+                          memberName,
+                          itemId: it.id,
+                          label: it.label,
+                          realValue: it.realValue,
+                          isMystery: Boolean(it.isMystery),
+                          mysteryClue: it.mysteryClue,
+                          changedOnShuffle: prevMap.get(memberName) !== it.id,
+                        };
+                      });
+                      tf.shuffleUsedThisRound = true;
+                      tf.shuffleUsedByTeams = [...(tf.shuffleUsedByTeams || []), teamId];
+                      tf.phase = 'SHUFFLE_BUFFER_10S';
+                      tf.bufferEndsAt = now + 10000;
+                      r.timerStartedAt = null;
+                      r.timerRemainingMs = rem;
+                      r.status = 'LOCKED';
+                    }
                   }
                 }
               }

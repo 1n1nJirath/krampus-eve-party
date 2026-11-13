@@ -13,12 +13,18 @@ import {
   RoundConfig,
   Team,
   TeamId,
+  ToyFactoryAssignment,
+  ToyFactoryDataset,
+  ToyFactoryItem,
 } from '../types/game';
 import {
+  buildToyFactoryPairings,
   computeChronoRankings,
   createRoundFromPreset,
   DEFAULT_PRESETS,
+  DEFAULT_TOY_FACTORY_DATASETS,
   DOOR_LABELS,
+  getActiveTeamIds,
   getSuggestedSafeRange,
   INITIAL_GAME_STATE,
   INITIAL_TEAMS,
@@ -62,6 +68,10 @@ function normalizeGameState(raw: KrampusGameState): KrampusGameState {
     ...raw,
     teams: nextTeams,
     presets: DEFAULT_PRESETS,
+    toyFactoryDatasets:
+      raw.toyFactoryDatasets && raw.toyFactoryDatasets.length > 0
+        ? raw.toyFactoryDatasets
+        : DEFAULT_TOY_FACTORY_DATASETS,
     round: {
       ...createRoundFromPreset(DEFAULT_PRESETS[0]),
       ...(raw.round || {}),
@@ -283,6 +293,114 @@ function applyChronoClaimToState(
   return true;
 }
 
+function buildToyFactoryAssignments(
+  roster: string[],
+  items: ToyFactoryItem[],
+  prevAssignments?: ToyFactoryAssignment[]
+): ToyFactoryAssignment[] {
+  const cleanRoster = roster.map((s) => s.trim()).filter(Boolean);
+  const members: string[] = [];
+  for (let i = 0; i < items.length; i++) {
+    if (cleanRoster.length > 0) {
+      members.push(cleanRoster[i % cleanRoster.length]);
+    } else {
+      members.push(`สมาชิก #${i + 1}`);
+    }
+  }
+  const shuffledItems = [...items];
+  for (let i = shuffledItems.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffledItems[i], shuffledItems[j]] = [shuffledItems[j], shuffledItems[i]];
+  }
+  const prevByMember = new Map((prevAssignments || []).map((a) => [a.memberName, a.itemId]));
+  return members.map((memberName, idx) => {
+    const item = shuffledItems[idx];
+    const prevId = prevByMember.get(memberName);
+    return {
+      memberName,
+      itemId: item.id,
+      label: item.label,
+      realValue: item.realValue,
+      isMystery: Boolean(item.isMystery),
+      mysteryClue: item.mysteryClue,
+      changedOnShuffle: prevAssignments ? prevId !== item.id : false,
+    };
+  });
+}
+
+function applyToyDatasetSelection(
+  next: KrampusGameState,
+  teamId: TeamId,
+  datasetId: string,
+  now: number
+): boolean {
+  const tf = next.round.toyFactory;
+  if (!tf || tf.phase !== 'TOPIC_SELECT') return false;
+  const currentPair = tf.pairings[tf.roundIndex - 1];
+  if (!currentPair || currentPair.sortingTeamId !== teamId) return false;
+  if (tf.usedDatasetIds.includes(datasetId)) return false;
+
+  const datasets = next.toyFactoryDatasets || DEFAULT_TOY_FACTORY_DATASETS;
+  const ds = datasets.find((d) => d.id === datasetId);
+  if (!ds) return false;
+
+  const holdingTeam = next.teams[currentPair.holdingTeamId];
+  const assignments = buildToyFactoryAssignments(holdingTeam?.roster || [], ds.items);
+
+  tf.selectedDatasetId = datasetId;
+  tf.usedDatasetIds = [...tf.usedDatasetIds, datasetId];
+  tf.phase = 'PREP_10S';
+  tf.prepEndsAt = now + 10000;
+  tf.assignments = assignments;
+  next.round.title = `THE TOY FACTORY CHAOS • รอบที่ ${tf.roundIndex}/${tf.pairings.length}`;
+  next.round.subtitle = `${ds.title} (${ds.direction})`;
+  next.round.questionText = `${ds.title} — ${ds.direction}`;
+  return true;
+}
+
+function applyToyFactoryShuffle(
+  next: KrampusGameState,
+  spectatorTeamId: TeamId,
+  now: number
+): boolean {
+  const tf = next.round.toyFactory;
+  if (!tf || tf.phase !== 'ACTION' || next.round.status !== 'ACTIVE') return false;
+  const currentPair = tf.pairings[tf.roundIndex - 1];
+  if (!currentPair) return false;
+  if (
+    spectatorTeamId === currentPair.sortingTeamId ||
+    spectatorTeamId === currentPair.holdingTeamId
+  ) {
+    return false;
+  }
+  if (tf.shuffleUsedThisRound || tf.shuffleUsedByTeams.includes(spectatorTeamId)) {
+    return false;
+  }
+  const elapsed = next.round.timerStartedAt ? Math.max(0, now - next.round.timerStartedAt) : 0;
+  const remainingMs = Math.max(0, next.round.durationSeconds * 1000 - elapsed);
+  if (remainingMs <= 15000) return false;
+
+  const datasets = next.toyFactoryDatasets || DEFAULT_TOY_FACTORY_DATASETS;
+  const ds = datasets.find((d) => d.id === tf.selectedDatasetId);
+  if (!ds) return false;
+
+  const holdingTeam = next.teams[currentPair.holdingTeamId];
+  tf.assignments = buildToyFactoryAssignments(
+    holdingTeam?.roster || [],
+    ds.items,
+    tf.assignments
+  );
+  tf.shuffleUsedThisRound = true;
+  tf.shuffleUsedByTeams = [...tf.shuffleUsedByTeams, spectatorTeamId];
+  tf.phase = 'SHUFFLE_BUFFER_10S';
+  tf.bufferEndsAt = now + 10000;
+
+  next.round.timerStartedAt = null;
+  next.round.timerRemainingMs = remainingMs;
+  next.round.status = 'LOCKED';
+  return true;
+}
+
 interface GameContextValue {
   state: KrampusGameState;
   lanIp: string;
@@ -294,7 +412,7 @@ interface GameContextValue {
   saveSupabaseConfig: (cfg: SupabaseConfig) => void;
 
   // Team Controller Actions
-  registerTeam: (teamId: TeamId, name: string, icon?: string, motto?: string) => void;
+  registerTeam: (teamId: TeamId, name: string, icon?: string, motto?: string, roster?: string[]) => void;
   submitTeamAnswer: (teamId: TeamId, value: string | number, secondaryValue?: string) => void;
   clearTeamSubmission: (teamId: TeamId) => void;
   pressTeamBuzzer: (teamId: TeamId) => void;
@@ -333,6 +451,19 @@ interface GameContextValue {
   placeChronoTraps: (teamId: TeamId, allocations: Partial<Record<TeamId, number>>) => void;
   claimChronoYear: (teamId: TeamId, year: number) => void;
   finishChronoGame: () => void;
+  // Game 3: THE TOY FACTORY CHAOS
+  startToyFactoryGame: () => void;
+  selectToyFactoryDataset: (teamId: TeamId, datasetId: string) => void;
+  startToyFactoryActionPhase: () => void;
+  triggerToyFactoryShuffle: (spectatorTeamId: TeamId) => void;
+  resumeToyFactoryFromBuffer: () => void;
+  enterToyFactoryRevealPhase: () => void;
+  judgeToyFactorySlot: (slotIndex: number, verdict: 'CORRECT' | 'WRONG') => void;
+  revealToyFactoryMystery: (slotIndex: number) => void;
+  finalizeToyFactoryRound: () => void;
+  nextToyFactoryRound: () => void;
+  updateToyFactoryDataset: (datasetId: string, patch: Partial<ToyFactoryDataset>) => void;
+  finishToyFactoryGame: () => void;
   resolveSubRound2Auction: (overrideWinnerTeamId?: TeamId) => {
     winnerTeamId: TeamId | null;
     winningBid: number;
@@ -622,6 +753,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   name: data?.name || next.teams[tid].name,
                   icon: data?.icon || next.teams[tid].icon,
                   motto: data?.motto ?? next.teams[tid].motto,
+                  roster: Array.isArray(data?.roster) ? data.roster : next.teams[tid].roster,
                   isRegistered: true,
                 };
               }
@@ -648,6 +780,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               applyChronoTrapsToState(next, teamId as TeamId, data?.allocations || {}, now);
             } else if (action === 'CLAIM_CHRONO_YEAR') {
               applyChronoClaimToState(next, teamId as TeamId, Number(data?.year), now);
+            } else if (action === 'SELECT_TOY_DATASET') {
+              applyToyDatasetSelection(next, teamId as TeamId, String(data?.datasetId || ''), now);
+            } else if (action === 'TOY_SHUFFLE') {
+              applyToyFactoryShuffle(next, teamId as TeamId, now);
             }
             return next;
           });
@@ -688,7 +824,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ==============================================================
 
   const registerTeam = useCallback(
-    (teamId: TeamId, name: string, icon?: string, motto?: string) => {
+    (teamId: TeamId, name: string, icon?: string, motto?: string, roster?: string[]) => {
       soundFX.playSubmit();
       const trimmedName = name.trim();
       const now = getAuthoritativeNow();
@@ -700,7 +836,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           type: 'TEAM_ACTION',
           teamId,
           action: 'REGISTER_TEAM',
-          payload: { name: trimmedName, icon, motto },
+          payload: { name: trimmedName, icon, motto, roster },
         }),
       }).catch(() => {});
 
@@ -712,7 +848,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             payload: {
               teamId,
               action: 'REGISTER_TEAM',
-              data: { name: trimmedName, icon, motto },
+              data: { name: trimmedName, icon, motto, roster },
               clientNow: now,
             },
           })
@@ -731,6 +867,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               name: trimmedName || current.name,
               icon: icon || current.icon,
               motto: motto !== undefined ? motto : current.motto,
+              roster: roster !== undefined ? roster : current.roster,
               isRegistered: true,
             },
           },
@@ -1395,6 +1532,386 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const finishChronoGame = useCallback(() => {
+    commitState((prev) => ({
+      ...prev,
+      submissions: {},
+      buzzerQueue: [],
+      round: {
+        ...prev.round,
+        gameStage: 'WORLD_MAP',
+        status: 'IDLE',
+        timerStartedAt: null,
+        timerRemainingMs: 0,
+      },
+    }));
+  }, [commitState]);
+
+  // ==============================================================
+  // GAME 3: THE TOY FACTORY CHAOS ACTIONS
+  // ==============================================================
+
+  const startToyFactoryGame = useCallback(() => {
+    commitState((prev) => {
+      const active = getActiveTeamIds(prev.teams);
+      const pairings = buildToyFactoryPairings(active);
+      const durSec = prev.round.gameStage === 'QUIXORT' && prev.round.durationSeconds > 0
+        ? prev.round.durationSeconds
+        : 120;
+      return {
+        ...prev,
+        submissions: {},
+        buzzerQueue: [],
+        showLeaderboardOverlay: false,
+        round: {
+          ...prev.round,
+          id: `round-tf-${Date.now()}`,
+          gameStage: 'QUIXORT',
+          inputMode: 'MODE_D_SECRET',
+          modeDSubType: 'QUIXORT_BET',
+          title: `THE TOY FACTORY CHAOS • รอบที่ 1/${pairings.length}`,
+          subtitle: 'เลือกชุดข้อมูล (1–5) เพื่อสุ่มจับคู่คนถือข้อมูลและเริ่มเตรียมตัว 10 วินาที!',
+          questionText: 'สายพานคัดแยกของเล่นผีสิง — วิ่งล่าข้อมูล & ยืนเรียงหน้ากระดาน!',
+          durationSeconds: durSec,
+          timerStartedAt: null,
+          timerRemainingMs: durSec * 1000,
+          status: 'IDLE',
+          rewardsApplied: false,
+          toyFactory: {
+            roundIndex: 1,
+            pairings,
+            usedDatasetIds: [],
+            selectedDatasetId: null,
+            phase: 'TOPIC_SELECT',
+            prepEndsAt: null,
+            bufferEndsAt: null,
+            assignments: [],
+            shuffleUsedByTeams: [],
+            shuffleUsedThisRound: false,
+            revealSlots: [],
+            mysterySpotlightActive: false,
+          },
+        },
+      };
+    });
+  }, [commitState]);
+
+  const selectToyFactoryDataset = useCallback(
+    (teamId: TeamId, datasetId: string) => {
+      const now = getAuthoritativeNow();
+      fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'TEAM_ACTION',
+          teamId,
+          action: 'SELECT_TOY_DATASET',
+          payload: { datasetId },
+        }),
+      }).catch(() => {});
+
+      if (supaChannelRef.current) {
+        supaChannelRef.current
+          .send({
+            type: 'broadcast',
+            event: 'TEAM_ACTION',
+            payload: { teamId, action: 'SELECT_TOY_DATASET', data: { datasetId }, clientNow: now },
+          })
+          .catch(() => {});
+      }
+
+      commitState((prev) => {
+        const next = structuredClone(prev);
+        if (!applyToyDatasetSelection(next, teamId, datasetId, now)) return prev;
+        return next;
+      });
+      soundFX.playSubmit();
+    },
+    [commitState, getAuthoritativeNow]
+  );
+
+  const startToyFactoryActionPhase = useCallback(() => {
+    const now = getAuthoritativeNow();
+    commitState((prev) => {
+      const tf = prev.round.toyFactory;
+      if (!tf) return prev;
+      const dur = prev.round.durationSeconds || 120;
+      return {
+        ...prev,
+        round: {
+          ...prev.round,
+          status: 'ACTIVE',
+          timerStartedAt: now,
+          timerRemainingMs: dur * 1000,
+          toyFactory: {
+            ...tf,
+            phase: 'ACTION',
+            prepEndsAt: null,
+          },
+        },
+      };
+    });
+    soundFX.playReveal();
+  }, [commitState, getAuthoritativeNow]);
+
+  const triggerToyFactoryShuffle = useCallback(
+    (spectatorTeamId: TeamId) => {
+      const now = getAuthoritativeNow();
+      fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'TEAM_ACTION',
+          teamId: spectatorTeamId,
+          action: 'TOY_SHUFFLE',
+          payload: {},
+        }),
+      }).catch(() => {});
+
+      if (supaChannelRef.current) {
+        supaChannelRef.current
+          .send({
+            type: 'broadcast',
+            event: 'TEAM_ACTION',
+            payload: { teamId: spectatorTeamId, action: 'TOY_SHUFFLE', data: {}, clientNow: now },
+          })
+          .catch(() => {});
+      }
+
+      commitState((prev) => {
+        const next = structuredClone(prev);
+        if (!applyToyFactoryShuffle(next, spectatorTeamId, now)) return prev;
+        return next;
+      });
+      soundFX.playBuzzer(1);
+    },
+    [commitState, getAuthoritativeNow]
+  );
+
+  const resumeToyFactoryFromBuffer = useCallback(() => {
+    const now = getAuthoritativeNow();
+    commitState((prev) => {
+      const tf = prev.round.toyFactory;
+      if (!tf || tf.phase !== 'SHUFFLE_BUFFER_10S') return prev;
+      const rem = prev.round.timerRemainingMs ?? prev.round.durationSeconds * 1000;
+      const durMs = prev.round.durationSeconds * 1000;
+      const syntheticStart = now - (durMs - rem);
+      return {
+        ...prev,
+        round: {
+          ...prev.round,
+          status: 'ACTIVE',
+          timerStartedAt: syntheticStart,
+          toyFactory: {
+            ...tf,
+            phase: 'ACTION',
+            bufferEndsAt: null,
+          },
+        },
+      };
+    });
+  }, [commitState, getAuthoritativeNow]);
+
+  const enterToyFactoryRevealPhase = useCallback(() => {
+    commitState((prev) => {
+      const tf = prev.round.toyFactory;
+      if (!tf) return prev;
+      const datasets = prev.toyFactoryDatasets || DEFAULT_TOY_FACTORY_DATASETS;
+      const ds = datasets.find((d) => d.id === tf.selectedDatasetId);
+      const items = ds?.items || [];
+      const assignMap = new Map(tf.assignments.map((a) => [a.itemId, a.memberName]));
+      const slots = items.map((item, idx) => ({
+        index: idx,
+        itemId: item.id,
+        holderName: assignMap.get(item.id) || `สมาชิก #${idx + 1}`,
+        label: item.label,
+        realValue: item.realValue,
+        isMystery: Boolean(item.isMystery),
+        mysteryClue: item.mysteryClue,
+        revealed: false,
+      }));
+      return {
+        ...prev,
+        round: {
+          ...prev.round,
+          status: 'LOCKED',
+          timerStartedAt: null,
+          toyFactory: {
+            ...tf,
+            phase: 'REVEAL_JUDGE',
+            revealSlots: slots,
+            mysterySpotlightActive: false,
+          },
+        },
+      };
+    });
+  }, [commitState]);
+
+  const judgeToyFactorySlot = useCallback(
+    (slotIndex: number, verdict: 'CORRECT' | 'WRONG') => {
+      commitState((prev) => {
+        const tf = prev.round.toyFactory;
+        if (!tf) return prev;
+        const nextSlots = tf.revealSlots.map((s) =>
+          s.index === slotIndex ? { ...s, revealed: true, verdict } : s
+        );
+        return {
+          ...prev,
+          round: {
+            ...prev.round,
+            toyFactory: {
+              ...tf,
+              revealSlots: nextSlots,
+              mysterySpotlightActive: false,
+            },
+          },
+        };
+      });
+      soundFX.playCoinChange(verdict === 'CORRECT');
+    },
+    [commitState]
+  );
+
+  const revealToyFactoryMystery = useCallback(
+    (slotIndex: number) => {
+      commitState((prev) => {
+        const tf = prev.round.toyFactory;
+        if (!tf) return prev;
+        const nextSlots = tf.revealSlots.map((s) =>
+          s.index === slotIndex ? { ...s, revealed: true } : s
+        );
+        return {
+          ...prev,
+          round: {
+            ...prev.round,
+            toyFactory: {
+              ...tf,
+              revealSlots: nextSlots,
+              mysterySpotlightActive: true,
+            },
+          },
+        };
+      });
+      soundFX.playReveal();
+    },
+    [commitState]
+  );
+
+  const finalizeToyFactoryRound = useCallback(() => {
+    commitState((prev) => {
+      const tf = prev.round.toyFactory;
+      if (!tf || prev.round.rewardsApplied) return prev;
+      const pair = tf.pairings[tf.roundIndex - 1];
+      if (!pair) return prev;
+
+      const wrongCount = tf.revealSlots.filter((s) => s.verdict === 'WRONG').length;
+      const prevBalances: Record<TeamId, number> = {
+        team1: prev.teams.team1.coins,
+        team2: prev.teams.team2.coins,
+        team3: prev.teams.team3.coins,
+        team4: prev.teams.team4.coins,
+      };
+      const nextTeams = structuredClone(prev.teams);
+      let reason = '';
+
+      if (wrongCount === 0) {
+        nextTeams[pair.sortingTeamId].coins += 800;
+        nextTeams[pair.holdingTeamId].coins += 300;
+        reason = `Toy Factory รอบ ${tf.roundIndex}: เรียงถูก 100%! ${nextTeams[pair.sortingTeamId].name} +800 ฿ • ${nextTeams[pair.holdingTeamId].name} +300 ฿`;
+      } else {
+        const penalty = wrongCount * 100;
+        nextTeams[pair.sortingTeamId].coins -= penalty;
+        nextTeams[pair.holdingTeamId].toyFactoryCurse = true;
+        reason = `Toy Factory รอบ ${tf.roundIndex}: ผิด ${wrongCount} จุด! ${nextTeams[pair.sortingTeamId].name} -${penalty} ฿ • ${nextTeams[pair.holdingTeamId].name} ติดคำสาปโรงงานของเล่น (-1 ❤️ เกม 4)`;
+      }
+
+      const tx: CoinTransaction = {
+        id: `tx-tf-${Date.now()}`,
+        timestamp: Date.now(),
+        teamId: 'ALL',
+        delta: 0,
+        reason,
+        prevBalances,
+      };
+
+      return {
+        ...prev,
+        teams: nextTeams,
+        transactions: [tx, ...prev.transactions.slice(0, 49)],
+        round: {
+          ...prev.round,
+          status: 'REVEALED',
+          rewardsApplied: true,
+        },
+      };
+    });
+    soundFX.playCoinChange(true);
+  }, [commitState]);
+
+  const nextToyFactoryRound = useCallback(() => {
+    commitState((prev) => {
+      const tf = prev.round.toyFactory;
+      if (!tf) return prev;
+      if (tf.roundIndex >= tf.pairings.length) {
+        return {
+          ...prev,
+          round: {
+            ...prev.round,
+            gameStage: 'WORLD_MAP',
+            status: 'IDLE',
+            timerStartedAt: null,
+            timerRemainingMs: 0,
+          },
+        };
+      }
+      const nextIndex = tf.roundIndex + 1;
+      const durSec = prev.round.durationSeconds || 120;
+      return {
+        ...prev,
+        submissions: {},
+        buzzerQueue: [],
+        round: {
+          ...prev.round,
+          id: `round-tf-${Date.now()}`,
+          title: `THE TOY FACTORY CHAOS • รอบที่ ${nextIndex}/${tf.pairings.length}`,
+          subtitle: 'เลือกชุดข้อมูลที่เหลือเพื่อเริ่มรอบถัดไป!',
+          questionText: 'สายพานคัดแยกของเล่นผีสิง — วิ่งล่าข้อมูล & ยืนเรียงหน้ากระดาน!',
+          timerStartedAt: null,
+          timerRemainingMs: durSec * 1000,
+          status: 'IDLE',
+          rewardsApplied: false,
+          toyFactory: {
+            ...tf,
+            roundIndex: nextIndex,
+            selectedDatasetId: null,
+            phase: 'TOPIC_SELECT',
+            prepEndsAt: null,
+            bufferEndsAt: null,
+            assignments: [],
+            shuffleUsedThisRound: false,
+            revealSlots: [],
+            mysterySpotlightActive: false,
+          },
+        },
+      };
+    });
+  }, [commitState]);
+
+  const updateToyFactoryDataset = useCallback(
+    (datasetId: string, patch: Partial<ToyFactoryDataset>) => {
+      commitState((prev) => {
+        const list = prev.toyFactoryDatasets || DEFAULT_TOY_FACTORY_DATASETS;
+        return {
+          ...prev,
+          toyFactoryDatasets: list.map((ds) =>
+            ds.id === datasetId ? { ...ds, ...patch } : ds
+          ),
+        };
+      });
+    },
+    [commitState]
+  );
+
+  const finishToyFactoryGame = useCallback(() => {
     commitState((prev) => ({
       ...prev,
       submissions: {},
@@ -2415,6 +2932,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         placeChronoTraps,
         claimChronoYear,
         finishChronoGame,
+        startToyFactoryGame,
+        selectToyFactoryDataset,
+        startToyFactoryActionPhase,
+        triggerToyFactoryShuffle,
+        resumeToyFactoryFromBuffer,
+        enterToyFactoryRevealPhase,
+        judgeToyFactorySlot,
+        revealToyFactoryMystery,
+        finalizeToyFactoryRound,
+        nextToyFactoryRound,
+        updateToyFactoryDataset,
+        finishToyFactoryGame,
         resolveSubRound2Auction,
         startTimer,
         pauseTimer,

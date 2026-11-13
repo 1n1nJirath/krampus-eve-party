@@ -49,6 +49,16 @@ export const AdminControl: React.FC = () => {
     switchChronoSubRound,
     launchChronoTrapGuessPhase,
     finishChronoGame,
+    startToyFactoryGame,
+    startToyFactoryActionPhase,
+    resumeToyFactoryFromBuffer,
+    enterToyFactoryRevealPhase,
+    judgeToyFactorySlot,
+    revealToyFactoryMystery,
+    finalizeToyFactoryRound,
+    nextToyFactoryRound,
+    updateToyFactoryDataset,
+    finishToyFactoryGame,
     resolveSubRound2Auction,
     startTimer,
     pauseTimer,
@@ -798,6 +808,186 @@ export const AdminControl: React.FC = () => {
                 </div>
               )}
 
+              {/* GAME 3 SPECIAL: THE TOY FACTORY CHAOS CONSOLE */}
+              {round.gameStage === 'QUIXORT' && (() => {
+                const tf = round.toyFactory;
+                const pair = tf?.pairings?.[tf.roundIndex - 1];
+                const datasets = state.toyFactoryDatasets || [];
+                const activeDs = datasets.find((d) => d.id === tf?.selectedDatasetId);
+                const wrongCount = tf?.revealSlots?.filter((s) => s.verdict === 'WRONG').length ?? 0;
+
+                return (
+                <div className="mb-4 p-4 rounded-2xl bg-slate-950/90 border border-purple-500/50 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-extrabold text-sm text-purple-300">
+                      ⚙️ คอนโซลควบคุมเกมที่ 3: THE TOY FACTORY CHAOS (4 รอบ)
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={startToyFactoryGame}
+                        className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-black text-xs shadow"
+                      >
+                        🎲 {tf ? 'สุ่มจับคู่เริ่มเกมที่ 3 ใหม่' : 'เริ่มเกมที่ 3 (สุ่มจับคู่ 4 รอบ)'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={finishToyFactoryGame}
+                        className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40 font-bold text-xs flex items-center gap-1"
+                      >
+                        <Map className="w-3.5 h-3.5" />
+                        <span>จบเกมที่ 3 ➔ World Map</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {tf && pair && (
+                    <div className="space-y-3">
+                      <div className="p-3 rounded-xl bg-slate-900 border border-slate-700 flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div>
+                          <span className="px-2 py-0.5 rounded bg-purple-600 text-white font-mono font-black mr-2">
+                            รอบ {tf.roundIndex}/{tf.pairings.length} • {tf.phase}
+                          </span>
+                          <span className="text-emerald-300 font-bold">
+                            ทีมเรียง: {teams[pair.sortingTeamId].icon} {teams[pair.sortingTeamId].name}
+                          </span>
+                          <span className="mx-2 text-slate-500">vs</span>
+                          <span className="text-amber-300 font-bold">
+                            ทีมถือข้อมูล: {teams[pair.holdingTeamId].icon} {teams[pair.holdingTeamId].name}
+                          </span>
+                        </div>
+                        {activeDs && (
+                          <span className="text-slate-200 font-bold">
+                            หัวข้อ: {activeDs.title} ({activeDs.direction})
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Phase Controls */}
+                      <div className="flex flex-wrap gap-2">
+                        {tf.phase === 'PREP_10S' && (
+                          <button
+                            type="button"
+                            onClick={startToyFactoryActionPhase}
+                            className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs"
+                          >
+                            ▶ ครบ 10 วิแล้ว / เริ่มจับเวลาหลัก (Action Phase)!
+                          </button>
+                        )}
+                        {tf.phase === 'SHUFFLE_BUFFER_10S' && (
+                          <button
+                            type="button"
+                            onClick={resumeToyFactoryFromBuffer}
+                            className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs"
+                          >
+                            ▶ ครบ Buffer 10 วิแล้ว / เดินเวลาหลักต่อ!
+                          </button>
+                        )}
+                        {tf.phase === 'ACTION' && (
+                          <button
+                            type="button"
+                            onClick={enterToyFactoryRevealPhase}
+                            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs"
+                          >
+                            🎭 หมดเวลา / เข้าสู่หน้าตรวจคำตอบทีละตัว (Reveal & Judge)
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Step-by-Step Reveal & Judge Panel */}
+                      {tf.phase === 'REVEAL_JUDGE' && (
+                        <div className="p-3 rounded-xl bg-slate-900 border border-amber-500/40 space-y-2.5">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-black text-amber-300">
+                              📋 ตรวจลำดับทีละตัวจากซ้ายไปขวา (ผิดสะสม: {wrongCount} จุด = -{wrongCount * 100} ฿):
+                            </span>
+                            {!round.rewardsApplied ? (
+                              <button
+                                type="button"
+                                onClick={finalizeToyFactoryRound}
+                                className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs"
+                              >
+                                💰 คิดเงิน & คำสาปรอบนี้
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={nextToyFactoryRound}
+                                className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-black text-xs"
+                              >
+                                {tf.roundIndex >= tf.pairings.length
+                                  ? '🏁 จบเกมที่ 3 ➔ World Map'
+                                  : `➔ ไปรอบที่ ${tf.roundIndex + 1}`}
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {tf.revealSlots.map((slot) => (
+                              <div
+                                key={slot.index}
+                                className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 text-xs ${
+                                  slot.verdict === 'CORRECT'
+                                    ? 'bg-emerald-950/60 border-emerald-400'
+                                    : slot.verdict === 'WRONG'
+                                    ? 'bg-red-950/60 border-red-500'
+                                    : 'bg-slate-950 border-slate-800'
+                                }`}
+                              >
+                                <div className="min-w-0">
+                                  <div className="font-black text-white truncate">
+                                    #{slot.index + 1} {slot.isMystery ? '❓ [???]' : slot.label}{' '}
+                                    <span className="text-amber-300">({slot.realValue})</span>
+                                  </div>
+                                  <div className="text-[11px] text-slate-400">
+                                    คนถือ: {slot.holderName}
+                                    {slot.isMystery && slot.mysteryClue ? ` • ใบ้: ${slot.mysteryClue}` : ''}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {slot.isMystery && !slot.revealed && (
+                                    <button
+                                      type="button"
+                                      onClick={() => revealToyFactoryMystery(slot.index)}
+                                      className="px-2 py-1 rounded bg-amber-400 text-black font-black"
+                                    >
+                                      🔦 เปิด ???
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => judgeToyFactorySlot(slot.index, 'CORRECT')}
+                                    className={`px-2 py-1 rounded font-black ${
+                                      slot.verdict === 'CORRECT'
+                                        ? 'bg-emerald-500 text-black'
+                                        : 'bg-slate-800 text-emerald-300'
+                                    }`}
+                                  >
+                                    ✓ ถูก
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => judgeToyFactorySlot(slot.index, 'WRONG')}
+                                    className={`px-2 py-1 rounded font-black ${
+                                      slot.verdict === 'WRONG'
+                                        ? 'bg-red-600 text-white'
+                                        : 'bg-slate-800 text-red-300'
+                                    }`}
+                                  >
+                                    ✗ ผิด
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                );
+              })()}
+
               {/* Primary 3 Action Buttons (Separated from Reset to prevent misclicks!) */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 my-4">
                 <button
@@ -825,21 +1015,81 @@ export const AdminControl: React.FC = () => {
                 </button>
               </div>
 
-              {/* Secondary Bar: Quick Duration Presets + Auto-Score + Safe Separated Reset Button */}
+              {/* Secondary Bar: Minute:Second Custom Timer + Presets + Auto-Score + Reset */}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-xs text-slate-400 mr-1">ตั้งเวลาด่วน:</span>
-                  {[15, 20, 30, 45, 60, 90].map((sec) => (
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1 bg-slate-950 border border-slate-700 rounded-xl px-2 py-1">
+                    <span className="text-[11px] text-slate-400 font-bold mr-1">ตั้งเวลา (นาที:วิ):</span>
                     <button
-                      key={sec}
-                      onClick={() => startTimer(sec)}
+                      type="button"
+                      onClick={() =>
+                        updateRoundConfig({
+                          durationSeconds: Math.max(10, round.durationSeconds - 30),
+                          timerRemainingMs: Math.max(10, round.durationSeconds - 30) * 1000,
+                        })
+                      }
+                      className="px-1.5 py-0.5 rounded bg-slate-800 text-red-300 font-mono text-xs font-bold"
+                    >
+                      -30s
+                    </button>
+                    <input
+                      type="number"
+                      min={0}
+                      max={30}
+                      value={Math.floor(round.durationSeconds / 60)}
+                      onChange={(e) => {
+                        const mins = Math.max(0, Number(e.target.value));
+                        const secs = round.durationSeconds % 60;
+                        const total = Math.max(5, mins * 60 + secs);
+                        updateRoundConfig({ durationSeconds: total, timerRemainingMs: total * 1000 });
+                      }}
+                      className="w-10 bg-slate-900 border border-slate-700 rounded text-center font-mono text-xs font-bold text-amber-300 py-0.5"
+                    />
+                    <span className="font-mono font-bold text-slate-400">:</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={59}
+                      value={round.durationSeconds % 60}
+                      onChange={(e) => {
+                        const mins = Math.floor(round.durationSeconds / 60);
+                        const secs = Math.min(59, Math.max(0, Number(e.target.value)));
+                        const total = Math.max(5, mins * 60 + secs);
+                        updateRoundConfig({ durationSeconds: total, timerRemainingMs: total * 1000 });
+                      }}
+                      className="w-10 bg-slate-900 border border-slate-700 rounded text-center font-mono text-xs font-bold text-amber-300 py-0.5"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateRoundConfig({
+                          durationSeconds: round.durationSeconds + 30,
+                          timerRemainingMs: (round.durationSeconds + 30) * 1000,
+                        })
+                      }
+                      className="px-1.5 py-0.5 rounded bg-slate-800 text-emerald-300 font-mono text-xs font-bold"
+                    >
+                      +30s
+                    </button>
+                  </div>
+
+                  {[
+                    { label: '30s', sec: 30 },
+                    { label: '1:00', sec: 60 },
+                    { label: '1:30', sec: 90 },
+                    { label: '2:00', sec: 120 },
+                    { label: '3:00', sec: 180 },
+                  ].map((p) => (
+                    <button
+                      key={p.sec}
+                      onClick={() => startTimer(p.sec)}
                       className={`px-2.5 py-1 rounded-lg font-mono text-xs font-bold border ${
-                        round.durationSeconds === sec
+                        round.durationSeconds === p.sec
                           ? 'bg-amber-500/20 border-amber-400 text-amber-300'
                           : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
                       }`}
                     >
-                      {sec}s
+                      {p.label}
                     </button>
                   ))}
                 </div>
@@ -1232,24 +1482,97 @@ export const AdminControl: React.FC = () => {
                 </div>
               )}
 
-              {round.inputMode === 'MODE_D_SECRET' && round.modeDSubType === 'QUIXORT_BET' && (
-                <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-slate-800">
-                  <span className="text-xs font-bold text-purple-300">
-                    เลือกทีมที่กำลังลงสนามจัดเรียง (อีก 3 ทีมจะขึ้นหน้าจอแทงข้าง):
-                  </span>
-                  {TEAM_ORDER.map((tid) => (
-                    <button
-                      key={tid}
-                      onClick={() => updateRoundConfig({ activeTeamId: tid })}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${
-                        round.activeTeamId === tid
-                          ? 'bg-purple-600 text-white border-amber-300'
-                          : 'bg-slate-950 text-slate-400 border-slate-800'
-                      }`}
-                    >
-                      {teams[tid].icon} Team {teams[tid].number}
-                    </button>
-                  ))}
+              {round.gameStage === 'QUIXORT' && (
+                <div className="space-y-3 pt-2 border-t border-slate-800">
+                  <div className="text-xs font-bold text-purple-300">
+                    📚 คลังชุดข้อมูลเกมที่ 3 (5 ชุด — ติ๊ก ??? และใส่คำใบ้ขอบเขตได้):
+                  </div>
+                  <div className="space-y-2.5 max-h-[340px] overflow-y-auto pr-1">
+                    {(state.toyFactoryDatasets || []).map((ds, dIdx) => (
+                      <div
+                        key={ds.id}
+                        className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2"
+                      >
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <input
+                            type="text"
+                            value={ds.title}
+                            onChange={(e) =>
+                              updateToyFactoryDataset(ds.id, { title: e.target.value })
+                            }
+                            placeholder={`หัวข้อที่ ${dIdx + 1}`}
+                            className="px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-xs font-bold text-white"
+                          />
+                          <input
+                            type="text"
+                            value={ds.direction}
+                            onChange={(e) =>
+                              updateToyFactoryDataset(ds.id, { direction: e.target.value })
+                            }
+                            placeholder="ทิศทางการเรียง"
+                            className="px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-xs text-amber-300"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          {ds.items.map((item, iIdx) => (
+                            <div key={item.id} className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                              <span className="w-5 text-slate-400 font-mono">#{iIdx + 1}</span>
+                              <input
+                                type="text"
+                                value={item.label}
+                                onChange={(e) => {
+                                  const nextItems = ds.items.map((it) =>
+                                    it.id === item.id ? { ...it, label: e.target.value } : it
+                                  );
+                                  updateToyFactoryDataset(ds.id, { items: nextItems });
+                                }}
+                                className="flex-1 min-w-[110px] px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-white"
+                              />
+                              <input
+                                type="text"
+                                value={item.realValue}
+                                onChange={(e) => {
+                                  const nextItems = ds.items.map((it) =>
+                                    it.id === item.id ? { ...it, realValue: e.target.value } : it
+                                  );
+                                  updateToyFactoryDataset(ds.id, { items: nextItems });
+                                }}
+                                className="w-24 px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-amber-300 font-mono"
+                              />
+                              <label className="flex items-center gap-1 text-purple-300 font-bold cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(item.isMystery)}
+                                  onChange={(e) => {
+                                    const nextItems = ds.items.map((it) => ({
+                                      ...it,
+                                      isMystery: it.id === item.id ? e.target.checked : false,
+                                    }));
+                                    updateToyFactoryDataset(ds.id, { items: nextItems });
+                                  }}
+                                />
+                                <span>???</span>
+                              </label>
+                              {item.isMystery && (
+                                <input
+                                  type="text"
+                                  value={item.mysteryClue || ''}
+                                  onChange={(e) => {
+                                    const nextItems = ds.items.map((it) =>
+                                      it.id === item.id ? { ...it, mysteryClue: e.target.value } : it
+                                    );
+                                    updateToyFactoryDataset(ds.id, { items: nextItems });
+                                  }}
+                                  placeholder="คำใบ้ขอบเขต..."
+                                  className="flex-1 min-w-[130px] px-2 py-0.5 rounded bg-purple-950/50 border border-purple-500/50 text-purple-200"
+                                />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -1348,6 +1671,25 @@ export const AdminControl: React.FC = () => {
 
                     {/* Quick Action Coin Buttons */}
                     <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-slate-900">
+                      <div className="w-full mb-1">
+                        <label className="block text-[10px] text-slate-400 font-semibold mb-0.5">
+                          รายชื่อสมาชิกกลุ่ม (คั่นด้วยลูกน้ำ , สำหรับเกมที่ 3):
+                        </label>
+                        <input
+                          type="text"
+                          value={(team.roster || []).join(', ')}
+                          onChange={(e) =>
+                            updateTeamProfile(tid, {
+                              roster: e.target.value
+                                .split(',')
+                                .map((s) => s.trim())
+                                .filter(Boolean),
+                            })
+                          }
+                          placeholder="เช่น นนท์, มายด์, บอส, เฟิร์น, ต้น, แพรว"
+                          className="w-full px-2 py-1 rounded bg-slate-900 border border-slate-800 text-[11px] text-slate-200 focus:outline-none focus:border-amber-400"
+                        />
+                      </div>
                       <div className="flex flex-wrap items-center gap-1">
                         {[100, 200, 300, 500].map((amt) => (
                           <button

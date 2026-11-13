@@ -63,9 +63,11 @@ export const CountdownTimer: React.FC<CountdownTimerProps> = ({
 
   const totalMs = Math.max(1000, round.durationSeconds * 1000);
   const progressPct = Math.min(100, Math.max(0, (remainingMs / totalMs) * 100));
-  const seconds = Math.floor(remainingMs / 1000);
+  const totalSeconds = Math.ceil(remainingMs / 1000);
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
   const tenths = Math.floor((remainingMs % 1000) / 100);
-  const isUrgent = round.status === 'ACTIVE' && seconds < 6 && remainingMs > 0;
+  const isUrgent = round.status === 'ACTIVE' && totalSeconds < 10 && remainingMs > 0;
   const isTimeUp = round.status === 'LOCKED' && remainingMs === 0;
 
   const sizeClasses = {
@@ -97,8 +99,10 @@ export const CountdownTimer: React.FC<CountdownTimerProps> = ({
         )}
 
         <span>
-          {String(seconds).padStart(2, '0')}
-          <span className="text-amber-500/80 text-0.7em">.{tenths}s</span>
+          {String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}
+          {totalSeconds < 10 && remainingMs > 0 && (
+            <span className="text-amber-500/80 text-[0.65em]">.{tenths}</span>
+          )}
         </span>
 
         {isTimeUp && (

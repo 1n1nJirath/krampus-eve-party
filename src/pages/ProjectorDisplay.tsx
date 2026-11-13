@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import confetti from 'canvas-confetti';
 import {
   Crown,
@@ -51,8 +51,8 @@ const STAGE_META: Record<GameStage, { badge: string; name: string; color: string
     color: 'from-emerald-950 via-slate-900 to-amber-950',
   },
   QUIXORT: {
-    badge: 'GAME 3 • QUIXORT',
-    name: 'สายพานคัดแยกของเล่นผีสิง',
+    badge: 'GAME 3 • THE TOY FACTORY CHAOS',
+    name: 'THE TOY FACTORY CHAOS (สายพานคัดแยกของเล่นผีสิง)',
     color: 'from-purple-950 via-red-950 to-slate-950',
   },
   TRIVIA_MURDER: {
@@ -97,6 +97,44 @@ export const ProjectorDisplay: React.FC = () => {
       });
     }
   }, [showLeaderboardOverlay, round.gameStage]);
+
+  // Game 3 ("THE TOY FACTORY CHAOS") live timer & Shuffle siren
+  const [toyNowMs, setToyNowMs] = useState<number>(() => Date.now());
+  const isToyFactoryDisplay = round.gameStage === 'QUIXORT' && Boolean(round.toyFactory);
+  useEffect(() => {
+    if (!isToyFactoryDisplay) return;
+    setToyNowMs(Date.now());
+    const id = setInterval(() => setToyNowMs(Date.now()), 200);
+    return () => clearInterval(id);
+  }, [isToyFactoryDisplay]);
+
+  useEffect(() => {
+    if (round.gameStage !== 'QUIXORT' || round.toyFactory?.phase !== 'SHUFFLE_BUFFER_10S') {
+      return;
+    }
+    try {
+      const AudioCtx =
+        window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(660, ctx.currentTime);
+      osc.frequency.linearRampToValueAtTime(920, ctx.currentTime + 0.18);
+      osc.frequency.linearRampToValueAtTime(540, ctx.currentTime + 0.36);
+      osc.frequency.linearRampToValueAtTime(880, ctx.currentTime + 0.54);
+      gain.gain.setValueAtTime(0.22, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.65);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.65);
+      setTimeout(() => ctx.close().catch(() => {}), 800);
+    } catch {
+      // ignore audio autoplay restrictions
+    }
+  }, [round.gameStage, round.toyFactory?.phase, round.toyFactory?.bufferEndsAt]);
 
   // Mode B (Timejinx) submission speed ranking + closest year calculation
   const timejinxRanking = useMemo(() => {
@@ -599,9 +637,9 @@ export const ProjectorDisplay: React.FC = () => {
                   stage: 'QUIXORT' as GameStage,
                   roomNo: 'ROOM 3',
                   icon: '⚙️',
-                  title: 'Quixort',
+                  title: 'THE TOY FACTORY CHAOS',
                   thaiTitle: 'สายพานคัดแยกของเล่นผีสิง',
-                  desc: 'ภารกิจเรียงลำดับ Live Action หน้าเวที พร้อมระบบวางเดิมพันแทงข้าง PASS / FAIL และศึกชิงกระดิ่ง!',
+                  desc: '4 รอบสลับคู่ Sorting vs Data-Holding: ถาม-ตอบหน้าเวที หนีปุ่ม SHUFFLE! ป่วนสายพาน และลุ้นเปิดกล่องความลับ ???',
                   bg: 'bg-[#6d28d9]',
                 },
                 {
@@ -1625,9 +1663,256 @@ export const ProjectorDisplay: React.FC = () => {
         )}
 
         {/* ==========================================================
+            GAME 3: THE TOY FACTORY CHAOS (สายพานคัดแยกของเล่นผีสิง)
+        ========================================================== */}
+        {round.gameStage === 'QUIXORT' &&
+          round.toyFactory &&
+          (() => {
+            const tf = round.toyFactory;
+            const datasets = state.toyFactoryDatasets || [];
+            const activeDataset = datasets.find((d) => d.id === tf.selectedDatasetId) || null;
+            const activePairing = tf.pairings[tf.roundIndex - 1] || tf.pairings[0];
+            const sortingTeamId = activePairing?.sortingTeamId || 'team1';
+            const holdingTeamId = activePairing?.holdingTeamId || 'team2';
+            const sortingTeam = teams[sortingTeamId];
+            const holdingTeam = teams[holdingTeamId];
+            const prepSec = tf.prepEndsAt
+              ? Math.max(0, Math.ceil((tf.prepEndsAt - toyNowMs) / 1000))
+              : 0;
+            const bufferSec = tf.bufferEndsAt
+              ? Math.max(0, Math.ceil((tf.bufferEndsAt - toyNowMs) / 1000))
+              : 0;
+            const errorsCount = tf.revealSlots.filter((s) => s.verdict === 'WRONG').length;
+
+            return (
+              <div className="flex-1 flex flex-col justify-between gap-4 relative">
+                {/* 10s Prep or 10s Shuffle Buffer Giant Overlay */}
+                {tf.phase === 'PREP_10S' && (
+                  <div className="rounded-3xl bg-amber-500 text-black border-4 border-black shadow-[8px_8px_0px_#000] p-6 text-center">
+                    <div className="text-sm font-mono font-black uppercase tracking-widest">
+                      PREPARE TIME • เตรียมตัวอ่านโพยลับ
+                    </div>
+                    <div className="text-7xl font-black my-2 font-mono">{prepSec}</div>
+                    <div className="text-xl font-black">
+                      ทีม {holdingTeam?.icon} {holdingTeam?.name} กำลังเช็กข้อมูลลับบนมือถือ!
+                    </div>
+                  </div>
+                )}
+
+                {tf.phase === 'SHUFFLE_BUFFER_10S' && (
+                  <div className="rounded-3xl bg-red-600 text-white border-4 border-yellow-300 shadow-[0_0_50px_rgba(239,68,68,0.85)] p-7 text-center animate-pulse">
+                    <div className="inline-block px-4 py-1 rounded-full bg-yellow-400 text-black font-black text-sm mb-2">
+                      ⚡ SHUFFLE! มีทีมกดปุ่มสลับคนถือข้อมูลแล้ว!
+                    </div>
+                    <div className="text-8xl font-black font-mono text-yellow-300 my-1">
+                      {bufferSec}
+                    </div>
+                    <div className="text-2xl md:text-3xl font-black text-white">
+                      หยุดถาม! ให้เวลาทีม {holdingTeam?.icon} {holdingTeam?.name} เช็กข้อมูลใหม่ 10 วินาที
+                    </div>
+                  </div>
+                )}
+
+                {/* Pairings + Topic Banner (NEVER reveal answers during action) */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <div className="rounded-3xl bg-emerald-950/75 border-4 border-black shadow-[6px_6px_0px_#000] p-4 flex items-center gap-3">
+                    <span className="text-4xl">{sortingTeam?.icon}</span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-mono font-black text-emerald-300 uppercase">
+                        🏃 ทีมจัดเรียง (SORTING) • ROUND {tf.roundIndex}/{tf.pairings.length}
+                      </div>
+                      <div className="text-xl font-black text-white truncate">
+                        {sortingTeam?.name}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl bg-purple-950/85 border-4 border-black shadow-[6px_6px_0px_#000] p-4 text-center flex flex-col justify-center">
+                    {activeDataset ? (
+                      <>
+                        <div className="text-xs font-mono font-black text-purple-300 uppercase">
+                          หัวข้อภารกิจ
+                        </div>
+                        <div className="text-xl font-black text-amber-300">{activeDataset.title}</div>
+                        <div className="text-sm font-bold text-white mt-0.5">
+                          กติกา: {activeDataset.direction}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-lg font-black text-amber-300 animate-pulse">
+                        ⏳ รอทีมจัดเรียงเลือกหัวข้อ (1 ใน 5)...
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-3xl bg-amber-950/75 border-4 border-black shadow-[6px_6px_0px_#000] p-4 flex items-center gap-3">
+                    <span className="text-4xl">{holdingTeam?.icon}</span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-mono font-black text-amber-300 uppercase">
+                        📜 ทีมถือข้อมูล (DATA-HOLDING)
+                      </div>
+                      <div className="text-xl font-black text-white truncate">
+                        {holdingTeam?.name}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* TOPIC_SELECT / ACTION Status Area */}
+                {(tf.phase === 'TOPIC_SELECT' || tf.phase === 'ACTION') && (
+                  <div className="flex-1 rounded-3xl bg-slate-900/90 border-4 border-black shadow-[6px_6px_0px_#000] p-6 flex flex-col items-center justify-center text-center gap-3">
+                    {tf.phase === 'TOPIC_SELECT' ? (
+                      <>
+                        <div className="text-5xl">🎁</div>
+                        <div className="text-2xl font-black text-white">
+                          กำลังเลือกกล่องของเล่นผีสิง...
+                        </div>
+                        <div className="flex flex-wrap justify-center gap-2 mt-2">
+                          {datasets.map((ds) => {
+                            const used = tf.usedDatasetIds.includes(ds.id);
+                            return (
+                              <span
+                                key={ds.id}
+                                className={`px-3 py-1.5 rounded-xl border-2 text-xs font-black ${
+                                  used
+                                    ? 'bg-slate-800 border-slate-700 text-slate-500 line-through'
+                                    : 'bg-purple-900/70 border-purple-400 text-purple-100'
+                                }`}
+                              >
+                                {ds.title}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-5xl animate-bounce">⚙️</div>
+                        <div className="text-3xl font-black text-amber-300">
+                          กำลังปฏิบัติภารกิจเรียงลำดับหน้าเวที!
+                        </div>
+                        <div className="text-base font-bold text-slate-200 max-w-2xl">
+                          ข้อมูลทั้งหมดถูกซ่อนเป็นความลับบนมือถือของทีม {holdingTeam?.name} • ทีมผู้ชมอีก 2 ทีมสามารถกดปุ่ม{' '}
+                          <span className="text-red-400 font-black">SHUFFLE!</span> เพื่อสลับคนถือข้อมูลได้ (ก่อน 15 วินาทีสุดท้าย)
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* REVEAL_JUDGE Left-to-Right Cards */}
+                {tf.phase === 'REVEAL_JUDGE' && (
+                  <div className="flex-1 flex flex-col justify-between gap-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                      {tf.revealSlots.map((slot, idx) => {
+                        const isCorrect = slot.verdict === 'CORRECT';
+                        const isWrong = slot.verdict === 'WRONG';
+                        const isSpotlight = Boolean(slot.isMystery && tf.mysterySpotlightActive);
+                        return (
+                          <div
+                            key={`${slot.itemId}-${idx}`}
+                            className={`rounded-2xl p-4 border-4 transition-all flex flex-col justify-between text-center min-h-[170px] ${
+                              isCorrect
+                                ? 'bg-emerald-950/90 border-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.45)]'
+                                : isWrong
+                                ? 'bg-red-950/90 border-red-500 shadow-[0_0_25px_rgba(239,68,68,0.45)]'
+                                : isSpotlight
+                                ? 'bg-amber-950/90 border-yellow-300 shadow-[0_0_35px_rgba(250,204,21,0.7)] scale-[1.03]'
+                                : 'bg-slate-900/95 border-slate-700'
+                            }`}
+                          >
+                            <div className="text-xs font-mono font-black text-slate-400">
+                              ลำดับที่ #{idx + 1}
+                            </div>
+
+                            {slot.revealed ? (
+                              <div className="my-auto space-y-1">
+                                {slot.isMystery && (
+                                  <div className="inline-block px-2 py-0.5 rounded bg-yellow-400 text-black text-[10px] font-black">
+                                    ✨ ตัวปริศนา ???
+                                  </div>
+                                )}
+                                <div className="text-base font-black text-white leading-tight">
+                                  {slot.label}
+                                </div>
+                                <div className="text-sm font-mono font-extrabold text-amber-300">
+                                  ({slot.realValue})
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="my-auto">
+                                <div className="text-4xl font-black text-purple-300">
+                                  {slot.isMystery ? '❓' : '🎁'}
+                                </div>
+                                <div className="text-xs font-bold text-slate-300 mt-1">
+                                  {slot.isMystery ? 'ตัวปริศนา ???' : 'รอตรวจคำตอบ'}
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="mt-2">
+                              {isCorrect && (
+                                <span className="inline-block px-2.5 py-1 rounded-lg bg-emerald-500 text-black text-xs font-black">
+                                  ✓ ถูก!
+                                </span>
+                              )}
+                              {isWrong && (
+                                <span className="inline-block px-2.5 py-1 rounded-lg bg-red-500 text-white text-xs font-black">
+                                  ✗ ผิด (-100 ฿)
+                                </span>
+                              )}
+                              {!slot.verdict && (
+                                <span className="inline-block px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[11px] font-bold">
+                                  {isSpotlight ? '🔍 กำลังเปิดไฟ...' : 'ยังไม่ตัดสิน'}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {round.status === 'REVEALED' && (
+                      <div className="rounded-3xl bg-slate-950 border-4 border-amber-400 p-4 flex flex-wrap items-center justify-around gap-4 text-center">
+                        <div>
+                          <div className="text-xs font-bold text-slate-400">จำนวนข้อผิด</div>
+                          <div className="text-2xl font-black text-white">
+                            {errorsCount} ข้อ
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-emerald-300">
+                            ทีมจัดเรียง ({sortingTeam?.name})
+                          </div>
+                          <div className="text-2xl font-black text-amber-300">
+                            {errorsCount === 0
+                              ? '+800 ฿ (Perfect!)'
+                              : `-${errorsCount * 100} ฿`}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-amber-300">
+                            ทีมถือข้อมูล ({holdingTeam?.name})
+                          </div>
+                          <div className="text-2xl font-black text-white">
+                            {errorsCount === 0
+                              ? '+300 ฿'
+                              : '0 ฿ • 💀 ติดคำสาป (-1 ❤️ เกม 4)'}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+        {/* ==========================================================
             MODE D: WAGERING / SECRET NUMBER (1-10, Quixort Bet, Bribe)
         ========================================================== */}
-        {round.inputMode === 'MODE_D_SECRET' && (
+        {round.inputMode === 'MODE_D_SECRET' &&
+          !(round.gameStage === 'QUIXORT' && round.toyFactory) && (
           <div className="flex-1 flex flex-col justify-between gap-5">
             {round.modeDSubType === 'QUIXORT_BET' && (
               <div className="rounded-3xl bg-slate-900/95 border-2 border-purple-500/50 p-5">

@@ -6,6 +6,7 @@ import {
   RoundConfig,
   Team,
   TeamId,
+  ToyFactoryDataset,
 } from '../types/game';
 
 export const TEAM_ORDER: TeamId[] = ['team1', 'team2', 'team3', 'team4'];
@@ -665,6 +666,119 @@ export function createRoundFromPreset(preset: QuestionPreset): RoundConfig {
   };
 }
 
+export const DEFAULT_TOY_FACTORY_DATASETS: ToyFactoryDataset[] = [
+  {
+    id: 'tf-1',
+    title: 'ความสูงตึกและแลนด์มาร์กในไทย',
+    direction: 'เรียงจาก เตี้ยสุด ➔ สูงสุด (เมตร)',
+    items: [
+      { id: 'tf1-1', label: 'เสาชิงช้า', realValue: '21 ม.' },
+      { id: 'tf1-2', label: 'อนุสาวรีย์ชัยสมรภูมิ', realValue: '49 ม.' },
+      { id: 'tf1-3', label: 'พระปรางค์วัดอรุณฯ', realValue: '81 ม.' },
+      { id: 'tf1-4', label: 'หอคอยบรรหาร-แจ่มใส', realValue: '123 ม.' },
+      {
+        id: 'tf1-5',
+        label: 'ตึกใบหยก 2',
+        realValue: '304 ม.',
+        isMystery: true,
+        mysteryClue: 'สูงกว่า 250 เมตร แต่ไม่ถึง 310 เมตร',
+      },
+      { id: 'tf1-6', label: 'ตึกมหานคร', realValue: '314 ม.' },
+    ],
+  },
+  {
+    id: 'tf-2',
+    title: 'ปีที่เข้าฉายของภาพยนตร์ไทยระดับตำนาน',
+    direction: 'เรียงจาก เก่าสุด ➔ ใหม่สุด (พ.ศ.)',
+    items: [
+      { id: 'tf2-1', label: '2499 อันธพาลครองเมือง', realValue: 'พ.ศ. 2540' },
+      { id: 'tf2-2', label: 'นางนาก', realValue: 'พ.ศ. 2542' },
+      {
+        id: 'tf2-3',
+        label: 'แฟนฉัน',
+        realValue: 'พ.ศ. 2546',
+        isMystery: true,
+        mysteryClue: 'เข้าฉายช่วงปี พ.ศ. 2545 – 2548',
+      },
+      { id: 'tf2-4', label: 'รถไฟฟ้า มาหานะเธอ', realValue: 'พ.ศ. 2552' },
+      { id: 'tf2-5', label: 'พี่มาก..พระโขนง', realValue: 'พ.ศ. 2556' },
+      { id: 'tf2-6', label: 'ฉลาดเกมส์โกง', realValue: 'พ.ศ. 2560' },
+    ],
+  },
+  {
+    id: 'tf-3',
+    title: 'ความยาวแม่น้ำสายสำคัญของไทยและโลก',
+    direction: 'เรียงจาก สั้นสุด ➔ ยาวสุด (กม.)',
+    items: [
+      { id: 'tf3-1', label: 'แม่น้ำเจ้าพระยา', realValue: '372 กม.' },
+      { id: 'tf3-2', label: 'แม่น้ำปิง', realValue: '658 กม.' },
+      { id: 'tf3-3', label: 'แม่น้ำชี', realValue: '765 กม.' },
+      {
+        id: 'tf3-4',
+        label: 'แม่น้ำโขง',
+        realValue: '4,350 กม.',
+        isMystery: true,
+        mysteryClue: 'ยาวมากกว่า 3,000 กม. แต่น้อยกว่า 5,000 กม.',
+      },
+      { id: 'tf3-5', label: 'แม่น้ำแอมะซอน', realValue: '6,400 กม.' },
+      { id: 'tf3-6', label: 'แม่น้ำไนล์', realValue: '6,650 กม.' },
+    ],
+  },
+  {
+    id: 'tf-4',
+    title: 'ปีเปิดตัวโซเชียลมีเดียและแอปยอดฮิต',
+    direction: 'เรียงจาก เก่าสุด ➔ ใหม่สุด (ค.ศ.)',
+    items: [
+      { id: 'tf4-1', label: 'Facebook', realValue: 'ค.ศ. 2004' },
+      { id: 'tf4-2', label: 'YouTube', realValue: 'ค.ศ. 2005' },
+      { id: 'tf4-3', label: 'Instagram', realValue: 'ค.ศ. 2010' },
+      {
+        id: 'tf4-4',
+        label: 'LINE',
+        realValue: 'ค.ศ. 2011',
+        isMystery: true,
+        mysteryClue: 'เปิดตัวหลังปี 2010 แต่ก่อนปี 2015',
+      },
+      { id: 'tf4-5', label: 'TikTok', realValue: 'ค.ศ. 2016' },
+      { id: 'tf4-6', label: 'Threads', realValue: 'ค.ศ. 2023' },
+    ],
+  },
+  {
+    id: 'tf-5',
+    title: 'จำนวนแคลอรีเฉลี่ยของอาหารยอดนิยม (1 จาน/แก้ว)',
+    direction: 'เรียงจาก น้อยสุด ➔ มากสุด (kcal)',
+    items: [
+      { id: 'tf5-1', label: 'อเมริกาโน่เย็นไม่หวาน', realValue: '15 kcal' },
+      { id: 'tf5-2', label: 'ส้มตำไทย', realValue: '120 kcal' },
+      {
+        id: 'tf5-3',
+        label: 'ชานมไข่มุกหวานปกติ',
+        realValue: '350 kcal',
+        isMystery: true,
+        mysteryClue: 'อยู่ระหว่าง 300 – 400 kcal',
+      },
+      { id: 'tf5-4', label: 'ข้าวมันไก่ต้ม', realValue: '585 kcal' },
+      { id: 'tf5-5', label: 'ข้าวกะเพราหมูสับไข่ดาว', realValue: '630 kcal' },
+      { id: 'tf5-6', label: 'ข้าวขาหมูพิเศษ', realValue: '720 kcal' },
+    ],
+  },
+];
+
+export function buildToyFactoryPairings(
+  activeTeams: TeamId[]
+): Array<{ sortingTeamId: TeamId; holdingTeamId: TeamId }> {
+  const pool = [...activeTeams];
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const n = pool.length;
+  return pool.map((sortingTeamId, idx) => ({
+    sortingTeamId,
+    holdingTeamId: pool[(idx + 1) % n],
+  }));
+}
+
 export const INITIAL_GAME_STATE: KrampusGameState = {
   version: 1,
   serverTimestamp: Date.now(),
@@ -685,4 +799,5 @@ export const INITIAL_GAME_STATE: KrampusGameState = {
   buzzerQueue: [],
   transactions: [],
   presets: DEFAULT_PRESETS,
+  toyFactoryDatasets: DEFAULT_TOY_FACTORY_DATASETS,
 };

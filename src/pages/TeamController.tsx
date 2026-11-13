@@ -33,6 +33,8 @@ export const TeamController: React.FC = () => {
     submitSnakeDraftPick,
     placeChronoTraps,
     claimChronoYear,
+    selectToyFactoryDataset,
+    triggerToyFactoryShuffle,
   } = useGame();
   const { round, teams, submissions, buzzerQueue } = state;
 
@@ -55,6 +57,7 @@ export const TeamController: React.FC = () => {
   const [regTeamName, setRegTeamName] = useState<string>('');
   const [regTeamMotto, setRegTeamMotto] = useState<string>('');
   const [regTeamIcon, setRegTeamIcon] = useState<string>('🛡️');
+  const [regTeamRoster, setRegTeamRoster] = useState<string>('');
 
   useEffect(() => {
     const targetTid = selectedTeamId || regSlotId;
@@ -64,6 +67,7 @@ export const TeamController: React.FC = () => {
       setRegTeamName(t.isRegistered ? t.name : '');
       setRegTeamMotto(t.motto || 'แก๊งเด็กดื้อท้าชนครามปุส!');
       setRegTeamIcon(t.icon || '🛡️');
+      setRegTeamRoster((t.roster || []).join(', '));
     }
   }, [selectedTeamId]);
 
@@ -84,6 +88,31 @@ export const TeamController: React.FC = () => {
   // Game 2 ("THE CHRONO CRUSH") specific drafts
   const [draftSliderYear, setDraftSliderYear] = useState<number>(2000);
   const [draftTrapAllocations, setDraftTrapAllocations] = useState<Partial<Record<TeamId, number>>>({});
+
+  // Game 3 ("THE TOY FACTORY CHAOS") live timer & vibration
+  const [toyNowMs, setToyNowMs] = useState<number>(() => Date.now());
+  const isToyFactoryActive = round.gameStage === 'QUIXORT' && Boolean(round.toyFactory);
+  useEffect(() => {
+    if (!isToyFactoryActive) return;
+    setToyNowMs(Date.now());
+    const id = setInterval(() => setToyNowMs(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [isToyFactoryActive]);
+
+  useEffect(() => {
+    const tf = round.toyFactory;
+    const activePairing = tf ? tf.pairings[tf.roundIndex - 1] || tf.pairings[0] : null;
+    if (
+      round.gameStage === 'QUIXORT' &&
+      tf?.phase === 'SHUFFLE_BUFFER_10S' &&
+      activePairing &&
+      selectedTeamId === activePairing.holdingTeamId &&
+      typeof navigator !== 'undefined' &&
+      typeof navigator.vibrate === 'function'
+    ) {
+      navigator.vibrate([250, 100, 250, 100, 450]);
+    }
+  }, [round.gameStage, round.toyFactory?.phase, round.toyFactory?.bufferEndsAt, selectedTeamId]);
 
   // Reset local drafts whenever round ID, sub-round, or status changes
   useEffect(() => {
@@ -142,13 +171,25 @@ export const TeamController: React.FC = () => {
       setRegTeamName(t.isRegistered ? t.name : '');
       setRegTeamMotto(t.motto || 'พร้อมลุยคืนคริสต์มาสอีฟ!');
       setRegTeamIcon(t.icon);
+      setRegTeamRoster((t.roster || []).join(', '));
     };
 
     const handleSubmitRegistration = (e: React.FormEvent) => {
       e.preventDefault();
       const finalName =
         regTeamName.trim() || `Team ${activeSlotTeam.number} (${activeSlotTeam.name.split(' ')[0]})`;
-      registerTeam(regSlotId, finalName, regTeamIcon, regTeamMotto.trim() || 'พร้อมลุย!');
+      const parsedRoster = regTeamRoster
+        .split(/[,\n]+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .slice(0, 10);
+      registerTeam(
+        regSlotId,
+        finalName,
+        regTeamIcon,
+        regTeamMotto.trim() || 'พร้อมลุย!',
+        parsedRoster
+      );
       handleSelectTeam(regSlotId);
       setIsEditingRegistration(false);
     };
@@ -325,6 +366,19 @@ export const TeamController: React.FC = () => {
                 onChange={(e) => setRegTeamMotto(e.target.value)}
                 placeholder="เช่น เด็กดื้อพร้อมบวกครามปุส!"
                 className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border-2 border-slate-700 text-slate-200 text-xs font-bold focus:outline-none focus:border-amber-400"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1">
+                รายชื่อเล่นสมาชิกในทีม (4–10 คน คั่นด้วยเครื่องหมาย ,):
+              </label>
+              <input
+                type="text"
+                value={regTeamRoster}
+                onChange={(e) => setRegTeamRoster(e.target.value)}
+                placeholder="เช่น บอล, มายด์, เต้, พลอย, ต้น, แนน"
+                className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border-2 border-slate-700 text-amber-200 text-xs font-bold focus:outline-none focus:border-amber-400"
               />
             </div>
 
@@ -1335,10 +1389,286 @@ export const TeamController: React.FC = () => {
         )}
 
         {/* ==========================================================
+            GAME 3: THE TOY FACTORY CHAOS (สายพานคัดแยกของเล่นผีสิง)
+        ========================================================== */}
+        {round.status !== 'IDLE' &&
+          round.gameStage === 'QUIXORT' &&
+          round.toyFactory &&
+          (() => {
+            const tf = round.toyFactory;
+            const datasets = state.toyFactoryDatasets || [];
+            const activeDataset = datasets.find((d) => d.id === tf.selectedDatasetId) || null;
+            const activePairing = tf.pairings[tf.roundIndex - 1] || tf.pairings[0];
+            const sortingTeamId = activePairing?.sortingTeamId || 'team1';
+            const holdingTeamId = activePairing?.holdingTeamId || 'team2';
+            const isSorting = selectedTeamId === sortingTeamId;
+            const isHolding = selectedTeamId === holdingTeamId;
+            const isSpectator = !isSorting && !isHolding;
+
+            const prepRemainingSec = tf.prepEndsAt
+              ? Math.max(0, Math.ceil((tf.prepEndsAt - toyNowMs) / 1000))
+              : 0;
+            const bufferRemainingSec = tf.bufferEndsAt
+              ? Math.max(0, Math.ceil((tf.bufferEndsAt - toyNowMs) / 1000))
+              : 0;
+            const actionRemainingSec =
+              round.timerStartedAt !== null
+                ? Math.max(
+                    0,
+                    Math.ceil(
+                      (round.durationSeconds * 1000 - (toyNowMs - round.timerStartedAt)) / 1000
+                    )
+                  )
+                : round.timerRemainingMs !== null
+                ? Math.max(0, Math.ceil(round.timerRemainingMs / 1000))
+                : round.durationSeconds;
+
+            const alreadyUsedShuffleQuota = tf.shuffleUsedByTeams.includes(selectedTeamId);
+            const roundShuffleTaken = tf.shuffleUsedThisRound;
+            const isLast15Sec = actionRemainingSec <= 15;
+            const canClickShuffle =
+              tf.phase === 'ACTION' &&
+              isSpectator &&
+              !alreadyUsedShuffleQuota &&
+              !roundShuffleTaken &&
+              !isLast15Sec;
+
+            return (
+              <div className="flex-1 flex flex-col gap-3">
+                {/* Round & Pairings Header */}
+                <div className="rounded-2xl bg-slate-900 border-2 border-purple-500/60 p-3">
+                  <div className="flex items-center justify-between text-xs font-mono text-purple-300 font-bold mb-1.5">
+                    <span>
+                      ROUND {tf.roundIndex}/{tf.pairings.length}
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-purple-950 border border-purple-400/50">
+                      {isSorting
+                        ? '🏃 ทีมจัดเรียง (Sorting)'
+                        : isHolding
+                        ? '📜 ทีมถือข้อมูล (Holding)'
+                        : '👀 ทีมผู้ชม (Spectator)'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-xl bg-emerald-950/50 border border-emerald-500/40 p-2">
+                      <div className="text-[10px] text-emerald-300 font-bold">ทีมจัดเรียง</div>
+                      <div className="font-black text-white truncate">
+                        {teams[sortingTeamId]?.icon} {teams[sortingTeamId]?.name}
+                      </div>
+                    </div>
+                    <div className="rounded-xl bg-amber-950/50 border border-amber-500/40 p-2">
+                      <div className="text-[10px] text-amber-300 font-bold">ทีมถือข้อมูล</div>
+                      <div className="font-black text-white truncate">
+                        {teams[holdingTeamId]?.icon} {teams[holdingTeamId]?.name}
+                      </div>
+                    </div>
+                  </div>
+                  {activeDataset && (
+                    <div className="mt-2 rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 text-center">
+                      <div className="text-xs font-black text-amber-300">{activeDataset.title}</div>
+                      <div className="text-[11px] font-bold text-slate-300">
+                        กติกา: {activeDataset.direction}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* TOPIC_SELECT */}
+                {tf.phase === 'TOPIC_SELECT' && (
+                  <div className="flex-1 flex flex-col gap-2.5">
+                    {isSorting ? (
+                      <>
+                        <div className="rounded-xl bg-emerald-950/60 border border-emerald-400 p-3 text-center">
+                          <div className="text-sm font-black text-emerald-200">
+                            🎯 ตาทีมคุณเลือกหัวข้อโจทย์! (เลือกได้ครั้งเดียว)
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 gap-2">
+                          {datasets.map((ds) => {
+                            const used = tf.usedDatasetIds.includes(ds.id);
+                            return (
+                              <button
+                                key={ds.id}
+                                type="button"
+                                disabled={used}
+                                onClick={() => selectToyFactoryDataset(selectedTeamId, ds.id)}
+                                className={`p-3.5 rounded-2xl border-2 text-left transition-all ${
+                                  used
+                                    ? 'bg-slate-900/50 border-slate-800 text-slate-500 opacity-55 cursor-not-allowed'
+                                    : 'bg-purple-950/70 hover:bg-purple-900 border-purple-400 text-white active:scale-[0.98]'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-black text-sm">{ds.title}</span>
+                                  {used && (
+                                    <span className="px-2 py-0.5 rounded bg-slate-800 text-[10px] font-bold">
+                                      ใช้แล้ว
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-amber-300 font-bold mt-0.5">
+                                  {ds.direction}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-slate-900 border-2 border-slate-700 p-6 text-center">
+                        <div className="text-3xl mb-2 animate-bounce">🎲</div>
+                        <h3 className="text-lg font-black text-white">
+                          รอทีมจัดเรียง ({teams[sortingTeamId]?.name}) เลือกหัวข้อ...
+                        </h3>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* PREP_10S / ACTION / SHUFFLE_BUFFER_10S */}
+                {(tf.phase === 'PREP_10S' ||
+                  tf.phase === 'ACTION' ||
+                  tf.phase === 'SHUFFLE_BUFFER_10S') && (
+                  <div className="flex-1 flex flex-col gap-3">
+                    {isHolding && (
+                      <>
+                        {tf.phase === 'PREP_10S' && (
+                          <div className="rounded-2xl bg-amber-500 text-black border-2 border-black p-3 text-center font-black">
+                            ⏱️ เตรียมความพร้อม! จำโพยของตัวเอง ({prepRemainingSec} วิ)
+                          </div>
+                        )}
+                        {tf.phase === 'SHUFFLE_BUFFER_10S' && (
+                          <div className="rounded-2xl bg-yellow-400 text-black border-4 border-black p-3 text-center animate-pulse shadow-[0_0_20px_rgba(250,204,21,0.7)]">
+                            <div className="text-base font-black">
+                              ⚡ โดน SHUFFLE! สลับคนถือข้อมูลแล้ว!
+                            </div>
+                            <div className="text-xs font-extrabold mt-0.5">
+                              รีบเช็กข้อมูลใหม่ของตัวเองภายใน {bufferRemainingSec} วินาที!
+                            </div>
+                          </div>
+                        )}
+                        <div className="text-xs font-bold text-amber-300 text-center">
+                          🔒 ข้อมูลลับสำหรับทีมถือข้อมูล (ห้ามให้ทีมอื่นแอบดูหน้าจอ!)
+                        </div>
+                        <div className="space-y-2 overflow-y-auto max-h-[420px] pr-1">
+                          {tf.assignments.map((a, idx) => (
+                            <div
+                              key={`${a.itemId}-${idx}`}
+                              className={`rounded-2xl p-3 border-2 transition-all ${
+                                a.changedOnShuffle
+                                  ? 'bg-yellow-400/20 border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.45)]'
+                                  : a.isMystery
+                                  ? 'bg-purple-950/70 border-purple-400'
+                                  : 'bg-slate-900 border-slate-700'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-sm font-black text-amber-300">
+                                  👤 {a.memberName}
+                                </span>
+                                {a.changedOnShuffle && (
+                                  <span className="px-2 py-0.5 rounded bg-yellow-400 text-black text-[10px] font-black">
+                                    🔄 สลับใหม่!
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-1 text-base font-black text-white">
+                                {a.isMystery ? '❓ ??? (ตัวปริศนา)' : a.label}
+                              </div>
+                              {a.isMystery && (
+                                <div className="mt-1 text-xs font-bold text-purple-200 bg-purple-900/60 rounded-lg px-2.5 py-1.5">
+                                  💡 คำใบ้: {a.mysteryClue || 'ไม่มีคำใบ้'}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+
+                    {isSorting && (
+                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-emerald-950/40 border-2 border-emerald-500/60 p-5 text-center gap-3">
+                        <div className="text-4xl">
+                          {tf.phase === 'SHUFFLE_BUFFER_10S' ? '⏸️' : '🏃'}
+                        </div>
+                        <h3 className="text-xl font-black text-white">
+                          {tf.phase === 'PREP_10S'
+                            ? `เตรียมพร้อม! เริ่มใน ${prepRemainingSec} วิ`
+                            : tf.phase === 'SHUFFLE_BUFFER_10S'
+                            ? `หยุดถาม! ทีมถือข้อมูลโดน SHUFFLE (${bufferRemainingSec} วิ)`
+                            : 'ตะโกนถามเพื่อน แล้ววิ่งไปเรียงลำดับหน้าเวที!'}
+                        </h3>
+                        <p className="text-xs text-emerald-200 font-semibold">
+                          ห้ามเดินไปแอบดูมือถือทีมถือข้อมูล! ฟังคำตอบจากปากเพื่อนเท่านั้น
+                        </p>
+                      </div>
+                    )}
+
+                    {isSpectator && (
+                      <div className="flex-1 flex flex-col justify-between gap-3">
+                        <div className="rounded-2xl bg-slate-900 border border-slate-700 p-4 text-center">
+                          <div className="text-xs font-bold text-slate-300">
+                            {tf.phase === 'PREP_10S'
+                              ? `เตรียมพร้อม... (${prepRemainingSec} วิ)`
+                              : tf.phase === 'SHUFFLE_BUFFER_10S'
+                              ? `⏸️ SHUFFLE ทำงาน! พักเบรก ${bufferRemainingSec} วินาที`
+                              : 'จับจังหวะดีๆ แล้วกดปุ่ม SHUFFLE เพื่อสลับคนถือข้อมูล!'}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={!canClickShuffle}
+                          onClick={() => triggerToyFactoryShuffle(selectedTeamId)}
+                          className={`flex-1 min-h-[150px] rounded-3xl border-4 border-black p-6 flex flex-col items-center justify-center gap-2 font-black transition-all ${
+                            canClickShuffle
+                              ? 'bg-red-600 hover:bg-red-500 active:scale-95 text-white shadow-[6px_6px_0px_#000] animate-pulse'
+                              : 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-75'
+                          }`}
+                        >
+                          <span className="text-4xl">🔀</span>
+                          <span className="text-2xl">SHUFFLE! สลับคนถือ</span>
+                          <span className="text-xs font-bold">
+                            {alreadyUsedShuffleQuota
+                              ? 'ทีมคุณใช้สิทธิ์ครบแล้ว (1 ครั้ง/เกม)'
+                              : roundShuffleTaken
+                              ? 'รอบนี้มีทีมกด SHUFFLE ไปแล้ว'
+                              : isLast15Sec
+                              ? 'ล็อกปุ่มอัตโนมัติใน 15 วินาทีสุดท้าย!'
+                              : tf.phase !== 'ACTION'
+                              ? 'กดได้เฉพาะช่วงเวลา Action เท่านั้น'
+                              : 'กดได้ 1 ครั้งตลอดทั้งเกม!'}
+                          </span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* REVEAL_JUDGE */}
+                {tf.phase === 'REVEAL_JUDGE' && (
+                  <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-slate-900 border-2 border-amber-400/60 p-6 text-center gap-2">
+                    <div className="text-4xl">🔍</div>
+                    <h3 className="text-xl font-black text-amber-300">
+                      {round.status === 'REVEALED'
+                        ? 'สรุปผลรอบนี้เรียบร้อย!'
+                        : 'กำลังตรวจคำตอบทีละใบที่จอใหญ่!'}
+                    </h3>
+                    <p className="text-xs text-slate-300">
+                      ดูผลเฉลยและคะแนน Holy Coins บนจอโปรเจกเตอร์
+                    </p>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+        {/* ==========================================================
             MODE D: WAGERING / SECRET NUMBER 1-10 / QUIXORT BET
         ========================================================== */}
         {round.status !== 'IDLE' &&
           round.inputMode === 'MODE_D_SECRET' &&
+          !(round.gameStage === 'QUIXORT' && round.toyFactory) &&
           !mySubmission && (
             <div className="flex-1 flex flex-col justify-between gap-3">
               {!isRoundActive ? (
