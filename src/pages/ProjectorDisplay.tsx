@@ -19,7 +19,12 @@ import {
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import {
+  BLACK_MARKET_ITEMS,
+  CURSE_CATALOG,
+  DEFAULT_LAST_MAN_PART1_QUESTIONS,
+  DEFAULT_LAST_MAN_PART2_QUESTIONS,
   TEAM_ORDER,
+  getActiveTeamIds,
   getChronoNetTraps,
   getChronoSliderStep,
   getChronoTrapsReceived,
@@ -56,8 +61,8 @@ const STAGE_META: Record<GameStage, { badge: string; name: string; color: string
     color: 'from-purple-950 via-red-950 to-slate-950',
   },
   TRIVIA_MURDER: {
-    badge: 'GAME 4 • TRIVIA MURDER PARTY',
-    name: 'ลานประหารของครามปุส',
+    badge: 'GAME 4 • THE LAST MAN STANDING',
+    name: 'THE LAST MAN STANDING (ลานประหารคริสต์มาส)',
     color: 'from-red-950 via-black to-red-950',
   },
   FINALE: {
@@ -646,9 +651,9 @@ export const ProjectorDisplay: React.FC = () => {
                   stage: 'TRIVIA_MURDER' as GameStage,
                   roomNo: 'ROOM 4',
                   icon: '💀',
-                  title: 'Trivia Murder Party',
-                  thaiTitle: 'ลานประหารของครามปุส',
-                  desc: 'คำถามชี้ชะตาและมินิเกมลานประหาร: เลขลับไม่ซ้ำ 1-10, ประมูลส่วยเลือด และกล่องต้องสาป!',
+                  title: 'THE LAST MAN STANDING',
+                  thaiTitle: 'ลานประหารคริสต์มาส (ตัดสินแชมป์)',
+                  desc: 'เอาชีวิตรอด 4 รอบ + ตลาดมืดละลายทรัพย์ + มินิเกมลานประหาร แล้ววิ่งขึ้นบันไดหนีตาย 25 ขั้นหนี Krampus เพื่อคว้าแชมป์!',
                   bg: 'bg-[#be123c]',
                 },
               ].map((room) => (
@@ -1107,9 +1112,544 @@ export const ProjectorDisplay: React.FC = () => {
         })()}
 
         {/* ==========================================================
+            GAME 4: THE LAST MAN STANDING (ลานประหารคริสต์มาส)
+        ========================================================== */}
+        {round.gameStage === 'TRIVIA_MURDER' &&
+          round.lastMan &&
+          (() => {
+            const lms = round.lastMan;
+            const active = getActiveTeamIds(teams);
+            const p1List = state.lastManPart1Questions || DEFAULT_LAST_MAN_PART1_QUESTIONS;
+            const p2List = state.lastManPart2Questions || DEFAULT_LAST_MAN_PART2_QUESTIONS;
+            const p1Q = p1List[(lms.part1Round - 1) % p1List.length];
+            const p2Q = p2List[lms.part2QuestionIndex % p2List.length];
+            const isPart2 = lms.phase.startsWith('PART2_') || lms.phase === 'CHAMPION';
+
+            return (
+              <div className="flex-1 flex flex-col justify-between gap-4">
+                {/* Part 1 Top Status Strip: Safe Zone vs Killing Floor */}
+                {!isPart2 && (
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    {active.map((tid) => {
+                      const ts = lms.teamStates[tid];
+                      const t = teams[tid];
+                      const curse = ts.activeCurse ? CURSE_CATALOG[ts.activeCurse] : null;
+                      return (
+                        <div
+                          key={tid}
+                          className={`rounded-2xl p-3 border-4 border-black shadow-[4px_4px_0px_#000] transition-all ${
+                            ts.isGhost
+                              ? 'bg-slate-900/80 opacity-75'
+                              : ts.inKillingFloor
+                              ? 'bg-red-950/90 border-red-500'
+                              : 'bg-emerald-950/80 border-emerald-400'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-black text-base text-white truncate">
+                              {t.icon} {t.name}
+                            </span>
+                            <span className="font-mono text-xs font-black text-amber-300">
+                              {t.coins.toLocaleString()} ฿
+                            </span>
+                          </div>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs font-black">
+                            <span className="px-2 py-0.5 rounded bg-black/60 text-rose-300">
+                              {ts.isGhost ? '👻 วิญญาณ' : `❤️ ${ts.hearts}/4`}
+                            </span>
+                            {!ts.isGhost && (
+                              <span
+                                className={`px-2 py-0.5 rounded ${
+                                  ts.inKillingFloor
+                                    ? 'bg-red-600 text-white'
+                                    : 'bg-emerald-600 text-black'
+                                }`}
+                              >
+                                {ts.inKillingFloor ? '💀 ลานประหาร' : '🛡️ โซนปลอดภัย'}
+                              </span>
+                            )}
+                            {ts.mirrorShield && (
+                              <span className="px-2 py-0.5 rounded bg-cyan-500 text-black">
+                                🪞 โล่
+                              </span>
+                            )}
+                            {ts.jetpacks > 0 && (
+                              <span className="px-2 py-0.5 rounded bg-amber-400 text-black">
+                                🚀 x{ts.jetpacks}
+                              </span>
+                            )}
+                          </div>
+                          {curse && (
+                            <div className="mt-1.5 text-[11px] font-black text-yellow-300 bg-purple-950/90 rounded px-2 py-0.5 truncate">
+                              {curse.icon} คำสาป: {curse.name}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* KRAMPUS_TWIST */}
+                {lms.phase === 'KRAMPUS_TWIST' && (
+                  <div className="flex-1 rounded-3xl bg-gradient-to-br from-rose-950 via-black to-slate-950 border-4 border-rose-500 p-8 flex flex-col items-center justify-center text-center gap-4">
+                    <div className="text-7xl animate-bounce">👹</div>
+                    <h2 className="text-4xl md:text-5xl font-black text-amber-300">
+                      ประกาศหักมุมจาก KRAMPUS!
+                    </h2>
+                    <p className="text-xl md:text-2xl font-bold text-white max-w-3xl leading-relaxed">
+                      &ldquo;เงิน Holy Coins (฿) ที่สะสมมาไม่ใช่คะแนนตัดสินแชมป์อีกต่อไป! แต่มันคือ{' '}
+                      <span className="text-rose-400 font-black">กระสุนในตลาดมืดและแต้มต่อ</span>{' '}
+                      ใครวิ่งทะลุประตูบันไดหนีตาย 25 ขั้นได้เป็นทีมแรก ชนะเลิศทั้งค่ายทันที!&rdquo;
+                    </p>
+                  </div>
+                )}
+
+                {/* PART1_TRIVIA / PART1_TRIVIA_REVEAL / PART1_MISERY_PULL */}
+                {(lms.phase === 'PART1_TRIVIA' ||
+                  lms.phase === 'PART1_TRIVIA_REVEAL' ||
+                  lms.phase === 'PART1_MISERY_PULL') && (
+                  <div className="flex-1 flex flex-col justify-between gap-4">
+                    {lms.phase === 'PART1_MISERY_PULL' && (
+                      <div className="rounded-2xl bg-red-600 border-4 border-yellow-300 p-4 text-center animate-pulse">
+                        <div className="text-2xl font-black text-white">
+                          😈 ลากเพื่อนตกนรก! {teams[lms.miseryPullTeamId || 'team1']?.name} ตอบผิดทีมเดียว — เลือกดึง 1 ทีมที่รอดลงลานประหารภายใน 10 วิ!
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="rounded-3xl bg-slate-900/95 border-4 border-black p-5 text-center space-y-3">
+                      {p1Q.imageUrl && (
+                        <img
+                          src={p1Q.imageUrl}
+                          alt="Trivia"
+                          className="max-h-48 mx-auto rounded-2xl border-2 border-slate-700 object-contain"
+                        />
+                      )}
+                      <div className="text-2xl md:text-3xl font-black text-white">
+                        {p1Q.questionText}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                      {p1Q.choices.map((c) => {
+                        const isRev = lms.phase !== 'PART1_TRIVIA';
+                        const isCorrect = c.key === p1Q.correctKey;
+                        const pickers = active.filter(
+                          (tid) => String(submissions[tid]?.value || '') === c.key
+                        );
+                        return (
+                          <div
+                            key={c.key}
+                            className={`rounded-2xl p-4 border-4 transition-all flex items-center justify-between gap-3 ${
+                              isRev
+                                ? isCorrect
+                                  ? 'bg-emerald-950/90 border-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.4)]'
+                                  : 'bg-red-950/50 border-slate-800 opacity-75'
+                                : 'bg-slate-900 border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <span
+                                className={`w-10 h-10 rounded-xl font-black text-xl flex items-center justify-center ${
+                                  isRev && isCorrect
+                                    ? 'bg-emerald-400 text-black'
+                                    : 'bg-amber-400 text-black'
+                                }`}
+                              >
+                                {c.key}
+                              </span>
+                              <span className="text-lg font-black text-white">{c.label}</span>
+                            </div>
+                            {isRev && pickers.length > 0 && (
+                              <div className="flex gap-1">
+                                {pickers.map((tid) => (
+                                  <span
+                                    key={tid}
+                                    className="px-2 py-1 rounded-lg bg-black/70 text-sm font-black text-white"
+                                  >
+                                    {teams[tid].icon}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* PART1_BLACK_MARKET */}
+                {lms.phase === 'PART1_BLACK_MARKET' && (
+                  <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    <div className="lg:col-span-7 rounded-3xl bg-purple-950/50 border-4 border-purple-500/60 p-4 space-y-2.5">
+                      <h3 className="text-xl font-black text-amber-300">
+                        🛒 ตลาดมืดละลายทรัพย์ (25 วินาที • ซื้อปุ๊บ ออกฤทธิ์ปั๊บ!)
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {BLACK_MARKET_ITEMS.map((item) => {
+                          const rStock = lms.roundStock[item.id] ?? 0;
+                          const gStock =
+                            item.id === 'HELL_CHAINS'
+                              ? lms.gameStock.HELL_CHAINS
+                              : item.id === 'JETPACK'
+                              ? lms.gameStock.JETPACK
+                              : 99;
+                          const left = Math.min(rStock, gStock);
+                          return (
+                            <div
+                              key={item.id}
+                              className={`rounded-2xl p-3 border-2 ${
+                                left > 0
+                                  ? 'bg-slate-900 border-purple-400/60'
+                                  : 'bg-slate-950 border-slate-800 opacity-45'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2 font-black text-sm text-white">
+                                <span>
+                                  {item.icon} {item.name}
+                                </span>
+                                <span className="text-amber-300 font-mono">{item.price} ฿</span>
+                              </div>
+                              <div className="text-[11px] text-slate-300 mt-1">
+                                คงเหลือ: <span className="font-black text-white">{left} ชิ้น</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="lg:col-span-5 rounded-3xl bg-slate-950 border-4 border-rose-500/60 p-4 flex flex-col">
+                      <h3 className="text-lg font-black text-rose-400 mb-2">
+                        ⚡ LIVE KILL-FEED (ประกาศสดตามเวลา!)
+                      </h3>
+                      <div className="flex-1 space-y-2 overflow-y-auto max-h-[340px]">
+                        {lms.killFeed.length === 0 ? (
+                          <div className="text-sm text-slate-500 text-center py-8">
+                            รอทีมแรกกดซื้อไอเทมในตลาดมืด...
+                          </div>
+                        ) : (
+                          lms.killFeed.map((kf) => (
+                            <div
+                              key={kf.id}
+                              className="rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-xs font-bold text-white flex items-center gap-2"
+                            >
+                              <span className="text-lg">{kf.icon}</span>
+                              <span>{kf.message}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* PART1_MINIGAME / PART1_MINIGAME_REVEAL */}
+                {(lms.phase === 'PART1_MINIGAME' || lms.phase === 'PART1_MINIGAME_REVEAL') && (
+                  <div className="flex-1 rounded-3xl bg-slate-900/95 border-4 border-red-500/70 p-6 flex flex-col justify-between gap-4">
+                    {lms.part1Round === 1 && (
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 my-auto">
+                        {[1, 2, 3, 4].map((num) => {
+                          const isPoison =
+                            lms.phase === 'PART1_MINIGAME_REVEAL' &&
+                            lms.poisonedChalices.includes(num);
+                          const drinkers = active.filter((tid) => lms.chalicePicks[tid] === num);
+                          return (
+                            <div
+                              key={num}
+                              className={`rounded-3xl p-5 border-4 text-center space-y-2 ${
+                                isPoison
+                                  ? 'bg-purple-950 border-purple-400'
+                                  : 'bg-slate-950 border-slate-700'
+                              }`}
+                            >
+                              <div className="text-5xl">{isPoison ? '☠️' : '🍷'}</div>
+                              <div className="text-xl font-black text-white">ถ้วย #{num}</div>
+                              {lms.phase === 'PART1_MINIGAME_REVEAL' && (
+                                <div className="text-xs font-black text-amber-300">
+                                  {isPoison ? 'มียาพิษ!' : 'ปลอดภัย!'}
+                                </div>
+                              )}
+                              {lms.phase === 'PART1_MINIGAME_REVEAL' && drinkers.length > 0 && (
+                                <div className="flex justify-center gap-1 pt-1">
+                                  {drinkers.map((tid) => (
+                                    <span key={tid} className="px-2 py-0.5 rounded bg-black text-xs">
+                                      {teams[tid].icon} {teams[tid].name}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {lms.part1Round === 2 && (
+                      <div className="my-auto text-center space-y-4">
+                        <div className="text-3xl font-black text-amber-300">
+                          🤝 หักหลังแบ่งสมบัติ (SPLIT OR STEAL)
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          {active.map((tid) => {
+                            const pick = lms.splitStealPicks[tid];
+                            if (!pick && lms.phase !== 'PART1_MINIGAME_REVEAL') return null;
+                            return (
+                              <div
+                                key={tid}
+                                className="rounded-2xl bg-slate-950 border-2 border-slate-700 p-4"
+                              >
+                                <div className="text-2xl">{teams[tid].icon}</div>
+                                <div className="font-black text-white">{teams[tid].name}</div>
+                                <div className="mt-2 text-sm font-black text-amber-300">
+                                  {lms.phase === 'PART1_MINIGAME_REVEAL'
+                                    ? pick === 'STEAL'
+                                      ? '🗡️ แทงข้างหลัง!'
+                                      : '🤝 จับมือ'
+                                    : '🔒 เลือกแล้ว'}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {lms.part1Round === 3 && (
+                      <div className="my-auto text-center space-y-3">
+                        <div className="text-5xl">🎭</div>
+                        <div className="text-3xl font-black text-white">
+                          ท้าทายความกล้า (Krampus Dare • 15 วิ)
+                        </div>
+                        <div className="text-lg font-bold text-amber-300">
+                          {lms.phase === 'PART1_MINIGAME_REVEAL'
+                            ? `ผลโหวต: 💚 ไว้ชีวิต ${
+                                Object.values(lms.dareVotes).filter((v) => v === 'SPARE').length
+                              } เสียง vs 💀 ประหาร ${
+                                Object.values(lms.dareVotes).filter((v) => v === 'EXECUTE').length
+                              } เสียง`
+                            : 'ทีมที่รอดกำลังโหวตว่าจะไว้ชีวิตหรือประหาร!'}
+                        </div>
+                      </div>
+                    )}
+
+                    {lms.part1Round === 4 && (
+                      <div className="my-auto text-center space-y-4">
+                        <div className="text-2xl font-black text-orange-400">
+                          🎲 แต้มลูกเต๋าของ Krampus:{' '}
+                          <span className="text-5xl text-white ml-2">
+                            {lms.krampusDiceRoll ?? '?'}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          {active.map((tid) => {
+                            const roll = lms.teamDiceRolls[tid];
+                            return (
+                              <div
+                                key={tid}
+                                className="rounded-2xl bg-slate-950 border-2 border-slate-700 p-4"
+                              >
+                                <div className="font-black text-white">
+                                  {teams[tid].icon} {teams[tid].name}
+                                </div>
+                                <div className="text-4xl font-black text-amber-300 mt-1">
+                                  🎲 {roll ?? '-'}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* PART1_GREED_TAX */}
+                {lms.phase === 'PART1_GREED_TAX' && (
+                  <div className="flex-1 rounded-3xl bg-gradient-to-b from-amber-950 via-black to-red-950 border-4 border-amber-400 p-8 flex flex-col items-center justify-center text-center gap-4">
+                    <div className="text-6xl">💸</div>
+                    <h2 className="text-4xl font-black text-amber-300">
+                      ภาษีคนงกของ KRAMPUS!
+                    </h2>
+                    <p className="text-lg font-bold text-white">
+                      ทีมใดถือเงินสดเกิน 1,000 ฿ ถูกหักเงินครึ่งหนึ่ง (50%) ทันที!
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-2xl">
+                      {lms.greedTaxReport.length === 0 ? (
+                        <div className="col-span-2 text-emerald-300 font-black text-xl">
+                          ✨ ไม่มีทีมไหนถือเงินเกิน 1,000 ฿ — รอดภาษีทั้งหมด!
+                        </div>
+                      ) : (
+                        lms.greedTaxReport.map((r) => (
+                          <div
+                            key={r.teamId}
+                            className="rounded-2xl bg-slate-950 border-2 border-red-500 p-3 flex items-center justify-between"
+                          >
+                            <span className="font-black text-white">
+                              {teams[r.teamId].icon} {teams[r.teamId].name}
+                            </span>
+                            <span className="font-mono font-black text-red-400">
+                              {r.before} ฿ → {r.after} ฿ (-{r.lost} ฿)
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* PART2: SPLIT-SCREEN 25-STEP STAIRCASE + CLUE/QUESTION */}
+                {isPart2 && (
+                  <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    {/* Left: 25-Step Staircase */}
+                    <div className="lg:col-span-6 rounded-3xl bg-slate-950 border-4 border-black p-4 flex flex-col justify-between">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-lg font-black text-amber-300">
+                          🪜 บันไดหนีตาย 25 ขั้น
+                        </h3>
+                        <span className="px-2.5 py-1 rounded-lg bg-red-900 text-white text-xs font-black">
+                          👹 Krampus: ขั้น {lms.krampusStep}
+                        </span>
+                      </div>
+
+                      <div className="space-y-2.5 my-auto">
+                        {active.map((tid) => {
+                          const ts = lms.teamStates[tid];
+                          const pct = Math.min(100, Math.max(0, (ts.step / 25) * 100));
+                          return (
+                            <div key={tid} className="space-y-1">
+                              <div className="flex items-center justify-between text-xs font-black">
+                                <span className={ts.isGhost ? 'text-purple-300' : 'text-white'}>
+                                  {ts.isGhost ? '👻 [วิญญาณ]' : '🏃'} {teams[tid].icon}{' '}
+                                  {teams[tid].name}
+                                </span>
+                                <span className="font-mono text-amber-300">
+                                  ขั้น {ts.step} / 25
+                                </span>
+                              </div>
+                              <div className="h-6 rounded-full bg-slate-900 border-2 border-slate-700 relative overflow-hidden">
+                                <div
+                                  className={`h-full transition-all duration-500 ${
+                                    ts.isGhost ? 'bg-purple-600/80' : 'bg-emerald-500'
+                                  }`}
+                                  style={{ width: `${pct}%` }}
+                                />
+                                {/* Krampus marker */}
+                                <div
+                                  className="absolute top-0 bottom-0 w-1 bg-red-500 shadow-[0_0_8px_#ef4444]"
+                                  style={{
+                                    left: `${Math.min(100, (lms.krampusStep / 25) * 100)}%`,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="mt-3 rounded-xl bg-slate-900 border border-slate-800 p-2.5 max-h-28 overflow-y-auto space-y-1">
+                        {lms.killFeed.slice(0, 4).map((kf) => (
+                          <div key={kf.id} className="text-[11px] font-bold text-slate-200">
+                            {kf.icon} {kf.message}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Right: Clue / Question / 3 Options / Champion */}
+                    <div className="lg:col-span-6 rounded-3xl bg-slate-900/95 border-4 border-black p-5 flex flex-col justify-between gap-4">
+                      {lms.phase === 'CHAMPION' ? (
+                        <div className="flex-1 flex flex-col items-center justify-center text-center gap-3">
+                          <div className="text-7xl animate-bounce">🏆</div>
+                          <div className="text-sm font-mono font-black text-amber-400 uppercase">
+                            THE KRAMPUS EVE CHAMPION!
+                          </div>
+                          <div className="text-4xl font-black text-white">
+                            {teams[lms.winnerTeamId || 'team1']?.icon}{' '}
+                            {teams[lms.winnerTeamId || 'team1']?.name}
+                          </div>
+                          <div className="text-base font-bold text-emerald-300">
+                            วิ่งทะลุประตูขั้นที่ 25 สำเร็จเป็นทีมแรก!
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="space-y-2">
+                            <div className="inline-block px-3 py-1 rounded-full bg-amber-400 text-black text-xs font-black">
+                              ข้อที่ {lms.part2QuestionIndex + 1} •{' '}
+                              {lms.phase === 'PART2_CLUE'
+                                ? 'เบาะแสตั้งต้น (รอเปิดคำถาม)'
+                                : lms.phase === 'PART2_QUESTION'
+                                ? 'กดปุ่มสีบนมือถือ!'
+                                : 'เฉลย & ขยับขั้น!'}
+                            </div>
+                            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 text-base font-bold text-amber-200">
+                              {p2Q.clueText}
+                            </div>
+                            {p2Q.imageUrl && (
+                              <img
+                                src={p2Q.imageUrl}
+                                alt="Clue"
+                                className="max-h-36 mx-auto rounded-xl object-contain"
+                              />
+                            )}
+                          </div>
+
+                          {lms.phase !== 'PART2_CLUE' && (
+                            <div className="space-y-3">
+                              <div className="text-xl font-black text-white">
+                                {p2Q.questionText}
+                              </div>
+                              <div className="space-y-2">
+                                {p2Q.choices.map((c) => {
+                                  const isRev = lms.phase === 'PART2_REVEAL';
+                                  const isCorrect = c.key === p2Q.correctKey;
+                                  const colorBadge =
+                                    c.key === 'A'
+                                      ? 'bg-red-600 text-white'
+                                      : c.key === 'B'
+                                      ? 'bg-blue-600 text-white'
+                                      : 'bg-yellow-400 text-black';
+                                  return (
+                                    <div
+                                      key={c.key}
+                                      className={`rounded-2xl p-3 border-2 flex items-center gap-3 ${
+                                        isRev && isCorrect
+                                          ? 'bg-emerald-950 border-emerald-400'
+                                          : 'bg-slate-950 border-slate-800'
+                                      }`}
+                                    >
+                                      <span
+                                        className={`w-9 h-9 rounded-xl font-black flex items-center justify-center shrink-0 ${colorBadge}`}
+                                      >
+                                        {c.key}
+                                      </span>
+                                      <span className="font-bold text-white text-sm">
+                                        {c.label}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+        {/* ==========================================================
             STANDARD MODE A: MULTIPLE CHOICE (e.g. Trivia Murder Party)
         ========================================================== */}
-        {round.inputMode === 'MODE_A_CHOICE' && !isEightDoorsGame && (
+        {round.inputMode === 'MODE_A_CHOICE' &&
+          !isEightDoorsGame &&
+          !(round.gameStage === 'TRIVIA_MURDER' && round.lastMan) && (
           <div className="flex-1 flex flex-col justify-between gap-5">
             <div
               className={`grid gap-3.5 ${

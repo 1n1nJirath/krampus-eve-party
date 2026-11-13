@@ -48,6 +48,100 @@ export type ToyFactoryPhase =
   | 'SHUFFLE_BUFFER_10S'
   | 'REVEAL_JUDGE';
 
+// ==========================================
+// Game 4: THE LAST MAN STANDING (ลานประหารคริสต์มาส)
+// ==========================================
+export type LastManPhase =
+  | 'KRAMPUS_TWIST'
+  | 'PART1_TRIVIA'
+  | 'PART1_TRIVIA_REVEAL'
+  | 'PART1_MISERY_PULL'
+  | 'PART1_BLACK_MARKET'
+  | 'PART1_MINIGAME'
+  | 'PART1_MINIGAME_REVEAL'
+  | 'PART1_GREED_TAX'
+  | 'PART2_CLUE'
+  | 'PART2_QUESTION'
+  | 'PART2_REVEAL'
+  | 'CHAMPION';
+
+export type LastManShopItemId =
+  | 'CURSE_BOX'
+  | 'SNIPER_SHOT'
+  | 'MIRROR_SHIELD'
+  | 'HELL_CHAINS'
+  | 'EXECUTIONER_BRIBE'
+  | 'REVIVE_POTION'
+  | 'JETPACK';
+
+export type LastManCurseId =
+  | 'BLIND_GM'
+  | 'MUTE_TEAM'
+  | 'FOREHEAD_PHONE'
+  | 'PA_THONG_KO'
+  | 'FREEZE_STATUE';
+
+export interface LastManPart1Question {
+  id: string;
+  questionText: string;
+  imageUrl?: string;
+  choices: Array<{ key: 'A' | 'B' | 'C' | 'D'; label: string }>;
+  correctKey: 'A' | 'B' | 'C' | 'D';
+}
+
+export interface LastManPart2Question {
+  id: string;
+  clueText: string;
+  imageUrl?: string;
+  questionText: string;
+  choices: Array<{ key: 'A' | 'B' | 'C'; label: string }>;
+  correctKey: 'A' | 'B' | 'C';
+  durationSeconds: number;
+}
+
+export interface LastManTeamState {
+  hearts: number;          // 4 max (3 if cursed from Game 3)
+  isGhost: boolean;        // true when hearts <= 0
+  inKillingFloor: boolean; // true when dropped to Killing Floor
+  mirrorShield: boolean;   // active for current round
+  activeCurse: LastManCurseId | null;
+  jetpacks: number;        // inventory for Part 2 (+3 steps)
+  step: number;            // 0..25 in Part 2
+}
+
+export interface LastManKillFeedEntry {
+  id: string;
+  timestamp: number;
+  icon: string;
+  message: string;
+}
+
+export interface LastManStandingState {
+  phase: LastManPhase;
+  part1Round: number; // 1..4
+  part2QuestionIndex: number; // 0-based
+  krampusStep: number; // starts 0, +1.5 per Part 2 question
+  winnerTeamId: TeamId | null;
+  miseryPullTeamId: TeamId | null;
+  miseryEndsAt: number | null;
+  roundStock: Record<LastManShopItemId, number>;
+  gameStock: {
+    HELL_CHAINS: number;
+    JETPACK: number;
+  };
+  killFeed: LastManKillFeedEntry[];
+  // Minigame state (Part 1)
+  poisonedChalices: number[]; // 1..4
+  chalicePicks: Partial<Record<TeamId, number>>;
+  splitStealPicks: Partial<Record<TeamId, 'SPLIT' | 'STEAL'>>;
+  dareVotes: Partial<Record<TeamId, 'SPARE' | 'EXECUTE'>>;
+  krampusDiceRoll: number | null;
+  teamDiceRolls: Partial<Record<TeamId, number>>;
+  greedTaxReport: Array<{ teamId: TeamId; before: number; after: number; lost: number }>;
+  teamStates: Record<TeamId, LastManTeamState>;
+  part2StartSteps?: Partial<Record<TeamId, number>>;
+}
+
 export interface ToyFactoryItem {
   id: string;
   label: string;
@@ -172,6 +266,7 @@ export interface RoundConfig {
   chronoQuotas?: Partial<Record<TeamId, number>>;
   chronoFastFingerClaims?: Record<string, TeamId>;
   toyFactory?: ToyFactoryState;
+  lastMan?: LastManStandingState;
   yearPenaltyPerDiff: number; // Coins lost per 1 year off (e.g. 50 or 150)
   yearFastestBonus: number;   // Bonus coins for closest/fastest
   activeTeamId?: TeamId;      // For Quixort live action team on stage
@@ -262,4 +357,6 @@ export interface KrampusGameState {
   transactions: CoinTransaction[];
   presets: QuestionPreset[];
   toyFactoryDatasets?: ToyFactoryDataset[];
+  lastManPart1Questions?: LastManPart1Question[];
+  lastManPart2Questions?: LastManPart2Question[];
 }

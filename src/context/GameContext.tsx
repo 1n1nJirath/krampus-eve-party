@@ -8,6 +8,10 @@ import {
   GameStage,
   InputMode,
   KrampusGameState,
+  LastManCurseId,
+  LastManPart1Question,
+  LastManPart2Question,
+  LastManShopItemId,
   ModeDSubType,
   QuestionPreset,
   RoundConfig,
@@ -18,9 +22,15 @@ import {
   ToyFactoryItem,
 } from '../types/game';
 import {
+  BLACK_MARKET_ITEMS,
   buildToyFactoryPairings,
   computeChronoRankings,
+  createDefaultLastManRoundStock,
+  createInitialLastManState,
   createRoundFromPreset,
+  CURSE_CATALOG,
+  DEFAULT_LAST_MAN_PART1_QUESTIONS,
+  DEFAULT_LAST_MAN_PART2_QUESTIONS,
   DEFAULT_PRESETS,
   DEFAULT_TOY_FACTORY_DATASETS,
   DOOR_LABELS,
@@ -401,6 +411,272 @@ function applyToyFactoryShuffle(
   return true;
 }
 
+function pushLmsFeed(next: KrampusGameState, now: number, icon: string, message: string) {
+  const lms = next.round.lastMan;
+  if (!lms) return;
+  lms.killFeed = [
+    {
+      id: `kf-${now}-${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: now,
+      icon,
+      message,
+    },
+    ...(lms.killFeed || []),
+  ].slice(0, 20);
+}
+
+function applyLmsSoulSacrifice(next: KrampusGameState, teamId: TeamId, now: number): boolean {
+  const lms = next.round.lastMan;
+  const ts = lms?.teamStates?.[teamId];
+  const team = next.teams[teamId];
+  if (!lms || !ts || !team || ts.isGhost || ts.hearts <= 1 || !lms.phase.startsWith('PART1_')) {
+    return false;
+  }
+  ts.hearts -= 1;
+  team.coins += 500;
+  pushLmsFeed(next, now, '💔', `${team.icon} ${team.name} ขายวิญญาณ -1 ❤️ แลกเงินสด +500 ฿!`);
+  return true;
+}
+
+function applyLmsMiseryPull(
+  next: KrampusGameState,
+  teamId: TeamId,
+  targetTeamId: TeamId,
+  now: number
+): boolean {
+  const lms = next.round.lastMan;
+  const targetTs = lms?.teamStates?.[targetTeamId];
+  const targetTeam = next.teams[targetTeamId];
+  const actorTeam = next.teams[teamId];
+  if (
+    !lms ||
+    lms.phase !== 'PART1_MISERY_PULL' ||
+    lms.miseryPullTeamId !== teamId ||
+    !targetTs ||
+    targetTs.isGhost ||
+    targetTs.inKillingFloor
+  ) {
+    return false;
+  }
+  targetTs.inKillingFloor = true;
+  targetTeam.isInKillingFloor = true;
+  lms.phase = 'PART1_BLACK_MARKET';
+  lms.miseryPullTeamId = null;
+  lms.miseryEndsAt = null;
+  next.round.status = 'ACTIVE';
+  next.round.durationSeconds = 25;
+  next.round.timerStartedAt = now;
+  next.round.timerRemainingMs = null;
+  pushLmsFeed(
+    next,
+    now,
+    '🪝',
+    `${actorTeam.icon} ${actorTeam.name} ลาก ${targetTeam.icon} ${targetTeam.name} ตกลงลานประหารด้วยกัน!`
+  );
+  return true;
+}
+
+function applyLmsBuyItem(
+  next: KrampusGameState,
+  teamId: TeamId,
+  itemId: LastManShopItemId,
+  targetTeamId: TeamId | undefined,
+  now: number
+): boolean {
+  const lms = next.round.lastMan;
+  const buyerTs = lms?.teamStates?.[teamId];
+  const buyerTeam = next.teams[teamId];
+  const meta = BLACK_MARKET_ITEMS.find((m) => m.id === itemId);
+  if (
+    !lms ||
+    lms.phase !== 'PART1_BLACK_MARKET' ||
+    next.round.status !== 'ACTIVE' ||
+    !buyerTs ||
+    !buyerTeam ||
+    buyerTs.isGhost ||
+    buyerTs.hearts <= 0 ||
+    !meta ||
+    buyerTeam.coins < meta.price ||
+    (lms.roundStock[itemId] || 0) <= 0
+  ) {
+    return false;
+  }
+
+  const curseKeys = Object.keys(CURSE_CATALOG) as LastManCurseId[];
+  let ok = false;
+  let icon = meta.icon;
+  let msg = '';
+
+  if (itemId === 'CURSE_BOX' && targetTeamId) {
+    const tTs = lms.teamStates[targetTeamId];
+    const tTeam = next.teams[targetTeamId];
+    if (tTs && !tTs.isGhost && tTs.inKillingFloor) {
+      ok = true;
+      const curse = curseKeys[Math.floor(Math.random() * curseKeys.length)];
+      const curseMeta = CURSE_CATALOG[curse];
+      if (tTs.mirrorShield) {
+        tTs.mirrorShield = false;
+        buyerTs.activeCurse = curse;
+        icon = '🪞';
+        msg = `${tTeam.icon} ${tTeam.name} กางโล่กระจกสะท้อนกล่องคำสาป! ${buyerTeam.icon} ${buyerTeam.name} โดน ${curseMeta.icon} ${curseMeta.name} แทน!`;
+      } else {
+        tTs.activeCurse = curse;
+        msg = `${buyerTeam.icon} ${buyerTeam.name} ส่งกล่องคำสาปใส่ ${tTeam.icon} ${tTeam.name} -> ติด ${curseMeta.icon} ${curseMeta.name}!`;
+      }
+    }
+  } else if (itemId === 'SNIPER_SHOT' && targetTeamId && targetTeamId !== teamId) {
+    const tTs = lms.teamStates[targetTeamId];
+    const tTeam = next.teams[targetTeamId];
+    if (tTs && !tTs.isGhost) {
+      ok = true;
+      if (tTs.mirrorShield) {
+        tTs.mirrorShield = false;
+        buyerTs.hearts = Math.max(0, buyerTs.hearts - 1);
+        if (buyerTs.hearts <= 0) buyerTs.isGhost = true;
+        icon = '🪞';
+        msg = `${tTeam.icon} ${tTeam.name} สะท้อนกระสุน! ${buyerTeam.icon} ${buyerTeam.name} โดนยิงเอง -1 ❤️!`;
+      } else {
+        tTs.hearts = Math.max(0, tTs.hearts - 1);
+        if (tTs.hearts <= 0) tTs.isGhost = true;
+        msg = `${buyerTeam.icon} ${buyerTeam.name} จ้างมือปืนยิง ${tTeam.icon} ${tTeam.name} (-1 ❤️)${
+          tTs.isGhost ? ' 💀 กลายเป็นวิญญาณ!' : ''
+        }`;
+      }
+    }
+  } else if (itemId === 'MIRROR_SHIELD' && !buyerTs.mirrorShield) {
+    ok = true;
+    buyerTs.mirrorShield = true;
+    msg = `${buyerTeam.icon} ${buyerTeam.name} กางโล่กระจกสะท้อนรอบนี้!`;
+  } else if (itemId === 'HELL_CHAINS' && lms.gameStock.HELL_CHAINS > 0) {
+    ok = true;
+    lms.gameStock.HELL_CHAINS -= 1;
+    TEAM_ORDER.forEach((tid) => {
+      const s = lms.teamStates[tid];
+      if (!s.isGhost && !s.inKillingFloor) {
+        s.inKillingFloor = true;
+        next.teams[tid].isInKillingFloor = true;
+      }
+    });
+    msg = `${buyerTeam.icon} ${buyerTeam.name} ใช้โซ่ตรวนลากทุกทีมลงนรกยกแก๊ง!!`;
+  } else if (itemId === 'EXECUTIONER_BRIBE' && buyerTs.inKillingFloor) {
+    ok = true;
+    buyerTs.inKillingFloor = false;
+    buyerTeam.isInKillingFloor = false;
+    msg = `${buyerTeam.icon} ${buyerTeam.name} ยัดสินบนเพชฌฆาตหนีขึ้นโซนปลอดภัย!`;
+  } else if (itemId === 'REVIVE_POTION' && buyerTs.hearts < 4) {
+    ok = true;
+    buyerTs.hearts = Math.min(4, buyerTs.hearts + 1);
+    msg = `${buyerTeam.icon} ${buyerTeam.name} ดื่มยาชุบชีวิต (+1 ❤️ -> ${buyerTs.hearts} ดวง)`;
+  } else if (itemId === 'JETPACK' && lms.gameStock.JETPACK > 0) {
+    ok = true;
+    lms.gameStock.JETPACK -= 1;
+    buyerTs.jetpacks += 1;
+    msg = `${buyerTeam.icon} ${buyerTeam.name} ซื้อพลุไอพ่นหนีตายเก็บเข้ากระเป๋า!`;
+  }
+
+  if (!ok) return false;
+  buyerTeam.coins -= meta.price;
+  lms.roundStock[itemId] -= 1;
+  pushLmsFeed(next, now, icon, msg);
+  return true;
+}
+
+function applyLmsMinigameAction(
+  next: KrampusGameState,
+  teamId: TeamId,
+  payload: {
+    subType: string;
+    chalices?: number[];
+    chalice?: number;
+    choice?: 'SPLIT' | 'STEAL';
+    vote?: 'SPARE' | 'EXECUTE';
+  }
+): boolean {
+  const lms = next.round.lastMan;
+  if (!lms || lms.phase !== 'PART1_MINIGAME') return false;
+  if (payload.subType === 'POISON_SET' && Array.isArray(payload.chalices)) {
+    const nextSet = new Set(lms.poisonedChalices || []);
+    payload.chalices.forEach((c) => {
+      if (nextSet.size < 2 && c >= 1 && c <= 4) nextSet.add(c);
+    });
+    lms.poisonedChalices = Array.from(nextSet);
+  } else if (payload.subType === 'CHALICE_PICK') {
+    lms.chalicePicks = { ...lms.chalicePicks, [teamId]: Number(payload.chalice) };
+  } else if (payload.subType === 'SPLIT_STEAL' && payload.choice) {
+    lms.splitStealPicks = { ...lms.splitStealPicks, [teamId]: payload.choice };
+  } else if (payload.subType === 'DARE_VOTE' && payload.vote) {
+    lms.dareVotes = { ...lms.dareVotes, [teamId]: payload.vote };
+  } else if (payload.subType === 'DEATH_DICE') {
+    if (!lms.teamDiceRolls[teamId]) {
+      lms.teamDiceRolls = {
+        ...lms.teamDiceRolls,
+        [teamId]: Math.floor(Math.random() * 6) + 1,
+      };
+    }
+  }
+  return true;
+}
+
+function resolveGhostPossessions(next: KrampusGameState, now: number) {
+  const lms = next.round.lastMan;
+  if (!lms) return;
+  const active = getActiveTeamIds(next.teams);
+  for (const ghostId of active) {
+    const gState = lms.teamStates[ghostId];
+    if (!gState.isGhost) continue;
+    // Find lowest living team at or below ghost's step
+    const victimId = active
+      .filter((tid) => !lms.teamStates[tid].isGhost && gState.step >= lms.teamStates[tid].step)
+      .sort((a, b) => lms.teamStates[a].step - lms.teamStates[b].step)[0];
+    if (victimId) {
+      const vState = lms.teamStates[victimId];
+      const ghostStep = gState.step;
+      const victimStep = vState.step;
+      gState.isGhost = false;
+      gState.hearts = Math.max(1, vState.hearts);
+      gState.step = Math.max(ghostStep, victimStep);
+      vState.isGhost = true;
+      vState.hearts = 0;
+      vState.step = Math.min(ghostStep, victimStep);
+      vState.jetpacks = 0;
+      pushLmsFeed(
+        next,
+        now,
+        '👻',
+        `วิญญาณ ${next.teams[ghostId].icon} ${next.teams[ghostId].name} พุ่งเข้าสิงร่าง ${next.teams[victimId].icon} ${next.teams[victimId].name} สลับชีวิตสำเร็จ!!`
+      );
+    }
+  }
+}
+
+function applyLmsUseJetpack(next: KrampusGameState, teamId: TeamId, now: number): boolean {
+  const lms = next.round.lastMan;
+  const ts = lms?.teamStates?.[teamId];
+  const team = next.teams[teamId];
+  if (
+    !lms ||
+    !ts ||
+    ts.isGhost ||
+    ts.jetpacks <= 0 ||
+    (lms.phase !== 'PART2_CLUE' && lms.phase !== 'PART2_QUESTION' && lms.phase !== 'PART2_REVEAL')
+  ) {
+    return false;
+  }
+  ts.jetpacks -= 1;
+  ts.step = Math.min(25, ts.step + 3);
+  pushLmsFeed(
+    next,
+    now,
+    '🚀',
+    `${team.icon} ${team.name} จุดพลุไอพ่นพุ่งข้าม +3 ขั้น (ถึงขั้น ${ts.step})!`
+  );
+  if (ts.step >= 25 && !lms.winnerTeamId) {
+    lms.winnerTeamId = teamId;
+    lms.phase = 'CHAMPION';
+  }
+  return true;
+}
+
 interface GameContextValue {
   state: KrampusGameState;
   lanIp: string;
@@ -464,6 +740,40 @@ interface GameContextValue {
   nextToyFactoryRound: () => void;
   updateToyFactoryDataset: (datasetId: string, patch: Partial<ToyFactoryDataset>) => void;
   finishToyFactoryGame: () => void;
+
+  // Game 4: THE LAST MAN STANDING
+  startLastManStandingGame: () => void;
+  startLastManPart1Trivia: (roundNum?: number) => void;
+  revealLastManPart1Trivia: () => void;
+  autoResolveMiseryPull: () => void;
+  enterLastManBlackMarket: () => void;
+  enterLastManMinigame: () => void;
+  rollKrampusDeathDice: () => void;
+  revealLastManMinigame: () => void;
+  advanceFromLastManMinigame: () => void;
+  triggerLastManFreezeWarning: () => void;
+  penalizeLastManCurseViolation: (teamId: TeamId) => void;
+  startLastManPart2Escape: () => void;
+  openLastManPart2Question: () => void;
+  revealLastManPart2Question: () => void;
+  nextLastManPart2Question: () => void;
+  updateLastManPart1Question: (id: string, patch: Partial<LastManPart1Question>) => void;
+  updateLastManPart2Question: (id: string, patch: Partial<LastManPart2Question>) => void;
+  lmsSoulSacrifice: (teamId: TeamId) => void;
+  lmsMiseryPull: (teamId: TeamId, targetTeamId: TeamId) => void;
+  lmsBuyItem: (teamId: TeamId, itemId: LastManShopItemId, targetTeamId?: TeamId) => void;
+  lmsMinigameAction: (
+    teamId: TeamId,
+    payload: {
+      subType: 'POISON_SET' | 'CHALICE_PICK' | 'SPLIT_STEAL' | 'DARE_VOTE' | 'DEATH_DICE';
+      chalices?: number[];
+      chalice?: number;
+      choice?: 'SPLIT' | 'STEAL';
+      vote?: 'SPARE' | 'EXECUTE';
+    }
+  ) => void;
+  lmsUseJetpack: (teamId: TeamId) => void;
+  finishLastManStandingGame: (toFinale?: boolean) => void;
   resolveSubRound2Auction: (overrideWinnerTeamId?: TeamId) => {
     winnerTeamId: TeamId | null;
     winningBid: number;
@@ -784,6 +1094,22 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               applyToyDatasetSelection(next, teamId as TeamId, String(data?.datasetId || ''), now);
             } else if (action === 'TOY_SHUFFLE') {
               applyToyFactoryShuffle(next, teamId as TeamId, now);
+            } else if (action === 'LMS_SOUL_SACRIFICE') {
+              applyLmsSoulSacrifice(next, teamId as TeamId, now);
+            } else if (action === 'LMS_MISERY_PULL') {
+              applyLmsMiseryPull(next, teamId as TeamId, data?.targetTeamId as TeamId, now);
+            } else if (action === 'LMS_BUY_ITEM') {
+              applyLmsBuyItem(
+                next,
+                teamId as TeamId,
+                data?.itemId as LastManShopItemId,
+                data?.targetTeamId as TeamId | undefined,
+                now
+              );
+            } else if (action === 'LMS_MINIGAME_ACTION') {
+              applyLmsMinigameAction(next, teamId as TeamId, data || {});
+            } else if (action === 'LMS_USE_JETPACK') {
+              applyLmsUseJetpack(next, teamId as TeamId, now);
             }
             return next;
           });
@@ -2801,6 +3127,925 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }));
   }, [commitState]);
 
+  const startLastManStandingGame = useCallback(() => {
+    soundFX.playReveal();
+    commitState((prev) => {
+      const lms = createInitialLastManState(prev.teams);
+      const nextTeams = { ...prev.teams };
+      TEAM_ORDER.forEach((tid) => {
+        nextTeams[tid] = { ...nextTeams[tid], isInKillingFloor: false };
+      });
+      return {
+        ...prev,
+        roomLocked: true,
+        showLeaderboardOverlay: false,
+        submissions: {},
+        buzzerQueue: [],
+        teams: nextTeams,
+        lastManPart1Questions:
+          prev.lastManPart1Questions && prev.lastManPart1Questions.length >= 4
+            ? prev.lastManPart1Questions
+            : DEFAULT_LAST_MAN_PART1_QUESTIONS,
+        lastManPart2Questions:
+          prev.lastManPart2Questions && prev.lastManPart2Questions.length >= 1
+            ? prev.lastManPart2Questions
+            : DEFAULT_LAST_MAN_PART2_QUESTIONS,
+        round: {
+          ...prev.round,
+          id: `round-lms-${Date.now()}`,
+          gameStage: 'TRIVIA_MURDER',
+          inputMode: 'MODE_A_CHOICE',
+          title: 'THE LAST MAN STANDING — ลานประหารคริสต์มาส',
+          subtitle: 'กติกาหักมุม: Holy Coins คือกระสุนและแต้มต่อ วิ่งทะลุบันได 25 ขั้นเป็นทีมแรกเพื่อคว้าแชมป์!',
+          questionText: 'ประกาศจากครามปุส: เตรียมตัวเข้าสู่ลานประหาร!',
+          status: 'IDLE',
+          timerStartedAt: null,
+          timerRemainingMs: null,
+          rewardsApplied: false,
+          lastMan: lms,
+        },
+      };
+    });
+  }, [commitState]);
+
+  const startLastManPart1Trivia = useCallback(
+    (roundNum?: number) => {
+      const now = getAuthoritativeNow();
+      soundFX.playTick(true);
+      commitState((prev) => {
+        const lms = prev.round.lastMan
+          ? structuredClone(prev.round.lastMan)
+          : createInitialLastManState(prev.teams);
+        const rNum = roundNum ?? lms.part1Round;
+        const p1List =
+          prev.lastManPart1Questions && prev.lastManPart1Questions.length >= 4
+            ? prev.lastManPart1Questions
+            : DEFAULT_LAST_MAN_PART1_QUESTIONS;
+        const q = p1List[(rNum - 1) % p1List.length];
+
+        lms.phase = 'PART1_TRIVIA';
+        lms.part1Round = rNum;
+        lms.miseryPullTeamId = null;
+        lms.miseryEndsAt = null;
+        lms.poisonedChalices = [];
+        lms.chalicePicks = {};
+        lms.splitStealPicks = {};
+        lms.dareVotes = {};
+        lms.krampusDiceRoll = null;
+        lms.teamDiceRolls = {};
+        lms.roundStock = createDefaultLastManRoundStock();
+        TEAM_ORDER.forEach((tid) => {
+          lms.teamStates[tid].mirrorShield = false;
+          lms.teamStates[tid].activeCurse = null;
+        });
+
+        return {
+          ...prev,
+          submissions: {},
+          buzzerQueue: [],
+          round: {
+            ...prev.round,
+            id: `lms-p1-r${rNum}-${now}`,
+            gameStage: 'TRIVIA_MURDER',
+            inputMode: 'MODE_A_CHOICE',
+            title: `ช่วงที่ 1 • รอบที่ ${rNum}/4: คำถามเอาชีวิตรอด`,
+            subtitle: 'ตอบภายใน 15 วินาที! ตอบผิดร่วงลงลานประหาร!',
+            questionText: q.questionText,
+            choiceCount: 4,
+            choices: q.choices.map((c) => ({
+              key: c.key,
+              label: c.label,
+              isCorrect: c.key === q.correctKey,
+            })),
+            correctChoices: [q.correctKey],
+            durationSeconds: 15,
+            timerStartedAt: now,
+            timerRemainingMs: null,
+            status: 'ACTIVE',
+            rewardsApplied: false,
+            lastMan: lms,
+          },
+        };
+      });
+    },
+    [commitState, getAuthoritativeNow]
+  );
+
+  const revealLastManPart1Trivia = useCallback(() => {
+    const now = getAuthoritativeNow();
+    soundFX.playReveal();
+    commitState((prev) => {
+      const lms = prev.round.lastMan ? structuredClone(prev.round.lastMan) : null;
+      if (!lms) return prev;
+      const p1List = prev.lastManPart1Questions || DEFAULT_LAST_MAN_PART1_QUESTIONS;
+      const q = p1List[(lms.part1Round - 1) % p1List.length];
+      const active = getActiveTeamIds(prev.teams);
+      const nextTeams = { ...prev.teams };
+
+      const livingTeams = active.filter((tid) => !lms.teamStates[tid].isGhost);
+      const correctLiving = livingTeams.filter(
+        (tid) => String(prev.submissions[tid]?.value || '') === q.correctKey
+      );
+      const wrongLiving = livingTeams.filter(
+        (tid) => String(prev.submissions[tid]?.value || '') !== q.correctKey
+      );
+
+      const soleSurvivor = correctLiving.length === 1;
+      const reward = soleSurvivor ? 500 : 250;
+
+      correctLiving.forEach((tid) => {
+        nextTeams[tid] = { ...nextTeams[tid], coins: nextTeams[tid].coins + reward };
+      });
+      wrongLiving.forEach((tid) => {
+        lms.teamStates[tid].inKillingFloor = true;
+        nextTeams[tid] = { ...nextTeams[tid], isInKillingFloor: true };
+      });
+
+      const safeLiving = livingTeams.filter((tid) => !lms.teamStates[tid].inKillingFloor);
+      if (wrongLiving.length === 1 && safeLiving.length >= 1) {
+        lms.phase = 'PART1_MISERY_PULL';
+        lms.miseryPullTeamId = wrongLiving[0];
+        lms.miseryEndsAt = now + 10000;
+        pushLmsFeed(
+          lms ? { ...prev, round: { ...prev.round, lastMan: lms } } : prev,
+          now,
+          '😈',
+          `${nextTeams[wrongLiving[0]].icon} ${nextTeams[wrongLiving[0]].name} ตอบผิดทีมเดียว! มีสิทธิ์ลากเพื่อนตกนรก 1 ทีม (10 วิ)!`
+        );
+      } else {
+        lms.phase = 'PART1_TRIVIA_REVEAL';
+      }
+
+      if (soleSurvivor) {
+        pushLmsFeed(
+          { ...prev, round: { ...prev.round, lastMan: lms } },
+          now,
+          '👑',
+          `${nextTeams[correctLiving[0]].icon} ${nextTeams[correctLiving[0]].name} รอดคนเดียวทั้งห้อง! รับโบนัส x2 (+500 ฿)`
+        );
+      }
+
+      return {
+        ...prev,
+        teams: nextTeams,
+        round: {
+          ...prev.round,
+          status: 'REVEALED',
+          timerStartedAt: null,
+          timerRemainingMs: 0,
+          rewardsApplied: true,
+          lastMan: lms,
+        },
+      };
+    });
+  }, [commitState, getAuthoritativeNow]);
+
+  const enterLastManBlackMarket = useCallback(() => {
+    const now = getAuthoritativeNow();
+    soundFX.playTick(true);
+    commitState((prev) => {
+      const lms = prev.round.lastMan ? structuredClone(prev.round.lastMan) : null;
+      if (!lms) return prev;
+      lms.phase = 'PART1_BLACK_MARKET';
+      lms.miseryPullTeamId = null;
+      lms.miseryEndsAt = null;
+      return {
+        ...prev,
+        round: {
+          ...prev.round,
+          title: `ช่วงที่ 1 • รอบที่ ${lms.part1Round}/4: ตลาดมืดละลายทรัพย์`,
+          subtitle: '25 วินาที! ซื้อปุ๊บ ออกฤทธิ์ปั๊บตามลำดับเวลา!',
+          durationSeconds: 25,
+          timerStartedAt: now,
+          timerRemainingMs: null,
+          status: 'ACTIVE',
+          lastMan: lms,
+        },
+      };
+    });
+  }, [commitState, getAuthoritativeNow]);
+
+  const autoResolveMiseryPull = useCallback(() => {
+    const now = getAuthoritativeNow();
+    commitState((prev) => {
+      const lms = prev.round.lastMan ? structuredClone(prev.round.lastMan) : null;
+      if (!lms || lms.phase !== 'PART1_MISERY_PULL' || !lms.miseryPullTeamId) return prev;
+      const active = getActiveTeamIds(prev.teams);
+      const candidates = active.filter(
+        (tid) => !lms.teamStates[tid].isGhost && !lms.teamStates[tid].inKillingFloor
+      );
+      if (candidates.length > 0) {
+        const picked = candidates[Math.floor(Math.random() * candidates.length)];
+        const next = structuredClone(prev);
+        applyLmsMiseryPull(next, lms.miseryPullTeamId, picked, now);
+        return next;
+      }
+      lms.phase = 'PART1_BLACK_MARKET';
+      lms.miseryPullTeamId = null;
+      lms.miseryEndsAt = null;
+      return {
+        ...prev,
+        round: {
+          ...prev.round,
+          durationSeconds: 25,
+          timerStartedAt: now,
+          timerRemainingMs: null,
+          status: 'ACTIVE',
+          lastMan: lms,
+        },
+      };
+    });
+  }, [commitState, getAuthoritativeNow]);
+
+  const enterLastManMinigame = useCallback(() => {
+    const now = getAuthoritativeNow();
+    soundFX.playTick(true);
+    commitState((prev) => {
+      const lms = prev.round.lastMan ? structuredClone(prev.round.lastMan) : null;
+      if (!lms) return prev;
+      lms.phase = 'PART1_MINIGAME';
+      lms.poisonedChalices = [];
+      lms.chalicePicks = {};
+      lms.splitStealPicks = {};
+      lms.dareVotes = {};
+      lms.krampusDiceRoll = null;
+      lms.teamDiceRolls = {};
+      const mgNames = [
+        '',
+        'มินิเกม 1: ถ้วยยาพิษ (Poison Chalice)',
+        'มินิเกม 2: หักหลังแบ่งสมบัติ (Split or Steal)',
+        'มินิเกม 3: ท้าทายความกล้า (Krampus Dare • 15 วิ)',
+        'มินิเกม 4: ทอยเต๋าวัดดวง (Death Dice)',
+      ];
+      return {
+        ...prev,
+        round: {
+          ...prev.round,
+          title: `ลานประหาร • ${mgNames[lms.part1Round] || 'มินิเกม'}`,
+          subtitle: 'ผู้ที่รอดจากลานประหารโดยไม่เสียหัวใจ รับเงินปลอบใจ +150 ฿!',
+          durationSeconds: lms.part1Round === 3 ? 15 : 30,
+          timerStartedAt: now,
+          timerRemainingMs: null,
+          status: 'ACTIVE',
+          lastMan: lms,
+        },
+      };
+    });
+  }, [commitState, getAuthoritativeNow]);
+
+  const rollKrampusDeathDice = useCallback(() => {
+    soundFX.playReveal();
+    commitState((prev) => {
+      const lms = prev.round.lastMan ? structuredClone(prev.round.lastMan) : null;
+      if (!lms) return prev;
+      lms.krampusDiceRoll = Math.floor(Math.random() * 6) + 1;
+      return {
+        ...prev,
+        round: { ...prev.round, lastMan: lms },
+      };
+    });
+  }, [commitState]);
+
+  const revealLastManMinigame = useCallback(() => {
+    const now = getAuthoritativeNow();
+    soundFX.playReveal();
+    commitState((prev) => {
+      const lms = prev.round.lastMan ? structuredClone(prev.round.lastMan) : null;
+      if (!lms) return prev;
+      const next = structuredClone(prev);
+      const nLms = next.round.lastMan!;
+      const active = getActiveTeamIds(next.teams);
+      const kfTeams = active.filter(
+        (tid) => !nLms.teamStates[tid].isGhost && nLms.teamStates[tid].inKillingFloor
+      );
+
+      const hurt = (tid: TeamId, reason: string) => {
+        const ts = nLms.teamStates[tid];
+        ts.hearts = Math.max(0, ts.hearts - 1);
+        if (ts.hearts <= 0) ts.isGhost = true;
+        pushLmsFeed(
+          next,
+          now,
+          '💀',
+          `${next.teams[tid].icon} ${next.teams[tid].name} ${reason} (-1 ❤️)${
+            ts.isGhost ? ' -> กลายเป็นวิญญาณ!' : ''
+          }`
+        );
+      };
+      const survive = (tid: TeamId, bonus = 150) => {
+        next.teams[tid].coins += bonus;
+        pushLmsFeed(
+          next,
+          now,
+          '💚',
+          `${next.teams[tid].icon} ${next.teams[tid].name} รอดจากลานประหาร! (+${bonus} ฿)`
+        );
+      };
+
+      if (nLms.part1Round === 1) {
+        // Poison Chalice
+        const poisoned =
+          nLms.poisonedChalices.length > 0
+            ? nLms.poisonedChalices
+            : [Math.floor(Math.random() * 4) + 1];
+        nLms.poisonedChalices = poisoned;
+        kfTeams.forEach((tid) => {
+          const pick = nLms.chalicePicks[tid] || 1;
+          if (poisoned.includes(pick)) {
+            hurt(tid, `ดื่มถ้วยยาพิษ #${pick}`);
+          } else {
+            survive(tid, 150);
+          }
+        });
+      } else if (nLms.part1Round === 2) {
+        // Split or Steal
+        const stealers = kfTeams.filter((tid) => nLms.splitStealPicks[tid] === 'STEAL');
+        const splitters = kfTeams.filter((tid) => nLms.splitStealPicks[tid] !== 'STEAL');
+        if (stealers.length > 0 && splitters.length > 0) {
+          stealers.forEach((tid) => survive(tid, 300));
+          splitters.forEach((tid) => hurt(tid, 'โดนแทงข้างหลัง'));
+        } else if (stealers.length > 1 && splitters.length === 0) {
+          stealers.forEach((tid) => hurt(tid, 'แทงกันเองตายหมู่'));
+        } else if (stealers.length === 1 && splitters.length === 0) {
+          survive(stealers[0], 300);
+        } else {
+          splitters.forEach((tid) => survive(tid, 150));
+        }
+      } else if (nLms.part1Round === 3) {
+        // Krampus Dare vote
+        const votes = Object.values(nLms.dareVotes || {});
+        const execCount = votes.filter((v) => v === 'EXECUTE').length;
+        const spareCount = votes.filter((v) => v === 'SPARE').length;
+        const executeAll = execCount > spareCount;
+        kfTeams.forEach((tid) => {
+          if (executeAll) {
+            hurt(tid, 'ถูกโหวตประหาร');
+          } else {
+            survive(tid, 150);
+          }
+        });
+      } else {
+        // Death Dice
+        const kRoll = nLms.krampusDiceRoll ?? Math.floor(Math.random() * 6) + 1;
+        nLms.krampusDiceRoll = kRoll;
+        kfTeams.forEach((tid) => {
+          const tRoll = nLms.teamDiceRolls[tid] ?? Math.floor(Math.random() * 6) + 1;
+          nLms.teamDiceRolls[tid] = tRoll;
+          if (tRoll < kRoll) {
+            hurt(tid, `ทอยได้ ${tRoll} แพ้ Krampus (${kRoll})`);
+          } else {
+            survive(tid, 150);
+          }
+        });
+      }
+
+      // Clear Killing Floor after minigame
+      TEAM_ORDER.forEach((tid) => {
+        nLms.teamStates[tid].inKillingFloor = false;
+        nLms.teamStates[tid].activeCurse = null;
+        nLms.teamStates[tid].mirrorShield = false;
+        next.teams[tid].isInKillingFloor = false;
+      });
+      nLms.phase = 'PART1_MINIGAME_REVEAL';
+      next.round.status = 'REVEALED';
+      next.round.timerStartedAt = null;
+      next.round.timerRemainingMs = 0;
+      return next;
+    });
+  }, [commitState, getAuthoritativeNow]);
+
+  const startLastManPart2Escape = useCallback(() => {
+    const now = getAuthoritativeNow();
+    soundFX.playReveal();
+    commitState((prev) => {
+      const next = structuredClone(prev);
+      const lms = next.round.lastMan || createInitialLastManState(next.teams);
+      const active = getActiveTeamIds(next.teams);
+      const allGhosts = active.every((tid) => lms.teamStates[tid].isGhost || lms.teamStates[tid].hearts <= 0);
+      const startSteps: Partial<Record<TeamId, number>> = {};
+
+      active.forEach((tid) => {
+        const ts = lms.teamStates[tid];
+        ts.inKillingFloor = false;
+        ts.activeCurse = null;
+        ts.mirrorShield = false;
+        next.teams[tid].isInKillingFloor = false;
+        if (allGhosts) {
+          ts.isGhost = false;
+          ts.hearts = 1;
+          ts.step = 0;
+        } else if (ts.isGhost || ts.hearts <= 0) {
+          ts.isGhost = true;
+          ts.hearts = 0;
+          ts.step = 0;
+        } else {
+          // Every 400 = +1 step, capped at 3 steps (1200)
+          const headStart = Math.min(3, Math.floor(next.teams[tid].coins / 400));
+          ts.step = headStart;
+        }
+        startSteps[tid] = ts.step;
+        next.teams[tid].coins = 0;
+      });
+
+      const p2List =
+        next.lastManPart2Questions && next.lastManPart2Questions.length > 0
+          ? next.lastManPart2Questions
+          : DEFAULT_LAST_MAN_PART2_QUESTIONS;
+      const q = p2List[0];
+
+      lms.phase = 'PART2_CLUE';
+      lms.part2QuestionIndex = 0;
+      lms.krampusStep = 0;
+      lms.winnerTeamId = null;
+      lms.part2StartSteps = startSteps;
+      next.round.lastMan = lms;
+      next.submissions = {};
+      next.round = {
+        ...next.round,
+        id: `lms-p2-q0-${now}`,
+        inputMode: 'MODE_A_CHOICE',
+        title: 'ช่วงที่ 2 • บันไดหนีตาย 25 ขั้น (The Final Escape)',
+        subtitle: 'ขั้นตอนที่ 1: อ่านเบาะแสตั้งต้นก่อนเปิดคำถาม!',
+        questionText: q.clueText,
+        choiceCount: 3,
+        choices: q.choices.map((c) => ({
+          key: c.key,
+          label: c.label,
+          isCorrect: c.key === q.correctKey,
+        })),
+        correctChoices: [q.correctKey],
+        durationSeconds: q.durationSeconds || 60,
+        timerStartedAt: null,
+        timerRemainingMs: null,
+        status: 'IDLE',
+        rewardsApplied: false,
+        lastMan: lms,
+      };
+      return next;
+    });
+  }, [commitState, getAuthoritativeNow]);
+
+  const advanceFromLastManMinigame = useCallback(() => {
+    const now = getAuthoritativeNow();
+    commitState((prev) => {
+      const lms = prev.round.lastMan ? structuredClone(prev.round.lastMan) : null;
+      if (!lms) return prev;
+      // After Round 2 -> trigger GREED TAX if not yet shown
+      if (lms.part1Round === 2 && lms.phase === 'PART1_MINIGAME_REVEAL') {
+        const next = structuredClone(prev);
+        const nLms = next.round.lastMan!;
+        const report: Array<{ teamId: TeamId; before: number; after: number; lost: number }> = [];
+        TEAM_ORDER.forEach((tid) => {
+          const before = next.teams[tid].coins;
+          if (before > 1000) {
+            const lost = Math.floor(before / 2);
+            const after = before - lost;
+            next.teams[tid].coins = after;
+            report.push({ teamId: tid, before, after, lost });
+          }
+        });
+        nLms.greedTaxReport = report;
+        nLms.phase = 'PART1_GREED_TAX';
+        next.round.title = 'ภาษีคนงกของ Krampus!';
+        next.round.subtitle = 'ทีมที่มีเงินเกิน 1,000 ฿ ถูกหักเงินครึ่งหนึ่งทันที!';
+        pushLmsFeed(
+          next,
+          now,
+          '💸',
+          report.length > 0
+            ? `Krampus เก็บภาษีคนงก! ${report.map((r) => `${next.teams[r.teamId].name} -${r.lost} ฿`).join(', ')}`
+            : 'ไม่มีทีมไหนถือเงินเกิน 1,000 ฿ — รอดภาษีคนงกทั้งหมด!'
+        );
+        return next;
+      }
+
+      if (lms.part1Round >= 4) {
+        return prev; // Admin clicks "เข้าสู่ช่วงที่ 2"
+      }
+
+      const nextRound = lms.part1Round + 1;
+      const p1List = prev.lastManPart1Questions || DEFAULT_LAST_MAN_PART1_QUESTIONS;
+      const q = p1List[(nextRound - 1) % p1List.length];
+      lms.phase = 'PART1_TRIVIA';
+      lms.part1Round = nextRound;
+      lms.roundStock = createDefaultLastManRoundStock();
+      TEAM_ORDER.forEach((tid) => {
+        lms.teamStates[tid].mirrorShield = false;
+        lms.teamStates[tid].activeCurse = null;
+      });
+      return {
+        ...prev,
+        submissions: {},
+        round: {
+          ...prev.round,
+          id: `lms-p1-r${nextRound}-${now}`,
+          title: `ช่วงที่ 1 • รอบที่ ${nextRound}/4: คำถามเอาชีวิตรอด`,
+          subtitle: 'ตอบภายใน 15 วินาที! ตอบผิดร่วงลงลานประหาร!',
+          questionText: q.questionText,
+          choiceCount: 4,
+          choices: q.choices.map((c) => ({
+            key: c.key,
+            label: c.label,
+            isCorrect: c.key === q.correctKey,
+          })),
+          correctChoices: [q.correctKey],
+          durationSeconds: 15,
+          timerStartedAt: now,
+          timerRemainingMs: null,
+          status: 'ACTIVE',
+          rewardsApplied: false,
+          lastMan: lms,
+        },
+      };
+    });
+  }, [commitState, getAuthoritativeNow]);
+
+  const triggerLastManFreezeWarning = useCallback(() => {
+    soundFX.playCoinChange(false);
+    commitState((prev) => ({
+      ...prev,
+      krampusAlertMessage: '🗿 KRAMPUS มองอยู่! ทีมต้องสาปหยุดนิ่งเป็นรูปปั้น 3 วินาที!',
+    }));
+  }, [commitState]);
+
+  const penalizeLastManCurseViolation = useCallback(
+    (teamId: TeamId) => {
+      const now = getAuthoritativeNow();
+      soundFX.playCoinChange(false);
+      commitState((prev) => {
+        const next = structuredClone(prev);
+        const lms = next.round.lastMan;
+        const ts = lms?.teamStates?.[teamId];
+        if (!lms || !ts || ts.isGhost) return prev;
+        ts.hearts = Math.max(0, ts.hearts - 1);
+        if (ts.hearts <= 0) ts.isGhost = true;
+        pushLmsFeed(
+          next,
+          now,
+          '⚡',
+          `${next.teams[teamId].icon} ${next.teams[teamId].name} ทำผิดกติกาคำสาป! (-1 ❤️)`
+        );
+        return next;
+      });
+    },
+    [commitState, getAuthoritativeNow]
+  );
+
+  const openLastManPart2Question = useCallback(() => {
+    const now = getAuthoritativeNow();
+    soundFX.playTick(true);
+    commitState((prev) => {
+      const next = structuredClone(prev);
+      const lms = next.round.lastMan;
+      if (!lms) return prev;
+      const p2List = next.lastManPart2Questions || DEFAULT_LAST_MAN_PART2_QUESTIONS;
+      const q = p2List[lms.part2QuestionIndex % p2List.length];
+      lms.phase = 'PART2_QUESTION';
+      next.submissions = {};
+      next.round = {
+        ...next.round,
+        title: `ช่วงที่ 2 • ข้อที่ ${lms.part2QuestionIndex + 1}: บันไดหนีตาย 25 ขั้น`,
+        subtitle: 'กดปุ่มสี A / B / C ให้ไวที่สุด!',
+        questionText: q.questionText,
+        durationSeconds: q.durationSeconds || 60,
+        timerStartedAt: now,
+        timerRemainingMs: null,
+        status: 'ACTIVE',
+        rewardsApplied: false,
+      };
+      return next;
+    });
+  }, [commitState, getAuthoritativeNow]);
+
+  const revealLastManPart2Question = useCallback(() => {
+    const now = getAuthoritativeNow();
+    soundFX.playReveal();
+    commitState((prev) => {
+      const next = structuredClone(prev);
+      const lms = next.round.lastMan;
+      if (!lms) return prev;
+      const p2List = next.lastManPart2Questions || DEFAULT_LAST_MAN_PART2_QUESTIONS;
+      const q = p2List[lms.part2QuestionIndex % p2List.length];
+      const active = getActiveTeamIds(next.teams);
+
+      const correctTeams = active
+        .filter((tid) => String(next.submissions[tid]?.value || '') === q.correctKey)
+        .sort(
+          (a, b) =>
+            (next.submissions[a]?.submittedAt || Infinity) -
+            (next.submissions[b]?.submittedAt || Infinity)
+        );
+
+      active.forEach((tid) => {
+        const ts = lms.teamStates[tid];
+        const sub = next.submissions[tid];
+        const cRank = correctTeams.indexOf(tid);
+        let delta = 0;
+        if (cRank === 0) delta = 3;
+        else if (cRank === 1) delta = 2;
+        else if (cRank >= 2) delta = 1;
+        else if (!sub) delta = -1;
+        else delta = 0;
+
+        let nextStep = Math.max(0, ts.step + delta);
+        if (ts.isGhost) {
+          nextStep = Math.min(24.5, nextStep);
+        } else {
+          nextStep = Math.min(25, nextStep);
+        }
+        ts.step = nextStep;
+      });
+
+      // Check Ghost Possession
+      resolveGhostPossessions(next, now);
+
+      // Move Krampus +1.5 steps
+      lms.krampusStep = Math.min(25, lms.krampusStep + 1.5);
+      active.forEach((tid) => {
+        const ts = lms.teamStates[tid];
+        if (!ts.isGhost && ts.step < 25 && lms.krampusStep >= ts.step) {
+          ts.isGhost = true;
+          ts.hearts = 0;
+          ts.jetpacks = 0;
+          pushLmsFeed(
+            next,
+            now,
+            '💀',
+            `Krampus ไล่ทัน ${next.teams[tid].icon} ${next.teams[tid].name} ที่ขั้น ${ts.step}! กลายเป็นวิญญาณทันที!`
+          );
+        }
+        if (ts.isGhost && lms.krampusStep >= ts.step) {
+          ts.step = Math.min(24.5, lms.krampusStep + 1);
+        }
+      });
+
+      // Check Champion (living team >= 25)
+      const champion = active
+        .filter((tid) => !lms.teamStates[tid].isGhost && lms.teamStates[tid].step >= 25)
+        .sort((a, b) => (next.submissions[a]?.submittedAt || 0) - (next.submissions[b]?.submittedAt || 0))[0];
+
+      if (champion) {
+        lms.winnerTeamId = champion;
+        lms.phase = 'CHAMPION';
+        pushLmsFeed(
+          next,
+          now,
+          '🏆',
+          `${next.teams[champion].icon} ${next.teams[champion].name} วิ่งทะลุประตูขั้นที่ 25 คว้าแชมป์ THE KRAMPUS EVE!!`
+        );
+      } else {
+        lms.phase = 'PART2_REVEAL';
+      }
+
+      next.round.status = 'REVEALED';
+      next.round.timerStartedAt = null;
+      next.round.timerRemainingMs = 0;
+      return next;
+    });
+  }, [commitState, getAuthoritativeNow]);
+
+  const nextLastManPart2Question = useCallback(() => {
+    const now = getAuthoritativeNow();
+    commitState((prev) => {
+      const next = structuredClone(prev);
+      const lms = next.round.lastMan;
+      if (!lms) return prev;
+      const p2List = next.lastManPart2Questions || DEFAULT_LAST_MAN_PART2_QUESTIONS;
+      const nextIdx = (lms.part2QuestionIndex + 1) % p2List.length;
+      const q = p2List[nextIdx];
+      lms.part2QuestionIndex = nextIdx;
+      lms.phase = 'PART2_CLUE';
+      next.submissions = {};
+      next.round = {
+        ...next.round,
+        id: `lms-p2-q${nextIdx}-${now}`,
+        title: `ช่วงที่ 2 • ข้อที่ ${nextIdx + 1}: บันไดหนีตาย 25 ขั้น`,
+        subtitle: 'ขั้นตอนที่ 1: อ่านเบาะแสตั้งต้นก่อนเปิดคำถาม!',
+        questionText: q.clueText,
+        choiceCount: 3,
+        choices: q.choices.map((c) => ({
+          key: c.key,
+          label: c.label,
+          isCorrect: c.key === q.correctKey,
+        })),
+        correctChoices: [q.correctKey],
+        durationSeconds: q.durationSeconds || 60,
+        timerStartedAt: null,
+        timerRemainingMs: null,
+        status: 'IDLE',
+        rewardsApplied: false,
+      };
+      return next;
+    });
+  }, [commitState, getAuthoritativeNow]);
+
+  const updateLastManPart1Question = useCallback(
+    (id: string, patch: Partial<LastManPart1Question>) => {
+      commitState((prev) => {
+        const list = prev.lastManPart1Questions || DEFAULT_LAST_MAN_PART1_QUESTIONS;
+        return {
+          ...prev,
+          lastManPart1Questions: list.map((q) => (q.id === id ? { ...q, ...patch } : q)),
+        };
+      });
+    },
+    [commitState]
+  );
+
+  const updateLastManPart2Question = useCallback(
+    (id: string, patch: Partial<LastManPart2Question>) => {
+      commitState((prev) => {
+        const list = prev.lastManPart2Questions || DEFAULT_LAST_MAN_PART2_QUESTIONS;
+        return {
+          ...prev,
+          lastManPart2Questions: list.map((q) => (q.id === id ? { ...q, ...patch } : q)),
+        };
+      });
+    },
+    [commitState]
+  );
+
+  const lmsSoulSacrifice = useCallback(
+    (teamId: TeamId) => {
+      const now = getAuthoritativeNow();
+      soundFX.playCoinChange(true);
+      if (connectionMode === 'LOCAL_SERVER') {
+        fetch('/api/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'TEAM_ACTION', action: 'LMS_SOUL_SACRIFICE', teamId, payload: {} }),
+        }).catch(() => {});
+        return;
+      }
+      if (supaChannelRef.current) {
+        supaChannelRef.current.send({
+          type: 'broadcast',
+          event: 'TEAM_ACTION',
+          payload: { action: 'LMS_SOUL_SACRIFICE', teamId, data: {} },
+        });
+      }
+      commitState((prev) => {
+        const next = structuredClone(prev);
+        applyLmsSoulSacrifice(next, teamId, now);
+        return next;
+      });
+    },
+    [commitState, connectionMode, getAuthoritativeNow]
+  );
+
+  const lmsMiseryPull = useCallback(
+    (teamId: TeamId, targetTeamId: TeamId) => {
+      const now = getAuthoritativeNow();
+      soundFX.playSubmit();
+      if (connectionMode === 'LOCAL_SERVER') {
+        fetch('/api/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'TEAM_ACTION',
+            action: 'LMS_MISERY_PULL',
+            teamId,
+            payload: { targetTeamId },
+          }),
+        }).catch(() => {});
+        return;
+      }
+      if (supaChannelRef.current) {
+        supaChannelRef.current.send({
+          type: 'broadcast',
+          event: 'TEAM_ACTION',
+          payload: { action: 'LMS_MISERY_PULL', teamId, data: { targetTeamId } },
+        });
+      }
+      commitState((prev) => {
+        const next = structuredClone(prev);
+        applyLmsMiseryPull(next, teamId, targetTeamId, now);
+        return next;
+      });
+    },
+    [commitState, connectionMode, getAuthoritativeNow]
+  );
+
+  const lmsBuyItem = useCallback(
+    (teamId: TeamId, itemId: LastManShopItemId, targetTeamId?: TeamId) => {
+      const now = getAuthoritativeNow();
+      soundFX.playCoinChange(false);
+      if (connectionMode === 'LOCAL_SERVER') {
+        fetch('/api/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'TEAM_ACTION',
+            action: 'LMS_BUY_ITEM',
+            teamId,
+            payload: { itemId, targetTeamId },
+          }),
+        }).catch(() => {});
+        return;
+      }
+      if (supaChannelRef.current) {
+        supaChannelRef.current.send({
+          type: 'broadcast',
+          event: 'TEAM_ACTION',
+          payload: { action: 'LMS_BUY_ITEM', teamId, data: { itemId, targetTeamId } },
+        });
+      }
+      commitState((prev) => {
+        const next = structuredClone(prev);
+        applyLmsBuyItem(next, teamId, itemId, targetTeamId, now);
+        return next;
+      });
+    },
+    [commitState, connectionMode, getAuthoritativeNow]
+  );
+
+  const lmsMinigameAction = useCallback(
+    (
+      teamId: TeamId,
+      payload: {
+        subType: 'POISON_SET' | 'CHALICE_PICK' | 'SPLIT_STEAL' | 'DARE_VOTE' | 'DEATH_DICE';
+        chalices?: number[];
+        chalice?: number;
+        choice?: 'SPLIT' | 'STEAL';
+        vote?: 'SPARE' | 'EXECUTE';
+      }
+    ) => {
+      soundFX.playSubmit();
+      if (connectionMode === 'LOCAL_SERVER') {
+        fetch('/api/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'TEAM_ACTION',
+            action: 'LMS_MINIGAME_ACTION',
+            teamId,
+            payload,
+          }),
+        }).catch(() => {});
+        return;
+      }
+      if (supaChannelRef.current) {
+        supaChannelRef.current.send({
+          type: 'broadcast',
+          event: 'TEAM_ACTION',
+          payload: { action: 'LMS_MINIGAME_ACTION', teamId, data: payload },
+        });
+      }
+      commitState((prev) => {
+        const next = structuredClone(prev);
+        applyLmsMinigameAction(next, teamId, payload);
+        return next;
+      });
+    },
+    [commitState, connectionMode]
+  );
+
+  const lmsUseJetpack = useCallback(
+    (teamId: TeamId) => {
+      const now = getAuthoritativeNow();
+      soundFX.playReveal();
+      if (connectionMode === 'LOCAL_SERVER') {
+        fetch('/api/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'TEAM_ACTION', action: 'LMS_USE_JETPACK', teamId, payload: {} }),
+        }).catch(() => {});
+        return;
+      }
+      if (supaChannelRef.current) {
+        supaChannelRef.current.send({
+          type: 'broadcast',
+          event: 'TEAM_ACTION',
+          payload: { action: 'LMS_USE_JETPACK', teamId, data: {} },
+        });
+      }
+      commitState((prev) => {
+        const next = structuredClone(prev);
+        applyLmsUseJetpack(next, teamId, now);
+        return next;
+      });
+    },
+    [commitState, connectionMode, getAuthoritativeNow]
+  );
+
+  const finishLastManStandingGame = useCallback(
+    (toFinale = false) => {
+      commitState((prev) => ({
+        ...prev,
+        showLeaderboardOverlay: toFinale,
+        round: {
+          ...prev.round,
+          gameStage: toFinale ? 'FINALE' : 'WORLD_MAP',
+          status: 'IDLE',
+          title: toFinale
+            ? 'คำพิพากษาแห่งครามปุส (Nice vs Naughty List)'
+            : 'คฤหาสน์ครามปุส (Mansion World Map)',
+        },
+      }));
+    },
+    [commitState]
+  );
+
   const setGameStage = useCallback(
     (stage: GameStage, syncPreset: boolean = true) => {
       commitState((prev) => {
@@ -2944,6 +4189,29 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         nextToyFactoryRound,
         updateToyFactoryDataset,
         finishToyFactoryGame,
+        startLastManStandingGame,
+        startLastManPart1Trivia,
+        revealLastManPart1Trivia,
+        autoResolveMiseryPull,
+        enterLastManBlackMarket,
+        enterLastManMinigame,
+        rollKrampusDeathDice,
+        revealLastManMinigame,
+        advanceFromLastManMinigame,
+        triggerLastManFreezeWarning,
+        penalizeLastManCurseViolation,
+        startLastManPart2Escape,
+        openLastManPart2Question,
+        revealLastManPart2Question,
+        nextLastManPart2Question,
+        updateLastManPart1Question,
+        updateLastManPart2Question,
+        lmsSoulSacrifice,
+        lmsMiseryPull,
+        lmsBuyItem,
+        lmsMinigameAction,
+        lmsUseJetpack,
+        finishLastManStandingGame,
         resolveSubRound2Auction,
         startTimer,
         pauseTimer,

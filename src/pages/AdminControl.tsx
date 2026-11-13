@@ -26,7 +26,14 @@ import {
   Map,
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
-import { TEAM_ORDER, getSuggestedSafeRange } from '../data/initialData';
+import {
+  CURSE_CATALOG,
+  DEFAULT_LAST_MAN_PART1_QUESTIONS,
+  DEFAULT_LAST_MAN_PART2_QUESTIONS,
+  TEAM_ORDER,
+  getActiveTeamIds,
+  getSuggestedSafeRange,
+} from '../data/initialData';
 import { ChronoSubRound, GameStage, TeamId, YearUnit } from '../types/game';
 import { CountdownTimer } from '../components/CountdownTimer';
 import { QrCodeModal } from '../components/QrCodeModal';
@@ -59,6 +66,24 @@ export const AdminControl: React.FC = () => {
     nextToyFactoryRound,
     updateToyFactoryDataset,
     finishToyFactoryGame,
+    startLastManStandingGame,
+    startLastManPart1Trivia,
+    revealLastManPart1Trivia,
+    autoResolveMiseryPull,
+    enterLastManBlackMarket,
+    enterLastManMinigame,
+    rollKrampusDeathDice,
+    revealLastManMinigame,
+    advanceFromLastManMinigame,
+    triggerLastManFreezeWarning,
+    penalizeLastManCurseViolation,
+    startLastManPart2Escape,
+    openLastManPart2Question,
+    revealLastManPart2Question,
+    nextLastManPart2Question,
+    updateLastManPart1Question,
+    updateLastManPart2Question,
+    finishLastManStandingGame,
     resolveSubRound2Auction,
     startTimer,
     pauseTimer,
@@ -355,7 +380,7 @@ export const AdminControl: React.FC = () => {
                     ['POLL_MINE', '1. 8 ประตูวัดใจครามปุส'],
                     ['TIMEJINX', '2. Timejinx'],
                     ['QUIXORT', '3. Quixort'],
-                    ['TRIVIA_MURDER', '4. Trivia Murder'],
+                    ['TRIVIA_MURDER', '4. The Last Man Standing'],
                     ['FINALE', '🏆 Finale'],
                   ] as [GameStage | 'ALL', string][]
                 ).map(([tab, label]) => (
@@ -364,6 +389,9 @@ export const AdminControl: React.FC = () => {
                     onClick={() => {
                       if (tab === 'FINALE' || tab === 'LOBBY' || tab === 'WORLD_MAP') {
                         setGameStage(tab, true);
+                      } else if (tab === 'TRIVIA_MURDER') {
+                        setSelectedStageTab('TRIVIA_MURDER');
+                        startLastManStandingGame();
                       } else {
                         setSelectedStageTab(tab);
                         if (tab !== 'ALL') {
@@ -1920,6 +1948,372 @@ export const AdminControl: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* ============================================================
+            GAME 4: THE LAST MAN STANDING (ลานประหารคริสต์มาส) CONSOLE
+        ============================================================ */}
+        <div className="rounded-3xl bg-slate-900 border-2 border-rose-500/50 p-5 shadow-xl space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-mono font-black text-rose-400 uppercase">
+                GAME 4 • THE LAST MAN STANDING (ตัดสินแชมป์)
+              </div>
+              <h2 className="text-xl font-black text-white">
+                ลานประหารคริสต์มาส &amp; บันไดหนีตาย 25 ขั้น
+              </h2>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={startLastManStandingGame}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs shadow-lg"
+              >
+                💀 เริ่มเกมที่ 4 (Krampus Twist + นับ 4 ❤️)
+              </button>
+              {round.gameStage === 'TRIVIA_MURDER' && (
+                <button
+                  onClick={() => finishLastManStandingGame(true)}
+                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs"
+                >
+                  🏆 ไปหน้า Finale / Leaderboard
+                </button>
+              )}
+            </div>
+          </div>
+
+          {round.gameStage === 'TRIVIA_MURDER' && round.lastMan && (() => {
+            const lms = round.lastMan;
+            const p1List = state.lastManPart1Questions || DEFAULT_LAST_MAN_PART1_QUESTIONS;
+            const p2List = state.lastManPart2Questions || DEFAULT_LAST_MAN_PART2_QUESTIONS;
+            const active = getActiveTeamIds(teams);
+            const cursedTeams = active.filter((tid) => lms.teamStates[tid]?.activeCurse);
+
+            return (
+              <div className="space-y-4">
+                {/* Team Hearts / Killing Floor / Ghost / Step Status Strip */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {active.map((tid) => {
+                    const ts = lms.teamStates[tid];
+                    const t = teams[tid];
+                    const curse = ts.activeCurse ? CURSE_CATALOG[ts.activeCurse] : null;
+                    return (
+                      <div
+                        key={tid}
+                        className={`rounded-2xl p-3 border-2 ${
+                          ts.isGhost
+                            ? 'bg-slate-950 border-purple-500/60'
+                            : ts.inKillingFloor
+                            ? 'bg-red-950/60 border-red-500'
+                            : 'bg-slate-950 border-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-black text-sm text-white truncate">
+                            {t.icon} {t.name}
+                          </span>
+                          <span className="text-xs font-mono font-black text-amber-300">
+                            {t.coins} ฿
+                          </span>
+                        </div>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs font-bold">
+                          <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-rose-300">
+                            {ts.isGhost ? '👻 วิญญาณ' : `❤️ ${ts.hearts}/4`}
+                          </span>
+                          {ts.inKillingFloor && !ts.isGhost && (
+                            <span className="px-2 py-0.5 rounded bg-red-600 text-white">
+                              💀 ลานประหาร
+                            </span>
+                          )}
+                          {ts.mirrorShield && (
+                            <span className="px-2 py-0.5 rounded bg-cyan-700 text-white">
+                              🪞 โล่กระจก
+                            </span>
+                          )}
+                          {ts.jetpacks > 0 && (
+                            <span className="px-2 py-0.5 rounded bg-amber-600 text-black font-black">
+                              🚀 x{ts.jetpacks}
+                            </span>
+                          )}
+                          {lms.phase.startsWith('PART2_') || lms.phase === 'CHAMPION' ? (
+                            <span className="px-2 py-0.5 rounded bg-emerald-800 text-emerald-200">
+                              🪜 ขั้น {ts.step}/25
+                            </span>
+                          ) : null}
+                        </div>
+                        {curse && (
+                          <div className="mt-2 flex items-center justify-between gap-1 bg-purple-950/80 border border-purple-500/50 rounded-lg px-2 py-1 text-[11px]">
+                            <span className="text-purple-200 font-bold truncate">
+                              {curse.icon} {curse.name}
+                            </span>
+                            <button
+                              onClick={() => penalizeLastManCurseViolation(tid)}
+                              className="px-1.5 py-0.5 rounded bg-red-600 hover:bg-red-500 text-white font-black shrink-0"
+                            >
+                              -1 ❤️
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Phase Controls */}
+                <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs font-mono text-rose-300 font-bold">
+                      PHASE: <span className="text-white">{lms.phase}</span> • PART 1 ROUND:{' '}
+                      {lms.part1Round}/4 • PART 2 Q: {lms.part2QuestionIndex + 1}/{p2List.length} •
+                      KRAMPUS STEP: {lms.krampusStep}
+                    </div>
+                    {cursedTeams.length > 0 && (
+                      <button
+                        onClick={triggerLastManFreezeWarning}
+                        className="px-3 py-1.5 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs animate-pulse"
+                      >
+                        🗿 KRAMPUS มองอยู่! (Freeze 3 วิ)
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Part 1 Controls */}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => startLastManPart1Trivia(lms.part1Round)}
+                      className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs"
+                    >
+                      1️⃣ เปิดคำถามรอบที่ {lms.part1Round} (15 วิ)
+                    </button>
+                    <button
+                      onClick={revealLastManPart1Trivia}
+                      className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs"
+                    >
+                      2️⃣ เฉลยคำถาม &amp; เปิดประตูกล
+                    </button>
+                    {lms.phase === 'PART1_MISERY_PULL' && (
+                      <button
+                        onClick={autoResolveMiseryPull}
+                        className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs animate-pulse"
+                      >
+                        🪝 หมดเวลา 10 วิ: สุ่มดึงเพื่อนตกนรก!
+                      </button>
+                    )}
+                    <button
+                      onClick={enterLastManBlackMarket}
+                      className="px-3 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-black text-xs"
+                    >
+                      3️⃣ เปิดตลาดมืดละลายทรัพย์ (25 วิ)
+                    </button>
+                    <button
+                      onClick={enterLastManMinigame}
+                      className="px-3 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-xs"
+                    >
+                      4️⃣ เข้ามินิเกมลานประหาร (รอบ {lms.part1Round})
+                    </button>
+                    {lms.phase === 'PART1_MINIGAME' && lms.part1Round === 4 && (
+                      <button
+                        onClick={rollKrampusDeathDice}
+                        className="px-3 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-black font-black text-xs"
+                      >
+                        🎲 Krampus ทอยเต๋า ({lms.krampusDiceRoll ?? '?'})
+                      </button>
+                    )}
+                    <button
+                      onClick={revealLastManMinigame}
+                      className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-black text-xs"
+                    >
+                      5️⃣ เฉลยมินิเกม &amp; ตัดสินหัวใจ
+                    </button>
+                    {lms.part1Round < 4 ? (
+                      <button
+                        onClick={advanceFromLastManMinigame}
+                        className="px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-black text-xs"
+                      >
+                        ➡️ {lms.part1Round === 2 && lms.phase === 'PART1_MINIGAME_REVEAL'
+                          ? '💸 เก็บภาษีคนงก (>1,000 ฿)'
+                          : `ไปรอบถัดไป (รอบ ${lms.part1Round + 1}/4)`}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={startLastManPart2Escape}
+                        className="px-3 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-rose-500 text-black font-black text-xs shadow-lg"
+                      >
+                        🪜 เข้าสู่ช่วงที่ 2: บันไดหนีตาย 25 ขั้น!
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Part 2 Controls */}
+                  <div className="pt-3 border-t border-slate-800 flex flex-wrap gap-2">
+                    <button
+                      onClick={startLastManPart2Escape}
+                      className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-black text-xs"
+                    >
+                      🔄 รีสตาร์ทช่วงที่ 2 (แปลง 400 ฿ = +1 ขั้น)
+                    </button>
+                    <button
+                      onClick={openLastManPart2Question}
+                      className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs"
+                    >
+                      ⏱️ เปิดคำถาม + 3 ตัวเลือก &amp; จับเวลา
+                    </button>
+                    <button
+                      onClick={revealLastManPart2Question}
+                      className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs"
+                    >
+                      ✅ เฉลย &amp; เดินหน้า (+Krampus 1.5 ขั้น)
+                    </button>
+                    <button
+                      onClick={nextLastManPart2Question}
+                      className="px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-black text-xs"
+                    >
+                      ➡️ ข้อถัดไป (แสดงเบาะแส)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Live Editors for Part 1 & Part 2 Questions */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 space-y-2.5 max-h-[380px] overflow-y-auto">
+                    <h3 className="text-xs font-black text-rose-300 uppercase">
+                      📝 แก้ไขโจทย์ช่วงที่ 1 (4 รอบ • 4 ตัวเลือก + รูปภาพ)
+                    </h3>
+                    {p1List.map((q, idx) => (
+                      <div key={q.id} className="rounded-xl bg-slate-900 border border-slate-800 p-3 space-y-2">
+                        <div className="text-xs font-black text-amber-300">รอบที่ {idx + 1}</div>
+                        <input
+                          type="text"
+                          value={q.questionText}
+                          onChange={(e) =>
+                            updateLastManPart1Question(q.id, { questionText: e.target.value })
+                          }
+                          className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white"
+                          placeholder="คำถาม..."
+                        />
+                        <input
+                          type="text"
+                          value={q.imageUrl || ''}
+                          onChange={(e) =>
+                            updateLastManPart1Question(q.id, { imageUrl: e.target.value })
+                          }
+                          className="w-full px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-300"
+                          placeholder="URL รูปภาพประกอบ (ไม่บังคับ)..."
+                        />
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {q.choices.map((c) => (
+                            <div key={c.key} className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateLastManPart1Question(q.id, { correctKey: c.key })
+                                }
+                                className={`px-2 py-1 rounded text-[10px] font-black ${
+                                  q.correctKey === c.key
+                                    ? 'bg-emerald-500 text-black'
+                                    : 'bg-slate-800 text-slate-400'
+                                }`}
+                              >
+                                {c.key}
+                              </button>
+                              <input
+                                type="text"
+                                value={c.label}
+                                onChange={(e) =>
+                                  updateLastManPart1Question(q.id, {
+                                    choices: q.choices.map((x) =>
+                                      x.key === c.key ? { ...x, label: e.target.value } : x
+                                    ),
+                                  })
+                                }
+                                className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-800 text-[11px] text-white"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 space-y-2.5 max-h-[380px] overflow-y-auto">
+                    <h3 className="text-xs font-black text-emerald-300 uppercase">
+                      🪜 แก้ไขโจทย์ช่วงที่ 2 (บันได 25 ขั้น • เบาะแส + 3 ตัวเลือก + เวลา)
+                    </h3>
+                    {p2List.map((q, idx) => (
+                      <div key={q.id} className="rounded-xl bg-slate-900 border border-slate-800 p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-black text-amber-300">ข้อที่ {idx + 1}</span>
+                          <div className="flex items-center gap-1 text-[11px] text-slate-300">
+                            <span>เวลา (วิ):</span>
+                            <input
+                              type="number"
+                              min={10}
+                              max={180}
+                              value={q.durationSeconds}
+                              onChange={(e) =>
+                                updateLastManPart2Question(q.id, {
+                                  durationSeconds: Math.max(10, Number(e.target.value) || 60),
+                                })
+                              }
+                              className="w-14 px-1.5 py-0.5 rounded bg-slate-950 border border-slate-700 text-center text-white"
+                            />
+                          </div>
+                        </div>
+                        <input
+                          type="text"
+                          value={q.clueText}
+                          onChange={(e) =>
+                            updateLastManPart2Question(q.id, { clueText: e.target.value })
+                          }
+                          className="w-full px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-amber-200"
+                          placeholder="เบาะแส / ประโยคตั้งต้น..."
+                        />
+                        <input
+                          type="text"
+                          value={q.questionText}
+                          onChange={(e) =>
+                            updateLastManPart2Question(q.id, { questionText: e.target.value })
+                          }
+                          className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white"
+                          placeholder="คำถาม..."
+                        />
+                        <div className="grid grid-cols-1 gap-1">
+                          {q.choices.map((c) => (
+                            <div key={c.key} className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateLastManPart2Question(q.id, { correctKey: c.key })
+                                }
+                                className={`px-2 py-1 rounded text-[10px] font-black ${
+                                  q.correctKey === c.key
+                                    ? 'bg-emerald-500 text-black'
+                                    : 'bg-slate-800 text-slate-400'
+                                }`}
+                              >
+                                {c.key}
+                              </button>
+                              <input
+                                type="text"
+                                value={c.label}
+                                onChange={(e) =>
+                                  updateLastManPart2Question(q.id, {
+                                    choices: q.choices.map((x) =>
+                                      x.key === c.key ? { ...x, label: e.target.value } : x
+                                    ),
+                                  })
+                                }
+                                className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-800 text-[11px] text-white"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
 

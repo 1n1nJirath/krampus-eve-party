@@ -373,6 +373,231 @@ function krampusRealtimeServerPlugin(): Plugin {
                     }
                   }
                 }
+              } else if (action === 'LMS_SOUL_SACRIFICE') {
+                const lms = updated.round?.lastMan;
+                const ts = lms?.teamStates?.[teamId];
+                const team = updated.teams?.[teamId];
+                if (
+                  lms &&
+                  ts &&
+                  team &&
+                  !ts.isGhost &&
+                  ts.hearts > 1 &&
+                  lms.phase.startsWith('PART1_')
+                ) {
+                  ts.hearts -= 1;
+                  team.coins += 500;
+                  lms.killFeed = [
+                    {
+                      id: `kf-${now}-${Math.random().toString(36).slice(2, 6)}`,
+                      timestamp: now,
+                      icon: '💔',
+                      message: `${team.icon} ${team.name} ขายวิญญาณ -1 ❤️ แลกเงินสด +500 ฿!`,
+                    },
+                    ...(lms.killFeed || []),
+                  ].slice(0, 20);
+                }
+              } else if (action === 'LMS_MISERY_PULL') {
+                const lms = updated.round?.lastMan;
+                const targetId = payload.targetTeamId;
+                const targetTs = lms?.teamStates?.[targetId];
+                const targetTeam = updated.teams?.[targetId];
+                const actorTeam = updated.teams?.[teamId];
+                if (
+                  lms &&
+                  lms.phase === 'PART1_MISERY_PULL' &&
+                  lms.miseryPullTeamId === teamId &&
+                  targetTs &&
+                  !targetTs.isGhost &&
+                  !targetTs.inKillingFloor
+                ) {
+                  targetTs.inKillingFloor = true;
+                  targetTeam.isInKillingFloor = true;
+                  lms.phase = 'PART1_BLACK_MARKET';
+                  lms.miseryPullTeamId = null;
+                  lms.miseryEndsAt = null;
+                  updated.round.status = 'ACTIVE';
+                  updated.round.durationSeconds = 25;
+                  updated.round.timerStartedAt = now;
+                  updated.round.timerRemainingMs = null;
+                  lms.killFeed = [
+                    {
+                      id: `kf-${now}-${Math.random().toString(36).slice(2, 6)}`,
+                      timestamp: now,
+                      icon: '🪝',
+                      message: `${actorTeam?.icon || ''} ${actorTeam?.name || teamId} ลาก ${targetTeam?.icon || ''} ${targetTeam?.name || targetId} ตกลงลานประหารด้วยกัน!`,
+                    },
+                    ...(lms.killFeed || []),
+                  ].slice(0, 20);
+                }
+              } else if (action === 'LMS_BUY_ITEM') {
+                const lms = updated.round?.lastMan;
+                const itemId = payload.itemId;
+                const targetId = payload.targetTeamId;
+                const buyerTs = lms?.teamStates?.[teamId];
+                const buyerTeam = updated.teams?.[teamId];
+                const PRICE_MAP: Record<string, number> = {
+                  CURSE_BOX: 100,
+                  SNIPER_SHOT: 150,
+                  MIRROR_SHIELD: 150,
+                  HELL_CHAINS: 200,
+                  EXECUTIONER_BRIBE: 200,
+                  REVIVE_POTION: 250,
+                  JETPACK: 200,
+                };
+                const CURSE_NAMES: Record<string, string> = {
+                  BLIND_GM: '🙈 Sub-GM ตาบอด',
+                  MUTE_TEAM: '🤐 ใบ้กินทั้งกลุ่ม',
+                  FOREHEAD_PHONE: '📱 มือถือแปะหน้าผาก',
+                  PA_THONG_KO: '🔗 ตัวติดกันเป็นปาท่องโก๋',
+                  FREEZE_STATUE: '🗿 หุ่นขี้ผึ้งต้องสาป',
+                };
+                const CURSE_KEYS = Object.keys(CURSE_NAMES);
+                const price = PRICE_MAP[itemId];
+                if (
+                  lms &&
+                  lms.phase === 'PART1_BLACK_MARKET' &&
+                  updated.round?.status === 'ACTIVE' &&
+                  buyerTs &&
+                  buyerTeam &&
+                  !buyerTs.isGhost &&
+                  buyerTs.hearts > 0 &&
+                  price &&
+                  buyerTeam.coins >= price &&
+                  (lms.roundStock?.[itemId] || 0) > 0
+                ) {
+                  let ok = false;
+                  let feedMsg = '';
+                  let feedIcon = '🛒';
+                  if (itemId === 'CURSE_BOX' && targetId && lms.teamStates?.[targetId] && !lms.teamStates[targetId].isGhost && lms.teamStates[targetId].inKillingFloor) {
+                    ok = true;
+                    const tTs = lms.teamStates[targetId];
+                    const tTeam = updated.teams[targetId];
+                    const curse = CURSE_KEYS[Math.floor(Math.random() * CURSE_KEYS.length)];
+                    if (tTs.mirrorShield) {
+                      tTs.mirrorShield = false;
+                      buyerTs.activeCurse = curse;
+                      feedIcon = '🪞';
+                      feedMsg = `${tTeam.icon} ${tTeam.name} กางโล่กระจกสะท้อนกล่องคำสาป! ${buyerTeam.icon} ${buyerTeam.name} โดน ${CURSE_NAMES[curse]} แทน!`;
+                    } else {
+                      tTs.activeCurse = curse;
+                      feedIcon = '🎁';
+                      feedMsg = `${buyerTeam.icon} ${buyerTeam.name} ส่งกล่องคำสาปใส่ ${tTeam.icon} ${tTeam.name} -> ติด ${CURSE_NAMES[curse]}!`;
+                    }
+                  } else if (itemId === 'SNIPER_SHOT' && targetId && targetId !== teamId && lms.teamStates?.[targetId] && !lms.teamStates[targetId].isGhost) {
+                    ok = true;
+                    const tTs = lms.teamStates[targetId];
+                    const tTeam = updated.teams[targetId];
+                    if (tTs.mirrorShield) {
+                      tTs.mirrorShield = false;
+                      buyerTs.hearts = Math.max(0, buyerTs.hearts - 1);
+                      if (buyerTs.hearts <= 0) buyerTs.isGhost = true;
+                      feedIcon = '🪞';
+                      feedMsg = `${tTeam.icon} ${tTeam.name} สะท้อนกระสุน! ${buyerTeam.icon} ${buyerTeam.name} โดนยิงเอง -1 ❤️!`;
+                    } else {
+                      tTs.hearts = Math.max(0, tTs.hearts - 1);
+                      if (tTs.hearts <= 0) tTs.isGhost = true;
+                      feedIcon = '🔫';
+                      feedMsg = `${buyerTeam.icon} ${buyerTeam.name} จ้างมือปืนยิง ${tTeam.icon} ${tTeam.name} (-1 ❤️)${tTs.isGhost ? ' 💀 กลายเป็นวิญญาณ!' : ''}`;
+                    }
+                  } else if (itemId === 'MIRROR_SHIELD' && !buyerTs.mirrorShield) {
+                    ok = true;
+                    buyerTs.mirrorShield = true;
+                    feedIcon = '🪞';
+                    feedMsg = `${buyerTeam.icon} ${buyerTeam.name} กางโล่กระจกสะท้อนรอบนี้!`;
+                  } else if (itemId === 'HELL_CHAINS' && (lms.gameStock?.HELL_CHAINS || 0) > 0) {
+                    ok = true;
+                    lms.gameStock.HELL_CHAINS -= 1;
+                    Object.keys(lms.teamStates).forEach((tid) => {
+                      const s = lms.teamStates[tid];
+                      if (!s.isGhost && !s.inKillingFloor) {
+                        s.inKillingFloor = true;
+                        if (updated.teams[tid]) updated.teams[tid].isInKillingFloor = true;
+                      }
+                    });
+                    feedIcon = '⛓️';
+                    feedMsg = `${buyerTeam.icon} ${buyerTeam.name} ใช้โซ่ตรวนลากทุกทีมลงนรกยกแก๊ง!!`;
+                  } else if (itemId === 'EXECUTIONER_BRIBE' && buyerTs.inKillingFloor) {
+                    ok = true;
+                    buyerTs.inKillingFloor = false;
+                    buyerTeam.isInKillingFloor = false;
+                    feedIcon = '💰';
+                    feedMsg = `${buyerTeam.icon} ${buyerTeam.name} ยัดสินบนเพชฌฆาตหนีขึ้นโซนปลอดภัย!`;
+                  } else if (itemId === 'REVIVE_POTION' && buyerTs.hearts < 4) {
+                    ok = true;
+                    buyerTs.hearts = Math.min(4, buyerTs.hearts + 1);
+                    feedIcon = '🧪';
+                    feedMsg = `${buyerTeam.icon} ${buyerTeam.name} ดื่มยาชุบชีวิต (+1 ❤️ -> ${buyerTs.hearts} ดวง)`;
+                  } else if (itemId === 'JETPACK' && (lms.gameStock?.JETPACK || 0) > 0) {
+                    ok = true;
+                    lms.gameStock.JETPACK -= 1;
+                    buyerTs.jetpacks = (buyerTs.jetpacks || 0) + 1;
+                    feedIcon = '🚀';
+                    feedMsg = `${buyerTeam.icon} ${buyerTeam.name} ซื้อพลุไอพ่นหนีตายเก็บเข้ากระเป๋า!`;
+                  }
+                  if (ok) {
+                    buyerTeam.coins -= price;
+                    lms.roundStock[itemId] -= 1;
+                    lms.killFeed = [
+                      {
+                        id: `kf-${now}-${Math.random().toString(36).slice(2, 6)}`,
+                        timestamp: now,
+                        icon: feedIcon,
+                        message: feedMsg,
+                      },
+                      ...(lms.killFeed || []),
+                    ].slice(0, 20);
+                  }
+                }
+              } else if (action === 'LMS_MINIGAME_ACTION') {
+                const lms = updated.round?.lastMan;
+                if (lms && lms.phase === 'PART1_MINIGAME') {
+                  if (payload.subType === 'POISON_SET' && Array.isArray(payload.chalices)) {
+                    const nextSet = new Set(lms.poisonedChalices || []);
+                    payload.chalices.forEach((c: number) => {
+                      if (nextSet.size < 2 && c >= 1 && c <= 4) nextSet.add(c);
+                    });
+                    lms.poisonedChalices = Array.from(nextSet);
+                  } else if (payload.subType === 'CHALICE_PICK') {
+                    lms.chalicePicks = { ...(lms.chalicePicks || {}), [teamId]: Number(payload.chalice) };
+                  } else if (payload.subType === 'SPLIT_STEAL') {
+                    lms.splitStealPicks = { ...(lms.splitStealPicks || {}), [teamId]: payload.choice };
+                  } else if (payload.subType === 'DARE_VOTE') {
+                    lms.dareVotes = { ...(lms.dareVotes || {}), [teamId]: payload.vote };
+                  } else if (payload.subType === 'DEATH_DICE') {
+                    if (!lms.teamDiceRolls?.[teamId]) {
+                      const roll = Math.floor(Math.random() * 6) + 1;
+                      lms.teamDiceRolls = { ...(lms.teamDiceRolls || {}), [teamId]: roll };
+                    }
+                  }
+                }
+              } else if (action === 'LMS_USE_JETPACK') {
+                const lms = updated.round?.lastMan;
+                const ts = lms?.teamStates?.[teamId];
+                const team = updated.teams?.[teamId];
+                if (
+                  lms &&
+                  ts &&
+                  !ts.isGhost &&
+                  ts.jetpacks > 0 &&
+                  (lms.phase === 'PART2_CLUE' || lms.phase === 'PART2_QUESTION' || lms.phase === 'PART2_REVEAL')
+                ) {
+                  ts.jetpacks -= 1;
+                  ts.step = Math.min(25, ts.step + 3);
+                  lms.killFeed = [
+                    {
+                      id: `kf-${now}-${Math.random().toString(36).slice(2, 6)}`,
+                      timestamp: now,
+                      icon: '🚀',
+                      message: `${team?.icon || ''} ${team?.name || teamId} จุดพลุไอพ่นพุ่งข้าม +3 ขั้น (ถึงขั้น ${ts.step})!`,
+                    },
+                    ...(lms.killFeed || []),
+                  ].slice(0, 20);
+                  if (ts.step >= 25 && !lms.winnerTeamId) {
+                    lms.winnerTeamId = teamId;
+                    lms.phase = 'CHAMPION';
+                  }
+                }
               }
 
               saveAndBroadcast(updated);

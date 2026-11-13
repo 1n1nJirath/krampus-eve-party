@@ -14,13 +14,16 @@ import {
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import {
+  BLACK_MARKET_ITEMS,
+  CURSE_CATALOG,
   TEAM_ORDER,
+  getActiveTeamIds,
   getChronoNetTraps,
   getChronoSliderStep,
   getChronoTrapsReceived,
   getSuggestedSafeRange,
 } from '../data/initialData';
-import { TeamId } from '../types/game';
+import { LastManShopItemId, TeamId } from '../types/game';
 import { CountdownTimer } from '../components/CountdownTimer';
 
 export const TeamController: React.FC = () => {
@@ -35,6 +38,11 @@ export const TeamController: React.FC = () => {
     claimChronoYear,
     selectToyFactoryDataset,
     triggerToyFactoryShuffle,
+    lmsSoulSacrifice,
+    lmsMiseryPull,
+    lmsBuyItem,
+    lmsMinigameAction,
+    lmsUseJetpack,
   } = useGame();
   const { round, teams, submissions, buzzerQueue } = state;
 
@@ -91,6 +99,11 @@ export const TeamController: React.FC = () => {
 
   // Game 3 ("THE TOY FACTORY CHAOS") live timer & vibration
   const [toyNowMs, setToyNowMs] = useState<number>(() => Date.now());
+
+  // Game 4 ("THE LAST MAN STANDING") Black Market debounce & target modal
+  const [lmsPendingTargetItem, setLmsPendingTargetItem] = useState<LastManShopItemId | null>(null);
+  const [lmsShopBusy, setLmsShopBusy] = useState<boolean>(false);
+  const [lmsPoisonPicks, setLmsPoisonPicks] = useState<number[]>([]);
   const isToyFactoryActive = round.gameStage === 'QUIXORT' && Boolean(round.toyFactory);
   useEffect(() => {
     if (!isToyFactoryActive) return;
@@ -1046,6 +1059,7 @@ export const TeamController: React.FC = () => {
         {round.status !== 'IDLE' &&
           round.inputMode === 'MODE_A_CHOICE' &&
           !isEightDoorsGame &&
+          !(round.gameStage === 'TRIVIA_MURDER' && round.lastMan) &&
           !mySubmission && (
             <div className="flex-1 flex flex-col justify-between gap-3">
               {!isRoundActive ? (
@@ -1657,6 +1671,565 @@ export const TeamController: React.FC = () => {
                     <p className="text-xs text-slate-300">
                       ดูผลเฉลยและคะแนน Holy Coins บนจอโปรเจกเตอร์
                     </p>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+        {/* ==========================================================
+            GAME 4: THE LAST MAN STANDING (ลานประหารคริสต์มาส)
+        ========================================================== */}
+        {round.gameStage === 'TRIVIA_MURDER' &&
+          round.lastMan &&
+          (() => {
+            const lms = round.lastMan;
+            const myState = lms.teamStates[selectedTeamId];
+            const active = getActiveTeamIds(teams);
+            const myCurse = myState.activeCurse ? CURSE_CATALOG[myState.activeCurse] : null;
+            const isPart1 = lms.phase.startsWith('PART1_');
+
+            const handleBuyWithDebounce = (itemId: LastManShopItemId, targetId?: TeamId) => {
+              if (lmsShopBusy) return;
+              setLmsShopBusy(true);
+              lmsBuyItem(selectedTeamId, itemId, targetId);
+              setLmsPendingTargetItem(null);
+              setTimeout(() => setLmsShopBusy(false), 350);
+            };
+
+            return (
+              <div className="flex-1 flex flex-col gap-3">
+                {/* Status Bar: Hearts, Zone, Shields, Jetpacks, Soul Sacrifice */}
+                <div className="rounded-2xl bg-slate-900 border-2 border-rose-500/60 p-3 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-sm font-black">
+                      <span className="px-2.5 py-1 rounded-xl bg-rose-950 border border-rose-500/60 text-rose-300">
+                        {myState.isGhost ? '👻 สถานะวิญญาณ' : `❤️ ${myState.hearts}/4 ดวง`}
+                      </span>
+                      {!myState.isGhost && isPart1 && (
+                        <span
+                          className={`px-2.5 py-1 rounded-xl text-xs font-black ${
+                            myState.inKillingFloor
+                              ? 'bg-red-600 text-white'
+                              : 'bg-emerald-700 text-white'
+                          }`}
+                        >
+                          {myState.inKillingFloor ? '💀 ลานประหาร' : '🛡️ โซนปลอดภัย'}
+                        </span>
+                      )}
+                      {lms.phase.startsWith('PART2_') && (
+                        <span className="px-2.5 py-1 rounded-xl bg-amber-500 text-black text-xs font-black">
+                          🪜 ขั้น {myState.step}/25
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs font-bold">
+                      {myState.mirrorShield && (
+                        <span className="px-2 py-0.5 rounded bg-cyan-600 text-white">🪞 โล่กระจก</span>
+                      )}
+                      {myState.jetpacks > 0 && (
+                        <span className="px-2 py-0.5 rounded bg-amber-400 text-black font-black">
+                          🚀 x{myState.jetpacks}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {isPart1 && !myState.isGhost && myState.hearts > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => lmsSoulSacrifice(selectedTeamId)}
+                      className="w-full py-2 rounded-xl bg-rose-950 hover:bg-rose-900 border border-rose-500 text-rose-200 font-black text-xs"
+                    >
+                      💔 ขายวิญญาณ (-1 ❤️ แลกเงินสด +500 ฿)
+                    </button>
+                  )}
+
+                  {myCurse && (
+                    <div className="rounded-xl bg-purple-950 border-2 border-purple-400 p-2.5 text-center animate-pulse">
+                      <div className="text-xs font-black text-yellow-300">
+                        {myCurse.icon} ทีมคุณติดคำสาป: {myCurse.name}
+                      </div>
+                      <div className="text-[11px] text-purple-100 mt-0.5">{myCurse.desc}</div>
+                    </div>
+                  )}
+                </div>
+
+                {/* KRAMPUS_TWIST */}
+                {lms.phase === 'KRAMPUS_TWIST' && (
+                  <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-rose-950/60 border-2 border-rose-500 p-6 text-center gap-3">
+                    <div className="text-5xl animate-bounce">👹</div>
+                    <h3 className="text-xl font-black text-amber-300">
+                      THE LAST MAN STANDING — ประกาศหักมุม!
+                    </h3>
+                    <p className="text-xs text-slate-200 leading-relaxed">
+                      เงิน Holy Coins เป็นเพียงกระสุนและแต้มต่อ! เตรียมตอบคำถามเอาชีวิตรอด 4 รอบ แล้ววิ่งขึ้นบันไดหนีตาย 25 ขั้นเป็นทีมแรกเพื่อคว้าแชมป์ค่าย!
+                    </p>
+                  </div>
+                )}
+
+                {/* PART1_TRIVIA */}
+                {lms.phase === 'PART1_TRIVIA' && (
+                  <div className="flex-1 flex flex-col gap-2.5">
+                    {mySubmission ? (
+                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-emerald-950/50 border-2 border-emerald-400 p-6 text-center">
+                        <CheckCircle2 className="w-12 h-12 text-emerald-400 mb-2" />
+                        <div className="text-xl font-black text-white">
+                          ล็อกคำตอบ [{mySubmission.value}] แล้ว!
+                        </div>
+                        <div className="text-xs text-slate-300 mt-1">รอเฉลยพร้อมกันบนจอใหญ่...</div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-2.5 my-auto">
+                        {round.choices.slice(0, 4).map((c) => (
+                          <button
+                            key={c.key}
+                            type="button"
+                            onClick={() => submitTeamAnswer(selectedTeamId, c.key)}
+                            className="p-4 rounded-2xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] border-2 border-amber-400/60 text-left flex items-center gap-3"
+                          >
+                            <span className="w-9 h-9 rounded-xl bg-amber-400 text-black font-black flex items-center justify-center shrink-0">
+                              {c.key}
+                            </span>
+                            <span className="font-bold text-sm text-white">{c.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* PART1_TRIVIA_REVEAL */}
+                {lms.phase === 'PART1_TRIVIA_REVEAL' && (
+                  <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-slate-900 border-2 border-slate-700 p-6 text-center gap-2">
+                    <div className="text-4xl">{myState.inKillingFloor ? '💀' : '🛡️'}</div>
+                    <h3 className="text-xl font-black text-white">
+                      {myState.isGhost
+                        ? 'คุณเป็นวิญญาณ รอช่วงที่ 2!'
+                        : myState.inKillingFloor
+                        ? 'คุณร่วงลงลานประหาร!'
+                        : 'คุณรอดอยู่โซนปลอดภัย! (+250 ฿)'}
+                    </h3>
+                  </div>
+                )}
+
+                {/* PART1_MISERY_PULL */}
+                {lms.phase === 'PART1_MISERY_PULL' && (
+                  <div className="flex-1 flex flex-col gap-3 justify-center">
+                    {lms.miseryPullTeamId === selectedTeamId ? (
+                      <div className="rounded-3xl bg-red-950/80 border-4 border-amber-400 p-5 text-center space-y-3">
+                        <div className="text-3xl">😈</div>
+                        <h3 className="text-lg font-black text-amber-300">
+                          คุณตอบผิดทีมเดียว! เลือก 1 ทีมที่รอดมาตกนรกด้วยกัน!
+                        </h3>
+                        <div className="grid grid-cols-1 gap-2">
+                          {active
+                            .filter((tid) => !lms.teamStates[tid].isGhost && !lms.teamStates[tid].inKillingFloor)
+                            .map((tid) => (
+                              <button
+                                key={tid}
+                                type="button"
+                                onClick={() => lmsMiseryPull(selectedTeamId, tid)}
+                                className="py-3 px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-sm border-2 border-black"
+                              >
+                                🪝 ลาก {teams[tid].icon} {teams[tid].name} ลงลานประหาร!
+                              </button>
+                            ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-3xl bg-slate-900 border-2 border-rose-500/50 p-6 text-center">
+                        <div className="text-3xl mb-2 animate-pulse">😱</div>
+                        <h3 className="text-lg font-black text-white">
+                          {teams[lms.miseryPullTeamId || 'team1']?.name} กำลังเลือกลากเพื่อนตกนรก 1 ทีม!
+                        </h3>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* PART1_BLACK_MARKET */}
+                {lms.phase === 'PART1_BLACK_MARKET' && (
+                  <div className="flex-1 flex flex-col gap-2.5">
+                    {myState.isGhost ? (
+                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-slate-900 border-2 border-purple-500/50 p-6 text-center">
+                        <div className="text-4xl mb-2">👻</div>
+                        <h3 className="text-lg font-black text-purple-300">
+                          สถานะวิญญาณ: เงินถูกแช่แข็ง!
+                        </h3>
+                        <p className="text-xs text-slate-400 mt-1">
+                          ไม่สามารถซื้อหรือใช้ไอเทมในตลาดมืดได้ รอสิงร่างช่วงที่ 2!
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="rounded-xl bg-purple-950/70 border border-purple-400 px-3 py-2 text-center text-xs font-black text-amber-300">
+                          🛒 ตลาดมืดเปิดแล้ว! ซื้อปุ๊บ ออกฤทธิ์ปั๊บ! (เงินคงเหลือ: {team.coins.toLocaleString()} ฿)
+                        </div>
+
+                        {lmsPendingTargetItem && (
+                          <div className="rounded-2xl bg-amber-950 border-2 border-amber-400 p-3 space-y-2">
+                            <div className="flex items-center justify-between text-xs font-black text-amber-300">
+                              <span>🎯 เลือกทีมเป้าหมาย:</span>
+                              <button
+                                type="button"
+                                onClick={() => setLmsPendingTargetItem(null)}
+                                className="px-2 py-0.5 rounded bg-slate-800 text-white"
+                              >
+                                ยกเลิก
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-1 gap-1.5">
+                              {active
+                                .filter((tid) => {
+                                  const ts = lms.teamStates[tid];
+                                  if (ts.isGhost) return false;
+                                  if (lmsPendingTargetItem === 'CURSE_BOX') return ts.inKillingFloor;
+                                  return tid !== selectedTeamId;
+                                })
+                                .map((tid) => (
+                                  <button
+                                    key={tid}
+                                    type="button"
+                                    onClick={() => handleBuyWithDebounce(lmsPendingTargetItem, tid)}
+                                    className="py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs text-left"
+                                  >
+                                    {teams[tid].icon} {teams[tid].name} ({lms.teamStates[tid].hearts} ❤️)
+                                  </button>
+                                ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="space-y-2 overflow-y-auto max-h-[380px] pr-1">
+                          {BLACK_MARKET_ITEMS.map((item) => {
+                            const rStock = lms.roundStock[item.id] ?? 0;
+                            const gStock =
+                              item.id === 'HELL_CHAINS'
+                                ? lms.gameStock.HELL_CHAINS
+                                : item.id === 'JETPACK'
+                                ? lms.gameStock.JETPACK
+                                : 99;
+                            const stockLeft = Math.min(rStock, gStock);
+                            const cantAfford = team.coins < item.price;
+                            const notEligible =
+                              (item.onlyKillingFloorBuyer && !myState.inKillingFloor) ||
+                              (item.id === 'MIRROR_SHIELD' && myState.mirrorShield) ||
+                              (item.id === 'REVIVE_POTION' && myState.hearts >= 4);
+                            const hasTargets =
+                              item.needsTarget === 'KILLING_FLOOR'
+                                ? active.some((tid) => !lms.teamStates[tid].isGhost && lms.teamStates[tid].inKillingFloor)
+                                : item.needsTarget === 'RIVAL_LIVING'
+                                ? active.some((tid) => tid !== selectedTeamId && !lms.teamStates[tid].isGhost)
+                                : true;
+                            const disabled =
+                              lmsShopBusy || stockLeft <= 0 || cantAfford || notEligible || !hasTargets;
+
+                            return (
+                              <button
+                                key={item.id}
+                                type="button"
+                                disabled={disabled}
+                                onClick={() => {
+                                  if (item.needsTarget) {
+                                    setLmsPendingTargetItem(item.id);
+                                  } else {
+                                    handleBuyWithDebounce(item.id);
+                                  }
+                                }}
+                                className={`w-full rounded-2xl p-3 border-2 text-left transition-all ${
+                                  disabled
+                                    ? 'bg-slate-900/50 border-slate-800 text-slate-500 opacity-60 cursor-not-allowed'
+                                    : 'bg-slate-900 hover:bg-purple-950/60 border-purple-500/70 text-white active:scale-[0.98]'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-black text-sm">
+                                    {item.icon} {item.name}
+                                  </span>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <span className="px-2 py-0.5 rounded bg-amber-500 text-black font-mono text-xs font-black">
+                                      {item.price} ฿
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px] font-bold">
+                                      เหลือ {stockLeft}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="text-[11px] text-slate-300 mt-1">{item.description}</div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* PART1_MINIGAME */}
+                {lms.phase === 'PART1_MINIGAME' && (
+                  <div className="flex-1 flex flex-col justify-center gap-3">
+                    {lms.part1Round === 1 && !myState.inKillingFloor && !myState.isGhost && (
+                      <div className="rounded-3xl bg-purple-950/70 border-2 border-purple-400 p-5 text-center space-y-3">
+                        <h3 className="text-lg font-black text-amber-300">
+                          🍷 วางยาพิษใส่ถ้วย (เลือกได้ 1–2 ใบ)
+                        </h3>
+                        <div className="grid grid-cols-2 gap-2.5">
+                          {[1, 2, 3, 4].map((num) => {
+                            const picked = lmsPoisonPicks.includes(num);
+                            return (
+                              <button
+                                key={num}
+                                type="button"
+                                onClick={() => {
+                                  const next = picked
+                                    ? lmsPoisonPicks.filter((x) => x !== num)
+                                    : lmsPoisonPicks.length < 2
+                                    ? [...lmsPoisonPicks, num]
+                                    : [lmsPoisonPicks[1], num];
+                                  setLmsPoisonPicks(next);
+                                  lmsMinigameAction(selectedTeamId, {
+                                    subType: 'POISON_SET',
+                                    chalices: next,
+                                  });
+                                }}
+                                className={`py-4 rounded-2xl border-2 font-black text-base ${
+                                  picked
+                                    ? 'bg-purple-600 border-yellow-300 text-white'
+                                    : 'bg-slate-900 border-slate-700 text-slate-300'
+                                }`}
+                              >
+                                🍷 ถ้วย #{num}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {lms.part1Round === 1 && myState.inKillingFloor && !myState.isGhost && (
+                      <div className="rounded-3xl bg-red-950/70 border-2 border-red-500 p-5 text-center space-y-3">
+                        <h3 className="text-lg font-black text-white">
+                          🍷 เลือกหยิบถ้วยดื่มเอาชีวิตรอด!
+                        </h3>
+                        <div className="grid grid-cols-2 gap-2.5">
+                          {[1, 2, 3, 4].map((num) => {
+                            const picked = lms.chalicePicks[selectedTeamId] === num;
+                            return (
+                              <button
+                                key={num}
+                                type="button"
+                                onClick={() =>
+                                  lmsMinigameAction(selectedTeamId, {
+                                    subType: 'CHALICE_PICK',
+                                    chalice: num,
+                                  })
+                                }
+                                className={`py-4 rounded-2xl border-2 font-black text-base ${
+                                  picked
+                                    ? 'bg-amber-500 border-black text-black'
+                                    : 'bg-slate-900 border-slate-700 text-white'
+                                }`}
+                              >
+                                🍷 ดื่มถ้วย #{num}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {lms.part1Round === 2 && myState.inKillingFloor && !myState.isGhost && (
+                      <div className="rounded-3xl bg-slate-900 border-2 border-amber-400 p-5 text-center space-y-3">
+                        <h3 className="text-lg font-black text-amber-300">
+                          🤝 หักหลังแบ่งสมบัติ (Split or Steal)
+                        </h3>
+                        <div className="grid grid-cols-1 gap-3">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              lmsMinigameAction(selectedTeamId, {
+                                subType: 'SPLIT_STEAL',
+                                choice: 'SPLIT',
+                              })
+                            }
+                            className={`py-4 rounded-2xl border-2 font-black text-base ${
+                              lms.splitStealPicks[selectedTeamId] === 'SPLIT'
+                                ? 'bg-emerald-500 text-black border-white'
+                                : 'bg-emerald-950 text-emerald-200 border-emerald-500'
+                            }`}
+                          >
+                            🤝 จับมือรอดไปด้วยกัน (SPLIT)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              lmsMinigameAction(selectedTeamId, {
+                                subType: 'SPLIT_STEAL',
+                                choice: 'STEAL',
+                              })
+                            }
+                            className={`py-4 rounded-2xl border-2 font-black text-base ${
+                              lms.splitStealPicks[selectedTeamId] === 'STEAL'
+                                ? 'bg-red-600 text-white border-yellow-300'
+                                : 'bg-red-950 text-red-200 border-red-500'
+                            }`}
+                          >
+                            🗡️ แทงข้างหลัง! (STEAL +300 ฿)
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {lms.part1Round === 3 && !myState.inKillingFloor && (
+                      <div className="rounded-3xl bg-slate-900 border-2 border-rose-500 p-5 text-center space-y-3">
+                        <h3 className="text-lg font-black text-white">
+                          🎭 โหวตชี้ชะตาทีมบนลานประหาร!
+                        </h3>
+                        <div className="grid grid-cols-2 gap-3">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              lmsMinigameAction(selectedTeamId, {
+                                subType: 'DARE_VOTE',
+                                vote: 'SPARE',
+                              })
+                            }
+                            className={`py-4 rounded-2xl border-2 font-black ${
+                              lms.dareVotes[selectedTeamId] === 'SPARE'
+                                ? 'bg-emerald-500 text-black border-white'
+                                : 'bg-emerald-950 text-emerald-200 border-emerald-500'
+                            }`}
+                          >
+                            💚 ไว้ชีวิต
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              lmsMinigameAction(selectedTeamId, {
+                                subType: 'DARE_VOTE',
+                                vote: 'EXECUTE',
+                              })
+                            }
+                            className={`py-4 rounded-2xl border-2 font-black ${
+                              lms.dareVotes[selectedTeamId] === 'EXECUTE'
+                                ? 'bg-red-600 text-white border-yellow-300'
+                                : 'bg-red-950 text-red-200 border-red-500'
+                            }`}
+                          >
+                            💀 ประหาร (-1 ❤️)
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {lms.part1Round === 4 && myState.inKillingFloor && !myState.isGhost && (
+                      <div className="rounded-3xl bg-slate-900 border-2 border-orange-500 p-5 text-center space-y-3">
+                        <h3 className="text-lg font-black text-amber-300">
+                          🎲 ทอยเต๋าวัดดวงแข่ง Krampus!
+                        </h3>
+                        {lms.teamDiceRolls[selectedTeamId] ? (
+                          <div className="text-5xl font-black text-white">
+                            🎲 {lms.teamDiceRolls[selectedTeamId]}
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              lmsMinigameAction(selectedTeamId, { subType: 'DEATH_DICE' })
+                            }
+                            className="w-full py-5 rounded-2xl bg-orange-500 hover:bg-orange-400 text-black font-black text-xl border-4 border-black"
+                          >
+                            🎲 กดทอยลูกเต๋า!
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {((lms.part1Round !== 1 && lms.part1Round !== 3 && !myState.inKillingFloor) ||
+                      (lms.part1Round === 3 && myState.inKillingFloor) ||
+                      myState.isGhost) && (
+                      <div className="rounded-3xl bg-slate-900 border border-slate-700 p-6 text-center text-sm font-bold text-slate-300">
+                        👀 ดูเหตุการณ์สดบนหน้าเวทีและจอใหญ่!
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* PART1_MINIGAME_REVEAL / PART1_GREED_TAX */}
+                {(lms.phase === 'PART1_MINIGAME_REVEAL' || lms.phase === 'PART1_GREED_TAX') && (
+                  <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-slate-900 border-2 border-amber-400/60 p-6 text-center gap-2">
+                    <div className="text-4xl">
+                      {lms.phase === 'PART1_GREED_TAX' ? '💸' : '⚖️'}
+                    </div>
+                    <h3 className="text-xl font-black text-amber-300">
+                      {lms.phase === 'PART1_GREED_TAX'
+                        ? 'Krampus เก็บภาษีคนงก (>1,000 ฿ หัก 50%)!'
+                        : 'เฉลยผลลานประหารบนจอใหญ่แล้ว!'}
+                    </h3>
+                  </div>
+                )}
+
+                {/* PART2: GIANT 3-COLOR BUTTONS + JETPACK */}
+                {(lms.phase === 'PART2_CLUE' ||
+                  lms.phase === 'PART2_QUESTION' ||
+                  lms.phase === 'PART2_REVEAL' ||
+                  lms.phase === 'CHAMPION') && (
+                  <div className="flex-1 flex flex-col justify-between gap-3">
+                    {!myState.isGhost && myState.jetpacks > 0 && lms.phase !== 'CHAMPION' && (
+                      <button
+                        type="button"
+                        onClick={() => lmsUseJetpack(selectedTeamId)}
+                        className="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-400 to-orange-500 text-black font-black text-base border-4 border-black shadow-[4px_4px_0px_#000] active:scale-95"
+                      >
+                        🚀 จุดพลุไอพ่นหนีตาย (+3 ขั้นทันที! เหลือ {myState.jetpacks})
+                      </button>
+                    )}
+
+                    {lms.phase === 'CHAMPION' ? (
+                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-amber-950/60 border-4 border-amber-400 p-6 text-center">
+                        <div className="text-5xl mb-2">🏆</div>
+                        <h3 className="text-2xl font-black text-amber-300">
+                          แชมป์คือ {teams[lms.winnerTeamId || 'team1']?.icon}{' '}
+                          {teams[lms.winnerTeamId || 'team1']?.name}!
+                        </h3>
+                      </div>
+                    ) : mySubmission && lms.phase === 'PART2_QUESTION' ? (
+                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-emerald-950/60 border-2 border-emerald-400 p-6 text-center">
+                        <CheckCircle2 className="w-12 h-12 text-emerald-400 mb-2" />
+                        <div className="text-2xl font-black text-white">
+                          กดสี [{mySubmission.value}] แล้ว!
+                        </div>
+                        <div className="text-xs text-slate-300 mt-1">รอเฉลยบนจอใหญ่...</div>
+                      </div>
+                    ) : (
+                      <div className="flex-1 grid grid-cols-1 gap-3">
+                        {(
+                          [
+                            { key: 'A', label: 'A สีแดง', bg: 'bg-red-600 hover:bg-red-500 text-white' },
+                            { key: 'B', label: 'B สีน้ำเงิน', bg: 'bg-blue-600 hover:bg-blue-500 text-white' },
+                            { key: 'C', label: 'C สีเหลือง', bg: 'bg-yellow-400 hover:bg-yellow-300 text-black' },
+                          ] as const
+                        ).map((btn) => {
+                          const unlocked = lms.phase === 'PART2_QUESTION';
+                          return (
+                            <button
+                              key={btn.key}
+                              type="button"
+                              disabled={!unlocked}
+                              onClick={() => submitTeamAnswer(selectedTeamId, btn.key)}
+                              className={`rounded-3xl border-4 border-black font-black text-3xl flex items-center justify-center shadow-[6px_6px_0px_#000] transition-all ${
+                                unlocked
+                                  ? `${btn.bg} active:scale-95`
+                                  : 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-70'
+                              }`}
+                            >
+                              {unlocked ? btn.label : `🔒 ${btn.label}`}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

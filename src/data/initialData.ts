@@ -2,6 +2,12 @@ import {
   ChronoSubRound,
   EightDoorsSubRound,
   KrampusGameState,
+  LastManCurseId,
+  LastManPart1Question,
+  LastManPart2Question,
+  LastManShopItemId,
+  LastManStandingState,
+  LastManTeamState,
   QuestionPreset,
   RoundConfig,
   Team,
@@ -779,6 +785,308 @@ export function buildToyFactoryPairings(
   }));
 }
 
+export interface BlackMarketItemMeta {
+  id: LastManShopItemId;
+  name: string;
+  icon: string;
+  price: number;
+  maxPerRound: number;
+  maxPerGame?: number;
+  needsTarget?: 'KILLING_FLOOR' | 'RIVAL_LIVING';
+  onlyKillingFloorBuyer?: boolean;
+  description: string;
+}
+
+export const BLACK_MARKET_ITEMS: BlackMarketItemMeta[] = [
+  {
+    id: 'CURSE_BOX',
+    name: 'กล่องคำสาปป่วน',
+    icon: '🎁',
+    price: 100,
+    maxPerRound: 2,
+    needsTarget: 'KILLING_FLOOR',
+    description: 'เลือกทีมบนลานประหาร -> สุ่มแปะ 1 ใน 5 คำสาปหน้างานทันที!',
+  },
+  {
+    id: 'SNIPER_SHOT',
+    name: 'มือปืนยิงตัดขา',
+    icon: '🔫',
+    price: 150,
+    maxPerRound: 2,
+    needsTarget: 'RIVAL_LIVING',
+    description: 'เลือกทีมคู่แข่งที่ยังมีชีวิต -> ยิงหักหัวใจทันที -1 ดวง!',
+  },
+  {
+    id: 'MIRROR_SHIELD',
+    name: 'โล่กระจกสะท้อน',
+    icon: '🪞',
+    price: 150,
+    maxPerRound: 1,
+    description: 'กันมือปืน/คำสาปในรอบนี้ 1 ครั้ง พร้อมสะท้อนกลับใส่คนส่ง! (กันโซ่ตรวนไม่ได้)',
+  },
+  {
+    id: 'HELL_CHAINS',
+    name: 'โซ่ตรวนลากลงนรกยกแก๊ง',
+    icon: '⛓️',
+    price: 200,
+    maxPerRound: 1,
+    maxPerGame: 2,
+    description: 'ลากทุกทีมที่รอดอยู่โซนปลอดภัยลงมาลานประหารพร้อมกันทั้งหมด!',
+  },
+  {
+    id: 'EXECUTIONER_BRIBE',
+    name: 'สินบนเพชฌฆาต',
+    icon: '💰',
+    price: 200,
+    maxPerRound: 1,
+    onlyKillingFloorBuyer: true,
+    description: '(เฉพาะทีมบนลานประหาร) จ่ายเงินหนีกลับขึ้นโซนปลอดภัยทันที!',
+  },
+  {
+    id: 'REVIVE_POTION',
+    name: 'ยาชุบชีวิต',
+    icon: '🧪',
+    price: 250,
+    maxPerRound: 1,
+    description: 'เติมหัวใจให้ทีมตัวเองทันที +1 ดวง (สูงสุด 4 ดวง)',
+  },
+  {
+    id: 'JETPACK',
+    name: 'พลุไอพ่นหนีตาย',
+    icon: '🚀',
+    price: 200,
+    maxPerRound: 2,
+    maxPerGame: 2,
+    description: 'เก็บเข้ากระเป๋าไว้กดใช้ช่วงที่ 2 เพื่อพุ่งข้าม +3 ขั้นทันที!',
+  },
+];
+
+export const CURSE_CATALOG: Record<LastManCurseId, { name: string; icon: string; desc: string }> = {
+  BLIND_GM: {
+    name: 'Sub-GM ตาบอด',
+    icon: '🙈',
+    desc: 'Sub-GM ต้องหันหลังให้จอมือถือและจอใหญ่ ลูกทีมต้องตะโกนอ่านโจทย์และสั่งซ้าย-ขวาให้กดแทน',
+  },
+  MUTE_TEAM: {
+    name: 'ใบ้กินทั้งกลุ่ม',
+    icon: '🤐',
+    desc: 'ห้ามคนในทีมพูดออกเสียงแม้แต่คำเดียวตลอดมินิเกม ใช้ได้แค่ภาษามือ (หลุดพูด -1 ❤️)',
+  },
+  FOREHEAD_PHONE: {
+    name: 'มือถือแปะหน้าผาก',
+    icon: '📱',
+    desc: 'Sub-GM เอามือถือแปะหน้าผากหันจอออกหาลูกทีม ห้ามมองเอง ให้ลูกทีมจับนิ้วจิ้มคำตอบ',
+  },
+  PA_THONG_KO: {
+    name: 'ตัวติดกันเป็นปาท่องโก๋',
+    icon: '🔗',
+    desc: 'สมาชิกทุกคนในทีม (รวม Sub-GM) ต้องคล้องแขนต่อเป็นแถวเดียวกันห้ามหลุดจนจบมินิเกม',
+  },
+  FREEZE_STATUE: {
+    name: 'หุ่นขี้ผึ้งต้องสาป (Freeze!)',
+    icon: '🗿',
+    desc: 'เมื่อ Admin กดเสียงเตือน "KRAMPUS มองอยู่!" ทุกคนต้องหยุดนิ่งเป็นรูปปั้น 3 วิ (ขยับ -1 ❤️)',
+  },
+};
+
+export const DEFAULT_LAST_MAN_PART1_QUESTIONS: LastManPart1Question[] = [
+  {
+    id: 'lms-p1-1',
+    questionText: 'ในตำนานยุโรป Krampus มักออกล่าเด็กดื้อในคืนวันที่เท่าไหร่ของเดือนธันวาคม?',
+    choices: [
+      { key: 'A', label: '5 ธันวาคม (Krampusnacht)' },
+      { key: 'B', label: '24 ธันวาคม (Christmas Eve)' },
+      { key: 'C', label: '31 ธันวาคม (New Year Eve)' },
+      { key: 'D', label: '13 ธันวาคม (St. Lucia Day)' },
+    ],
+    correctKey: 'A',
+  },
+  {
+    id: 'lms-p1-2',
+    questionText: 'กวางเรนเดียร์ของซานตาคลอสตัวไหนที่มีจมูกสีแดงเรืองแสงเป็นผู้นำขบวน?',
+    choices: [
+      { key: 'A', label: 'Dasher (แดชเชอร์)' },
+      { key: 'B', label: 'Rudolph (รูดอล์ฟ)' },
+      { key: 'C', label: 'Blitzen (บลิตเซน)' },
+      { key: 'D', label: 'Comet (โคเมต)' },
+    ],
+    correctKey: 'B',
+  },
+  {
+    id: 'lms-p1-3',
+    questionText: 'สีประจำชุดของซานตาคลอสในยุคดั้งเดิมก่อนโฆษณา Coca-Cola มักเป็นสีอะไร?',
+    choices: [
+      { key: 'A', label: 'สีดำล้วน' },
+      { key: 'B', label: 'สีทองและม่วง' },
+      { key: 'C', label: 'สีเขียวหรือน้ำตาล' },
+      { key: 'D', label: 'สีฟ้าขาว' },
+    ],
+    correctKey: 'C',
+  },
+  {
+    id: 'lms-p1-4',
+    questionText: 'ตามตำนานของ Krampus สิ่งที่มันพกติดตัวไว้ฟาดเด็กดื้อและจับใส่กระสอบคืออะไร?',
+    choices: [
+      { key: 'A', label: 'กิ่งไม้เบิร์ชและโซ่ตรวน' },
+      { key: 'B', label: 'ไม้เท้าแคนดี้เคนยักษ์' },
+      { key: 'C', label: 'ถุงเท้ายาวสีแดง' },
+      { key: 'D', label: 'กระดิ่งทองคำ' },
+    ],
+    correctKey: 'A',
+  },
+];
+
+export const DEFAULT_LAST_MAN_PART2_QUESTIONS: LastManPart2Question[] = [
+  {
+    id: 'lms-p2-1',
+    clueText: 'คำใบ้: สัตว์เลี้ยงลูกด้วยนมขนาดใหญ่ในขั้วโลกเหนือที่มักถูกเข้าใจผิดว่าเป็นญาติกับเพนกวิน',
+    questionText: 'ข้อใดเป็นความจริงเกี่ยวกับ "หมีขั้วโลก (Polar Bear)"?',
+    choices: [
+      { key: 'A', label: 'อาศัยอยู่เฉพาะแถบขั้วโลกเหนือ ไม่เคยเจอกับเพนกวินในธรรมชาติ' },
+      { key: 'B', label: 'ขนของมันมีสีขาวทึบและผิวหนังใต้ขนเป็นสีชมพู' },
+      { key: 'C', label: 'จำศีลหลับยาวตลอดฤดูหนาวทุกตัวทั้งตัวผู้และตัวเมีย' },
+    ],
+    correctKey: 'A',
+    durationSeconds: 60,
+  },
+  {
+    id: 'lms-p2-2',
+    clueText: 'คำใบ้: เพลงคริสต์มาสยอดฮิตที่ชื่อเพลงไม่ได้มีคำว่า Christmas แต่พูดถึงการนั่งรถเลื่อนหิมะ',
+    questionText: 'เพลง "Jingle Bells" เดิมทีถูกแต่งขึ้นเพื่อเทศกาลใดในสหรัฐอเมริกา?',
+    choices: [
+      { key: 'A', label: 'วันฮาโลวีน (Halloween)' },
+      { key: 'B', label: 'วันขอบคุณพระเจ้า (Thanksgiving)' },
+      { key: 'C', label: 'วันวาเลนไทน์ (Valentine Day)' },
+    ],
+    correctKey: 'B',
+    durationSeconds: 60,
+  },
+  {
+    id: 'lms-p2-3',
+    clueText: 'คำใบ้: ประเทศเกาะในมหาสมุทรแปซิฟิกที่มีธรรมเนียมกินไก่ทอด KFC เป็นมื้อหลักวันคริสต์มาส',
+    questionText: 'แคมเปญ "Kurisumasu ni wa Kentakkii!" เกิดขึ้นครั้งแรกที่ประเทศใด?',
+    choices: [
+      { key: 'A', label: 'เกาหลีใต้' },
+      { key: 'B', label: 'ฟิลิปปินส์' },
+      { key: 'C', label: 'ญี่ปุ่น' },
+    ],
+    correctKey: 'C',
+    durationSeconds: 60,
+  },
+  {
+    id: 'lms-p2-4',
+    clueText: 'คำใบ้: ผลไม้สีเขียว-แดงในตำนานคริสต์มาสที่ซ่อนตัวอยู่บนต้นไม้หรือกรอบประตู',
+    questionText: 'ตามธรรมเนียมฝรั่ง หากยืนอยู่ใต้ "Mistletoe (มิสเซิลโท)" ต้องทำอะไร?',
+    choices: [
+      { key: 'A', label: 'จูบกันเพื่อความเป็นสิริมงคล' },
+      { key: 'B', label: 'โยนเหรียญข้ามไหล่ซ้าย' },
+      { key: 'C', label: 'เป่าเทียนให้ดับในครั้งเดียว' },
+    ],
+    correctKey: 'A',
+    durationSeconds: 60,
+  },
+  {
+    id: 'lms-p2-5',
+    clueText: 'คำใบ้: ของหวานรูปทรงไม้เท้าลายขวางแดงขาวที่แจกกันทั่วโลก',
+    questionText: 'Candy Cane (ลูกกวาดไม้เท้า) ถูกดัดให้เป็นรูปตัว J เพื่อสื่อถึงอะไร?',
+    choices: [
+      { key: 'A', label: 'Jingle Bells' },
+      { key: 'B', label: 'Jesus และไม้เท้าคนเลี้ยงแกะ' },
+      { key: 'C', label: 'January เดือนปีใหม่' },
+    ],
+    correctKey: 'B',
+    durationSeconds: 60,
+  },
+  {
+    id: 'lms-p2-6',
+    clueText: 'คำใบ้: ตัวเลขวันในปฏิทินและจำนวนของขวัญในเพลงคริสต์มาสชื่อดัง',
+    questionText: 'ในเพลง "The 12 Days of Christmas" ของขวัญในวันที่ 5 คืออะไร?',
+    choices: [
+      { key: 'A', label: 'Four Calling Birds' },
+      { key: 'B', label: 'Six Geese a-Laying' },
+      { key: 'C', label: 'Five Golden Rings' },
+    ],
+    correctKey: 'C',
+    durationSeconds: 60,
+  },
+  {
+    id: 'lms-p2-7',
+    clueText: 'คำใบ้: ภาพยนตร์คอมเมดี้คริสต์มาสระดับตำนานปี 1990 ที่มีเด็กน้อยวางกับดักโจรในบ้าน',
+    questionText: 'เด็กชายตัวเอกในเรื่อง "Home Alone" มีชื่อจริงว่าอะไร?',
+    choices: [
+      { key: 'A', label: 'Kevin McCallister' },
+      { key: 'B', label: 'Charlie Bucket' },
+      { key: 'C', label: 'Peter Parker' },
+    ],
+    correctKey: 'A',
+    durationSeconds: 60,
+  },
+  {
+    id: 'lms-p2-8',
+    clueText: 'คำใบ้: ของขวัญสุดแสบที่ซานต้ามักใส่ในถุงเท้าของเด็กดื้อแทนของเล่น',
+    questionText: 'เด็กดื้อในตำนานจะได้อะไรในถุงเท้าเช้าวันคริสต์มาส?',
+    choices: [
+      { key: 'A', label: 'ก้อนถ่านหิน (Lump of Coal)' },
+      { key: 'B', label: 'หัวหอมดิบ' },
+      { key: 'C', label: 'ถุงเท้าขาดๆ' },
+    ],
+    correctKey: 'A',
+    durationSeconds: 60,
+  },
+];
+
+export function createDefaultLastManRoundStock(): Record<LastManShopItemId, number> {
+  return {
+    CURSE_BOX: 2,
+    SNIPER_SHOT: 2,
+    MIRROR_SHIELD: 1,
+    HELL_CHAINS: 1,
+    EXECUTIONER_BRIBE: 1,
+    REVIVE_POTION: 1,
+    JETPACK: 2,
+  };
+}
+
+export function createInitialLastManState(teams: Record<TeamId, Team>): LastManStandingState {
+  const teamStates = {} as Record<TeamId, LastManTeamState>;
+  TEAM_ORDER.forEach((tid) => {
+    const cursed = Boolean(teams[tid]?.toyFactoryCurse);
+    const startingHearts = cursed ? 3 : 4;
+    teamStates[tid] = {
+      hearts: startingHearts,
+      isGhost: false,
+      inKillingFloor: false,
+      mirrorShield: false,
+      activeCurse: null,
+      jetpacks: 0,
+      step: 0,
+    };
+  });
+  return {
+    phase: 'KRAMPUS_TWIST',
+    part1Round: 1,
+    part2QuestionIndex: 0,
+    krampusStep: 0,
+    winnerTeamId: null,
+    miseryPullTeamId: null,
+    miseryEndsAt: null,
+    roundStock: createDefaultLastManRoundStock(),
+    gameStock: {
+      HELL_CHAINS: 2,
+      JETPACK: 2,
+    },
+    killFeed: [],
+    poisonedChalices: [],
+    chalicePicks: {},
+    splitStealPicks: {},
+    dareVotes: {},
+    krampusDiceRoll: null,
+    teamDiceRolls: {},
+    greedTaxReport: [],
+    teamStates,
+  };
+}
+
 export const INITIAL_GAME_STATE: KrampusGameState = {
   version: 1,
   serverTimestamp: Date.now(),
@@ -800,4 +1108,6 @@ export const INITIAL_GAME_STATE: KrampusGameState = {
   transactions: [],
   presets: DEFAULT_PRESETS,
   toyFactoryDatasets: DEFAULT_TOY_FACTORY_DATASETS,
+  lastManPart1Questions: DEFAULT_LAST_MAN_PART1_QUESTIONS,
+  lastManPart2Questions: DEFAULT_LAST_MAN_PART2_QUESTIONS,
 };
