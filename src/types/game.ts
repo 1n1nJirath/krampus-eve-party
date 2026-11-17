@@ -348,6 +348,7 @@ export interface KrampusGameState {
   serverTimestamp: number;
   roomCode: string;
   roomLocked?: boolean;
+  clearedStages?: GameStage[];
   soundEnabled: boolean;
   showLeaderboardOverlay: boolean;
   showQrOverlay?: boolean;

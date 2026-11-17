@@ -32,6 +32,11 @@ import {
   scoreChronoTeam,
 } from '../data/initialData';
 import { CountdownTimer } from '../components/CountdownTimer';
+import {
+  SnowPineForestFrame,
+  StageCardIllustration,
+  TeamSouthParkAvatar,
+} from '../components/SouthParkArt';
 import { GameStage, TeamId } from '../types/game';
 
 const STAGE_META: Record<GameStage, { badge: string; name: string; color: string }> = {
@@ -240,8 +245,30 @@ export const ProjectorDisplay: React.FC = () => {
       )}
 
       {/* ============================================================
-          1. TOP HEADER BAR (Projector - Clean View)
+          1. TOP HEADER BAR (Hidden on illustrated LOBBY & WORLD_MAP)
       ============================================================ */}
+      {round.gameStage === 'LOBBY' || round.gameStage === 'WORLD_MAP' ? (
+        <div className="fixed top-3 right-4 z-30 flex items-center gap-2">
+          <button
+            onClick={toggleSound}
+            className="p-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-slate-200 border-2 border-black shadow-[3px_3px_0px_#000] transition"
+            title={state.soundEnabled ? 'ปิดเสียงเอฟเฟกต์' : 'เปิดเสียงเอฟเฟกต์'}
+          >
+            {state.soundEnabled ? (
+              <Volume2 className="w-5 h-5 text-emerald-400" />
+            ) : (
+              <VolumeX className="w-5 h-5 text-red-400" />
+            )}
+          </button>
+          <button
+            onClick={toggleFullscreen}
+            className="p-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-slate-200 border-2 border-black shadow-[3px_3px_0px_#000] transition"
+            title="เต็มจอ (Fullscreen)"
+          >
+            <Maximize2 className="w-5 h-5 text-amber-400" />
+          </button>
+        </div>
+      ) : (
       <header className="relative z-20 flex flex-wrap items-center justify-between gap-4 px-6 py-4 bg-slate-950/85 border-b-2 border-red-900/60 backdrop-blur-md">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-red-700 via-red-900 to-slate-950 border-2 border-amber-400/80 shadow-[0_0_25px_rgba(220,38,38,0.5)] flex items-center justify-center text-3xl">
@@ -306,407 +333,286 @@ export const ProjectorDisplay: React.FC = () => {
           </button>
         </div>
       </header>
+      )}
 
       {/* ============================================================
           2. MAIN STAGE CONTENT
       ============================================================ */}
-      <main className="relative z-10 flex-1 flex flex-col justify-between px-6 lg:px-10 py-4 max-w-[1800px] w-full mx-auto gap-4">
+      <main
+        className={
+          round.gameStage === 'LOBBY' || round.gameStage === 'WORLD_MAP'
+            ? 'relative z-10 flex-1 flex flex-col w-full'
+            : 'relative z-10 flex-1 flex flex-col justify-between px-6 lg:px-10 py-4 max-w-[1800px] w-full mx-auto gap-4'
+        }
+      >
         {/* ==========================================================
-            STAGE 0.1: LOBBY VIEW (2D Paper Cutout South Park Style, 2x2 Team Cards, NO QR Code)
+            STAGE 0.1: LOBBY VIEW (Matches Reference Image 2)
         ========================================================== */}
         {round.gameStage === 'LOBBY' && (
-          <div className="flex-1 flex flex-col justify-between gap-5 py-1">
-            {/* South Park 2D Cutout Title Banner */}
-            <div className="relative rounded-3xl bg-[#b91c1c] border-4 border-black shadow-[10px_10px_0px_#000000] px-6 py-5 text-center overflow-hidden">
-              {/* Construction paper snow & pine tree cutouts */}
-              <div className="pointer-events-none absolute -bottom-3 left-6 text-5xl opacity-90 drop-shadow-[3px_3px_0px_#000] select-none">
-                🎄⛄🎄
-              </div>
-              <div className="pointer-events-none absolute -bottom-3 right-6 text-5xl opacity-90 drop-shadow-[3px_3px_0px_#000] select-none">
-                🎄🐐🎄
-              </div>
-
-              <div className="relative z-10 flex flex-col items-center justify-center">
-                <div className="inline-flex items-center gap-2 px-4 py-1 rounded-xl bg-[#facc15] text-black border-[3px] border-black shadow-[4px_4px_0px_#000] font-black text-xs md:text-sm uppercase tracking-wider -rotate-1 mb-2">
-                  <span>✂️ 2D PAPER CUTOUT SURVIVAL PARTY • คืนคริสต์มาสปีศาจ</span>
-                </div>
-
-                <h2
-                  className="text-2xl md:text-4xl lg:text-5xl font-black text-white tracking-tight leading-tight"
-                  style={{ textShadow: '4px 4px 0px #000000' }}
-                >
-                  THE KRAMPUS EVE - มหากาพย์การเอาชีวิตรอดในคืนคริสต์มาสอีฟ
-                </h2>
-
-                <p className="mt-2 text-base md:text-xl font-extrabold text-[#fef08a] drop-shadow-[2px_2px_0px_#000]">
-                  Sub-GM ประจำกลุ่มลงทะเบียนชื่อทีมผ่านสมาร์ตโฟน • เมื่อครบแล้ว GM ใหญ่จะเปิดประตูสู่คฤหาสน์!
-                </p>
-              </div>
+          <SnowPineForestFrame variant="LOBBY">
+            {/* Title */}
+            <div className="text-center pt-2 pb-1">
+              <h1
+                className="text-5xl md:text-7xl font-black text-[#f59e0b] tracking-wide leading-none"
+                style={{
+                  WebkitTextStroke: '3px #000000',
+                  textShadow: '0 6px 0 #000000',
+                }}
+              >
+                THE KRAMPUS EVE
+              </h1>
+              <h2
+                className="text-2xl md:text-4xl font-black text-white mt-2"
+                style={{
+                  WebkitTextStroke: '1.5px #000000',
+                  textShadow: '3px 3px 0px #000000',
+                }}
+              >
+                มหากาพย์การเอาชีวิตรอดในคืนคริสต์มาสอีฟ
+              </h2>
             </div>
 
-            {/* Center 2x2 Team Cards Grid (South Park 2D Paper Cutout Style) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-6xl w-full mx-auto my-auto flex-1 items-stretch">
-              {TEAM_ORDER.map((tid, idx) => {
+            {/* Center 2x2 Dark Slate Team Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-4xl w-full mx-auto my-auto py-3">
+              {TEAM_ORDER.map((tid) => {
                 const team = teams[tid];
                 const isRegistered = Boolean(team.isRegistered);
-
-                // South Park construction-paper color palettes per slot
-                const paperThemes = [
-                  {
-                    bg: 'bg-[#dc2626]',
-                    hat: '#991b1b',
-                    trim: '#fde047',
-                    coat: '#b91c1c',
-                    tilt: '-rotate-[0.5deg]',
-                  },
-                  {
-                    bg: 'bg-[#15803d]',
-                    hat: '#166534',
-                    trim: '#f97316',
-                    coat: '#14532d',
-                    tilt: 'rotate-[0.5deg]',
-                  },
-                  {
-                    bg: 'bg-[#d97706]',
-                    hat: '#92400e',
-                    trim: '#fef08a',
-                    coat: '#b45309',
-                    tilt: 'rotate-[0.5deg]',
-                  },
-                  {
-                    bg: 'bg-[#0284c7]',
-                    hat: '#075985',
-                    trim: '#f43f5e',
-                    coat: '#0369a1',
-                    tilt: '-rotate-[0.5deg]',
-                  },
-                ];
-                const theme = paperThemes[idx] || paperThemes[0];
 
                 return (
                   <div
                     key={tid}
-                    className={`relative rounded-3xl p-6 border-4 border-black transition-all duration-500 flex flex-col justify-between ${
-                      isRegistered
-                        ? `${theme.bg} ${theme.tilt} shadow-[10px_10px_0px_#000000] scale-[1.01]`
-                        : 'bg-[#1e293b] border-dashed border-slate-950 shadow-[8px_8px_0px_#000000] opacity-90'
-                    }`}
+                    className="rounded-xl bg-[#3b4049]/95 border-[3px] border-[#111827] shadow-[0_8px_0_rgba(0,0,0,0.45)] overflow-hidden flex flex-col"
                   >
-                    {/* Top Slot Sticker Tag + Status Pill */}
-                    <div className="flex items-center justify-between gap-3">
+                    {/* Card Header Bar */}
+                    <div className="bg-[#23272e] px-5 py-2.5 border-b-2 border-black/60 flex items-center justify-between gap-2">
                       <span
-                        className={`px-4 py-1 rounded-xl border-[3px] border-black font-mono font-black text-sm md:text-base shadow-[3px_3px_0px_#000] ${
-                          isRegistered ? 'bg-[#facc15] text-black' : 'bg-slate-800 text-slate-300'
-                        }`}
+                        className="text-lg md:text-2xl font-black text-white truncate"
+                        style={{ textShadow: '2px 2px 0px #000000' }}
                       >
-                        TEAM {team.number} SLOT
+                        TEAM {team.number}: {isRegistered ? `${team.name} ${team.icon}` : '.........................'}
                       </span>
-
-                      {isRegistered ? (
-                        <span className="px-4 py-1.5 rounded-xl bg-[#22c55e] text-black border-[3px] border-black shadow-[4px_4px_0px_#000] font-black text-base md:text-lg flex items-center gap-1.5 animate-bounce">
-                          <CheckCircle2 className="w-5 h-5 stroke-[3]" />
-                          <span>พร้อมลุย!</span>
-                        </span>
-                      ) : (
-                        <span className="px-4 py-1.5 rounded-xl bg-slate-900 text-amber-300 border-[3px] border-black shadow-[3px_3px_0px_#000] font-extrabold text-sm md:text-base flex items-center gap-2">
-                          <Clock className="w-4 h-4 animate-spin text-amber-400" />
-                          <span>รอ Sub-GM...</span>
-                        </span>
-                      )}
                     </div>
 
-                    {/* Center Cutout Character & Team Identity */}
-                    {!isRegistered ? (
-                      <div className="my-auto py-5 flex items-center gap-5 px-3">
-                        {/* Unregistered South Park Cutout Silhouette */}
-                        <div className="w-24 h-24 md:w-28 md:h-28 rounded-2xl bg-slate-900 border-4 border-black shadow-[5px_5px_0px_#000] flex items-center justify-center shrink-0 relative">
-                          <svg viewBox="0 0 100 100" className="w-20 h-20">
-                            {/* Parka Hood Cutout */}
-                            <circle
-                              cx="50"
-                              cy="42"
-                              r="26"
-                              fill="#334155"
-                              stroke="#000"
-                              strokeWidth="4"
-                            />
-                            <circle
-                              cx="50"
-                              cy="42"
-                              r="17"
-                              fill="#0f172a"
-                              stroke="#000"
-                              strokeWidth="3"
-                            />
-                            {/* Quirky tilted cartoon eyes */}
-                            <ellipse
-                              cx="44"
-                              cy="41"
-                              rx="5"
-                              ry="6.5"
-                              fill="#cbd5e1"
-                              stroke="#000"
-                              strokeWidth="2"
-                            />
-                            <ellipse
-                              cx="56"
-                              cy="41"
-                              rx="5"
-                              ry="6.5"
-                              fill="#cbd5e1"
-                              stroke="#000"
-                              strokeWidth="2"
-                            />
-                            <circle cx="45" cy="41" r="2" fill="#000" />
-                            <circle cx="55" cy="41" r="2" fill="#000" />
-                            {/* Body */}
-                            <path
-                              d="M24 88 C24 66, 76 66, 76 88 Z"
-                              fill="#1e293b"
-                              stroke="#000"
-                              strokeWidth="4"
-                            />
-                          </svg>
-                          <span className="absolute -bottom-2 -right-2 px-2 py-0.5 rounded-lg bg-amber-400 text-black font-black text-xs border-2 border-black">
-                            ?
-                          </span>
-                        </div>
-
-                        <div className="min-w-0 flex-1">
+                    {/* Card Body */}
+                    <div className="px-5 py-4 flex-1 flex items-center justify-center min-h-[120px]">
+                      {isRegistered ? (
+                        <div className="flex items-center justify-center gap-5 w-full">
+                          <TeamSouthParkAvatar
+                            slotNumber={team.number}
+                            className="w-24 h-24 shrink-0 drop-shadow-[3px_3px_0px_#000]"
+                          />
                           <div
-                            className="text-2xl md:text-3xl font-black text-slate-200 tracking-wide animate-pulse"
-                            style={{ textShadow: '3px 3px 0px #000000' }}
+                            className="text-4xl md:text-5xl font-black text-[#4ade80]"
+                            style={{
+                              WebkitTextStroke: '2px #000000',
+                              textShadow: '4px 4px 0px #000000',
+                            }}
                           >
-                            กำลังค้นหาทีม...
-                          </div>
-                          <p className="text-sm md:text-base font-bold text-slate-400 mt-1">
-                            รอ Sub-GM ประจำกลุ่มที่ {team.number} ตั้งชื่อทีมและกดยืนยันจากมือถือ
-                          </p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="my-auto py-4 flex items-center gap-5 px-2">
-                        {/* Registered South Park 2D Paper Cutout Avatar + Team Icon */}
-                        <div className="w-24 h-24 md:w-28 md:h-28 rounded-2xl bg-[#fef9c3] border-4 border-black shadow-[6px_6px_0px_#000] flex items-center justify-center shrink-0 relative">
-                          <svg viewBox="0 0 100 100" className="w-22 h-22">
-                            {/* Coat */}
-                            <path
-                              d="M20 92 C20 65, 80 65, 80 92 Z"
-                              fill={theme.coat}
-                              stroke="#000"
-                              strokeWidth="4"
-                            />
-                            {/* Head (construction paper peach) */}
-                            <circle
-                              cx="50"
-                              cy="46"
-                              r="23"
-                              fill="#fde68a"
-                              stroke="#000"
-                              strokeWidth="4"
-                            />
-                            {/* South Park Beanie Hat */}
-                            <path
-                              d="M27 38 C28 16, 72 16, 73 38 Z"
-                              fill={theme.hat}
-                              stroke="#000"
-                              strokeWidth="4"
-                            />
-                            <rect
-                              x="25"
-                              y="33"
-                              width="50"
-                              height="8"
-                              rx="3"
-                              fill={theme.trim}
-                              stroke="#000"
-                              strokeWidth="3.5"
-                            />
-                            <circle
-                              cx="50"
-                              cy="16"
-                              r="6"
-                              fill={theme.trim}
-                              stroke="#000"
-                              strokeWidth="3"
-                            />
-                            {/* Oversized South Park Eyes */}
-                            <ellipse
-                              cx="43"
-                              cy="46"
-                              rx="6"
-                              ry="7.5"
-                              fill="#ffffff"
-                              stroke="#000"
-                              strokeWidth="2.5"
-                            />
-                            <ellipse
-                              cx="57"
-                              cy="46"
-                              rx="6"
-                              ry="7.5"
-                              fill="#ffffff"
-                              stroke="#000"
-                              strokeWidth="2.5"
-                            />
-                            <circle cx="44" cy="46" r="2.3" fill="#000" />
-                            <circle cx="56" cy="46" r="2.3" fill="#000" />
-                            {/* Cheeky Cutout Mouth */}
-                            <path
-                              d="M42 58 L58 57 L54 63 L45 63 Z"
-                              fill="#000"
-                            />
-                          </svg>
-                          {/* Floating Team Emoji Sticker */}
-                          <span className="absolute -bottom-3 -right-3 w-12 h-12 rounded-2xl bg-white border-[3px] border-black shadow-[3px_3px_0px_#000] flex items-center justify-center text-2xl">
-                            {team.icon}
-                          </span>
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <div className="inline-block px-2.5 py-0.5 rounded-lg bg-black/40 border border-black text-amber-200 font-mono text-xs font-extrabold mb-1">
-                            ลงทะเบียนสำเร็จ • Sub-GM Team {team.number}
-                          </div>
-                          <div
-                            className="text-2xl md:text-4xl font-black text-white leading-tight break-words"
-                            style={{ textShadow: '3px 3px 0px #000000' }}
-                          >
-                            {team.name}
-                          </div>
-                          <div className="text-sm md:text-base font-extrabold text-amber-100 mt-1 truncate">
-                            “{team.motto}”
+                            พร้อมลุย!
                           </div>
                         </div>
-                      </div>
-                    )}
-
-                    {/* Bottom Survival Starter Pack Strip */}
-                    <div className="pt-3 border-t-[3px] border-black/60 flex items-center justify-between text-xs md:text-sm font-mono font-extrabold">
-                      <span className="px-3 py-1 rounded-xl bg-black/50 text-amber-300 border-2 border-black">
-                        ทุนเริ่มต้น: {team.coins.toLocaleString()} 🪙
-                      </span>
-                      <span className="px-3 py-1 rounded-xl bg-black/50 text-white border-2 border-black">
-                        เกราะเด็กดี: {'🛡️'.repeat(team.shields)}
-                      </span>
+                      ) : (
+                        <div
+                          className="text-2xl md:text-3xl font-black text-[#facc15] text-center"
+                          style={{
+                            WebkitTextStroke: '1px #000000',
+                            textShadow: '3px 3px 0px #000000',
+                          }}
+                        >
+                          สถานะ: กำลังค้นหาทีม...
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
               })}
             </div>
-          </div>
+
+            {/* Bottom Caption on Snowbank */}
+            <div className="pb-2 pr-56 md:pr-72 text-right">
+              <p className="text-xs md:text-sm font-black text-slate-900">
+                (หาก Sub-GM สแกนเข้ามาเพิ่ม ชื่อทีมจะปรากฏใน Slot แทนจุดไข่ปลา)
+              </p>
+            </div>
+          </SnowPineForestFrame>
         )}
 
         {/* ==========================================================
-            STAGE 0.2: MANSION WORLD MAP VIEW (Locked Room & 4 Haunted Rooms)
+            STAGE 0.2: MANSION WORLD MAP VIEW (Matches Reference Image 1)
         ========================================================== */}
-        {round.gameStage === 'WORLD_MAP' && (
-          <div className="flex-1 flex flex-col justify-between gap-5 py-1">
-            <div className="rounded-3xl bg-gradient-to-r from-[#7f1d1d] via-[#450a0a] to-[#7f1d1d] border-4 border-black shadow-[10px_10px_0px_#000] p-5 text-center">
-              <div className="inline-flex items-center gap-2 px-4 py-1 rounded-xl bg-[#22c55e] text-black border-[3px] border-black shadow-[3px_3px_0px_#000] font-black text-xs md:text-sm uppercase mb-2">
-                <Lock className="w-4 h-4 stroke-[3]" />
-                <span>ROOM LOCKED • ประตูคฤหาสน์ครามปุสปิดตายแล้ว!</span>
-              </div>
-              <h2
-                className="text-3xl md:text-5xl font-black text-white"
-                style={{ textShadow: '4px 4px 0px #000000' }}
-              >
-                🏰 แผนที่คฤหาสน์ครามปุส (MANSION WORLD MAP)
-              </h2>
-              <p className="text-base md:text-xl font-bold text-amber-200 mt-1">
-                ทั้ง 4 ทีมต้องเผชิญหน้ากับ 4 ห้องมรณะ เพื่อรักษาเหรียญศักดิ์สิทธิ์ 🪙 และเกราะเด็กดี 🛡️
-              </p>
-            </div>
+        {round.gameStage === 'WORLD_MAP' && (() => {
+          const clearedList = state.clearedStages || [];
+          const stageOrder: GameStage[] = ['POLL_MINE', 'TIMEJINX', 'QUIXORT', 'TRIVIA_MURDER'];
+          const firstUnclearedStage =
+            stageOrder.find((s) => !clearedList.includes(s)) || 'TRIVIA_MURDER';
 
-            {/* 2x2 Mansion Rooms Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-6xl w-full mx-auto my-auto flex-1">
-              {[
-                {
-                  stage: 'POLL_MINE' as GameStage,
-                  roomNo: 'ROOM 1',
-                  icon: '🚪',
-                  title: 'THE DOORS OF DOOM',
-                  thaiTitle: 'THE DOORS OF DOOM',
-                  desc: 'เปิดประตูโพล 3 ด่านย่อย: Snake Draft 2 บาน, ประมูลแทงข้าง (+700 ฿) และวัดใจขั้วตรงข้าม #1 & #N',
-                  bg: 'bg-[#b45309]',
-                },
-                {
-                  stage: 'TIMEJINX' as GameStage,
-                  roomNo: 'ROOM 2',
-                  icon: '⏳',
-                  title: 'THE CHRONO CRUSH',
-                  thaiTitle: 'กงล้อกาลเวลาของครามปุส',
-                  desc: '3 ด่านย่อยทายปี (ค.ศ./พ.ศ.): หยุดเข็มนาฬิกา, วางกับดักเวลา (Step 5/10 ปี • ฝ่าได้ x2) และสงครามแย่งปี Realtime!',
-                  bg: 'bg-[#047857]',
-                },
-                {
-                  stage: 'QUIXORT' as GameStage,
-                  roomNo: 'ROOM 3',
-                  icon: '⚙️',
-                  title: 'THE TOY FACTORY CHAOS',
-                  thaiTitle: 'สายพานคัดแยกของเล่นผีสิง',
-                  desc: '4 รอบสลับคู่ Sorting vs Data-Holding: ถาม-ตอบหน้าเวที หนีปุ่ม SHUFFLE! ป่วนสายพาน และลุ้นเปิดกล่องความลับ ???',
-                  bg: 'bg-[#6d28d9]',
-                },
-                {
-                  stage: 'TRIVIA_MURDER' as GameStage,
-                  roomNo: 'ROOM 4',
-                  icon: '💀',
-                  title: 'THE LAST MAN STANDING',
-                  thaiTitle: 'ลานประหารคริสต์มาส (ตัดสินแชมป์)',
-                  desc: 'เอาชีวิตรอด 4 รอบ + ตลาดมืดละลายทรัพย์ + มินิเกมลานประหาร แล้ววิ่งขึ้นบันไดหนีตาย 25 ขั้นหนี Krampus เพื่อคว้าแชมป์!',
-                  bg: 'bg-[#be123c]',
-                },
-              ].map((room) => (
-                <button
-                  key={room.stage}
-                  onClick={() => setGameStage(room.stage, true)}
-                  className={`text-left rounded-3xl p-6 ${room.bg} border-4 border-black shadow-[8px_8px_0px_#000] hover:scale-[1.01] transition flex items-start gap-5`}
+          const rooms = [
+            {
+              stage: 'POLL_MINE' as GameStage,
+              no: 'ด่านที่ 1',
+              eng: 'THE 8 DOORS OF DOOM',
+              th: '8 ประตูวัดใจครามปุส',
+            },
+            {
+              stage: 'TIMEJINX' as GameStage,
+              no: 'ด่านที่ 2',
+              eng: 'THE CHRONO CRUSH',
+              th: 'กงล้อกาลเวลาของครามปุส',
+            },
+            {
+              stage: 'QUIXORT' as GameStage,
+              no: 'ด่านที่ 3',
+              eng: 'THE TOY FACTORY CHAOS',
+              th: 'สายพานคัดแยกของเล่นผีสิง',
+            },
+            {
+              stage: 'TRIVIA_MURDER' as GameStage,
+              no: 'ด่านที่ 4',
+              eng: 'THE LAST MAN STANDING',
+              th: 'ลานประหารคริสต์มาส',
+            },
+          ];
+
+          return (
+            <SnowPineForestFrame variant="WORLD_MAP">
+              {/* Top Centered Title */}
+              <div className="text-center pt-1 pb-2">
+                <h1
+                  className="text-5xl md:text-7xl font-black text-[#f59e0b] tracking-wide leading-none"
+                  style={{
+                    WebkitTextStroke: '3px #000000',
+                    textShadow: '0 6px 0 #000000',
+                  }}
                 >
-                  <div className="w-20 h-20 rounded-2xl bg-[#fef08a] border-4 border-black shadow-[4px_4px_0px_#000] flex items-center justify-center text-4xl shrink-0">
-                    {room.icon}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="inline-block px-3 py-0.5 rounded-lg bg-black text-amber-300 font-mono font-black text-xs mb-1">
-                      {room.roomNo} • {room.title}
-                    </div>
-                    <h3
-                      className="text-2xl md:text-3xl font-black text-white"
-                      style={{ textShadow: '3px 3px 0px #000' }}
-                    >
-                      {room.thaiTitle}
-                    </h3>
-                    <p className="text-sm md:text-base font-bold text-amber-100 mt-1 leading-snug">
-                      {room.desc}
-                    </p>
-                  </div>
-                </button>
-              ))}
-            </div>
+                  THE KRAMPUS EVE
+                </h1>
+                <h2
+                  className="text-2xl md:text-4xl font-black text-white mt-1.5"
+                  style={{
+                    WebkitTextStroke: '1.5px #000000',
+                    textShadow: '3px 3px 0px #000000',
+                  }}
+                >
+                  แผนที่ผจญภัยในคฤหาสน์ครามปุส
+                </h2>
+              </div>
 
-            {/* World Map Bottom Team Status Bar: Only Team Name, Icon & Aligned ฿ Balance (No Shields) */}
-            <div className="max-w-6xl w-full mx-auto mt-4 rounded-2xl bg-slate-950/90 border-2 border-amber-500/50 p-3 shadow-xl">
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                {TEAM_ORDER.map((tid) => {
-                  const t = teams[tid];
+              {/* 4 Tall Vertical Stage Cards in 1 Horizontal Row */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 max-w-5xl w-full mx-auto my-auto">
+                {rooms.map((room) => {
+                  const isCleared = clearedList.includes(room.stage);
+                  const isPlaying = !isCleared && room.stage === firstUnclearedStage;
+                  const cardStatus: 'CLEARED' | 'PLAYING' | 'LOCKED' = isCleared
+                    ? 'CLEARED'
+                    : isPlaying
+                    ? 'PLAYING'
+                    : 'LOCKED';
+
                   return (
-                    <div
-                      key={tid}
-                      className="flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80"
+                    <button
+                      key={room.stage}
+                      onClick={() => setGameStage(room.stage, true)}
+                      className={`rounded-2xl p-4 border-4 text-center transition-all hover:scale-[1.03] flex flex-col justify-between min-h-[300px] ${
+                        isCleared
+                          ? 'bg-[#2d6a4f] border-[#1b4332] shadow-[0_8px_0_#081c15]'
+                          : isPlaying
+                          ? 'bg-[#0f172a] border-[#fde047] shadow-[0_0_28px_rgba(250,204,21,0.85)]'
+                          : 'bg-[#2b3036] border-[#181a1d] shadow-[0_8px_0_#000000]'
+                      }`}
                     >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-2xl shrink-0">{t.icon}</span>
-                        <span className="font-extrabold text-sm text-white truncate">{t.name}</span>
+                      {/* Card Header */}
+                      <div>
+                        <div className="text-xl md:text-2xl font-black text-white leading-tight">
+                          {room.no}
+                        </div>
+                        <div className="text-xs font-extrabold text-amber-200 uppercase tracking-tight mt-0.5">
+                          {room.eng}
+                        </div>
+                        <div className="text-xs font-bold text-slate-100 mt-0.5">
+                          {room.th}
+                        </div>
                       </div>
-                      <span className="font-mono font-black text-lg text-amber-300 tabular-nums text-right shrink-0">
-                        {t.coins.toLocaleString()} ฿
-                      </span>
-                    </div>
+
+                      {/* Center Illustration */}
+                      <div className="my-auto py-1">
+                        <StageCardIllustration stage={room.stage} status={cardStatus} />
+                      </div>
+
+                      {/* Card Footer Status */}
+                      <div className="pt-1">
+                        {isCleared ? (
+                          <>
+                            <div
+                              className="text-2xl font-black text-[#4ade80] leading-none"
+                              style={{ textShadow: '2px 2px 0px #000' }}
+                            >
+                              ผ่านแล้ว ✓
+                            </div>
+                            <div className="text-lg font-black text-[#a7f3d0] leading-tight mt-0.5">
+                              (CLEARED)
+                            </div>
+                          </>
+                        ) : isPlaying ? (
+                          <>
+                            <div
+                              className="text-2xl font-black text-[#fde047] leading-none"
+                              style={{ textShadow: '2px 2px 0px #000' }}
+                            >
+                              กำลังเล่น ⚡
+                            </div>
+                            <div className="text-lg font-black text-[#fef08a] leading-tight mt-0.5">
+                              (PLAYING)
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div
+                              className="text-2xl font-black text-slate-300 leading-none"
+                              style={{ textShadow: '2px 2px 0px #000' }}
+                            >
+                              ยังไม่ปลดล็อก
+                            </div>
+                            <div className="text-lg font-black text-slate-400 leading-tight mt-0.5">
+                              (LOCKED)
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </button>
                   );
                 })}
               </div>
-            </div>
-          </div>
-        )}
+
+              {/* Bottom Crisp White 2-Column Scoreboard Table */}
+              <div className="max-w-4xl w-full mx-auto pt-2 pb-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 bg-white border-[3px] border-black shadow-[5px_5px_0px_#000000]">
+                  {TEAM_ORDER.map((tid) => {
+                    const t = teams[tid];
+                    return (
+                      <div
+                        key={tid}
+                        className="flex items-center justify-between border border-black px-3 py-1.5"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <TeamSouthParkAvatar slotNumber={t.number} className="w-10 h-10 shrink-0" />
+                          <span className="font-black text-base md:text-lg text-black truncate">
+                            {t.isRegistered ? t.name : `TEAM ${t.number}`}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 border-l-2 border-black pl-3 shrink-0 font-mono font-black text-lg md:text-xl text-black">
+                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[#facc15] border-2 border-black text-xs font-black">
+                            $
+                          </span>
+                          <span>{t.coins.toLocaleString()} ฿</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </SnowPineForestFrame>
+          );
+        })()}
 
         {/* ==========================================================
             ACTIVE GAME STAGES (POLL_MINE, TIMEJINX, QUIXORT, TRIVIA_MURDER)

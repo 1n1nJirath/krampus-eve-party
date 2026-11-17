@@ -1122,6 +1122,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const finishEightDoorsGame = useCallback(() => {
     commitState((prev) => ({
       ...prev,
+      clearedStages: Array.from(new Set([...(prev.clearedStages || []), 'POLL_MINE' as GameStage])),
       submissions: {},
       buzzerQueue: [],
       round: {
@@ -1290,6 +1291,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const finishChronoGame = useCallback(() => {
     commitState((prev) => ({
       ...prev,
+      clearedStages: Array.from(new Set([...(prev.clearedStages || []), 'TIMEJINX' as GameStage])),
       submissions: {},
       buzzerQueue: [],
       round: {
@@ -1610,6 +1612,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (tf.roundIndex >= tf.pairings.length) {
         return {
           ...prev,
+          clearedStages: Array.from(new Set([...(prev.clearedStages || []), 'QUIXORT' as GameStage])),
           round: {
             ...prev.round,
             gameStage: 'WORLD_MAP',
@@ -1670,6 +1673,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const finishToyFactoryGame = useCallback(() => {
     commitState((prev) => ({
       ...prev,
+      clearedStages: Array.from(new Set([...(prev.clearedStages || []), 'QUIXORT' as GameStage])),
       submissions: {},
       buzzerQueue: [],
       round: {
@@ -3463,6 +3467,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     (toFinale = false) => {
       commitState((prev) => ({
         ...prev,
+        clearedStages: Array.from(new Set([...(prev.clearedStages || []), 'TRIVIA_MURDER' as GameStage])),
         showLeaderboardOverlay: toFinale,
         round: {
           ...prev.round,
