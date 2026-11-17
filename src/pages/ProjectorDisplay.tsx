@@ -16,6 +16,7 @@ import {
   Swords,
   Shield,
   Gavel,
+  BookOpen,
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import {
@@ -37,6 +38,7 @@ import {
   StageCardIllustration,
   TeamSouthParkAvatar,
 } from '../components/SouthParkArt';
+import { PhaseBriefingModal, getPhaseBriefingKey } from '../components/PhaseBriefingModal';
 import { GameStage, TeamId } from '../types/game';
 
 const STAGE_META: Record<GameStage, { badge: string; name: string; color: string }> = {
@@ -87,6 +89,28 @@ export const ProjectorDisplay: React.FC = () => {
     showLeaderboardOverlay,
     krampusAlertMessage,
   } = state;
+
+  // Phase Rules & Demo Briefing Screen state (auto-shows on entering each phase)
+  const activePhaseKey = getPhaseBriefingKey(round);
+  const [dismissedPhases, setDismissedPhases] = useState<Record<string, boolean>>({});
+  const [forceBriefing, setForceBriefing] = useState(false);
+
+  useEffect(() => {
+    setForceBriefing(false);
+  }, [activePhaseKey]);
+
+  const showPhaseBriefing = Boolean(
+    activePhaseKey && (forceBriefing || !dismissedPhases[activePhaseKey])
+  );
+
+  const activeStageArt =
+    round.gameStage === 'POLL_MINE'
+      ? '/art/manor-interior.png'
+      : round.gameStage === 'TIMEJINX'
+      ? '/art/winter-forest.png'
+      : round.gameStage === 'QUIXORT'
+      ? '/art/manor-snowy.png'
+      : '/art/manor-exterior.png';
 
   // Sorted leaderboard (Rank 1 to 4 by Holy Coins, tie-break by Nice Shields)
   const sortedTeams = useMemo(() => {
@@ -218,18 +242,34 @@ export const ProjectorDisplay: React.FC = () => {
   const subRound = round.eightDoorsSubRound || 'SUB1_SURVIVAL';
 
   return (
-    <div className="min-h-screen flex flex-col justify-between bg-[#070a12] text-slate-100 relative overflow-hidden select-none">
-      {/* Atmospheric Dark Christmas Background Effects */}
-      <div
-        className={`pointer-events-none fixed inset-0 bg-gradient-to-br ${stageInfo.color} opacity-50 transition-colors duration-700`}
-      />
-      <div
-        className="pointer-events-none fixed inset-0 opacity-20"
-        style={{
-          backgroundImage:
-            'radial-gradient(circle at 20% 20%, rgba(220, 38, 38, 0.35), transparent 45%), radial-gradient(circle at 80% 15%, rgba(234, 179, 8, 0.25), transparent 40%), radial-gradient(circle at 50% 85%, rgba(21, 128, 61, 0.3), transparent 50%)',
-        }}
-      />
+    <div className="min-h-screen flex flex-col justify-between bg-[#1e1828] text-[#EFE2D2] relative overflow-hidden select-none">
+      {/* The Christmas Manor Concept Art Backdrop for Active Game Stages */}
+      {round.gameStage !== 'LOBBY' && round.gameStage !== 'WORLD_MAP' && (
+        <>
+          <div
+            className="pointer-events-none fixed inset-0 bg-cover bg-center scale-[1.01] transition-all duration-700"
+            style={{ backgroundImage: `url('${activeStageArt}')` }}
+          />
+          <div
+            className="pointer-events-none fixed inset-0"
+            style={{
+              background:
+                'linear-gradient(180deg, rgba(35,28,46,0.82) 0%, rgba(28,22,38,0.72) 50%, rgba(25,19,34,0.88) 100%)',
+            }}
+          />
+        </>
+      )}
+
+      {/* Phase Rules & Demo Briefing Modal */}
+      {showPhaseBriefing && activePhaseKey && (
+        <PhaseBriefingModal
+          phaseKey={activePhaseKey}
+          onStartGame={() => {
+            setDismissedPhases((prev) => ({ ...prev, [activePhaseKey]: true }));
+            setForceBriefing(false);
+          }}
+        />
+      )}
 
       {/* Krampus Emergency / Curse Alert Banner */}
       {krampusAlertMessage && (
@@ -269,18 +309,18 @@ export const ProjectorDisplay: React.FC = () => {
           </button>
         </div>
       ) : (
-      <header className="relative z-20 flex flex-wrap items-center justify-between gap-4 px-6 py-4 bg-slate-950/85 border-b-2 border-red-900/60 backdrop-blur-md">
+      <header className="relative z-20 flex flex-wrap items-center justify-between gap-4 px-6 py-3.5 bg-[#352D45]/92 border-b-[3px] border-[#D8C6B5]/40 backdrop-blur-md shadow-lg">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-red-700 via-red-900 to-slate-950 border-2 border-amber-400/80 shadow-[0_0_25px_rgba(220,38,38,0.5)] flex items-center justify-center text-3xl">
-            👹
+          <div className="w-14 h-14 rounded-2xl bg-[#EFE2D2] border-[3px] border-[#352D45] shadow-[0_4px_0_#1e1828] flex items-center justify-center p-1 overflow-hidden">
+            <img src="/art/char-4.png" alt="Host" className="w-full h-full object-contain" />
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="px-3 py-0.5 rounded-full bg-red-900/90 border border-amber-500/50 text-amber-300 font-mono text-xs md:text-sm font-extrabold tracking-widest uppercase">
+              <span className="px-3 py-0.5 rounded-full bg-[#B94B50] border border-[#EFE2D2]/50 text-[#EFE2D2] font-manor-display text-xs md:text-sm font-bold tracking-wider uppercase">
                 {stageInfo.badge}
               </span>
               {isEightDoorsGame ? (
-                <span className="px-3 py-0.5 rounded-full bg-amber-500/20 border border-amber-400 text-amber-200 font-mono text-xs md:text-sm font-extrabold">
+                <span className="px-3 py-0.5 rounded-full bg-[#E5B86C]/20 border border-[#E5B86C] text-[#E5B86C] font-manor-display text-xs md:text-sm font-bold">
                   {subRound === 'SUB1_SURVIVAL' && 'ด่านย่อยที่ 1 • ค้นหาอันดับ 1-3'}
                   {subRound === 'SUB2_AUCTION' &&
                     `ด่านย่อยที่ 2.${round.auctionIteration || 1} • ประมูลชิงสิทธิ์`}
@@ -289,7 +329,7 @@ export const ProjectorDisplay: React.FC = () => {
                   {subRound === 'SUB3_POLARITY' && 'ด่านย่อยที่ 3 • วัดใจขั้วตรงข้าม (#1 & #8)'}
                 </span>
               ) : (
-                <span className="px-2.5 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-slate-200 font-mono text-xs md:text-sm font-bold">
+                <span className="px-2.5 py-0.5 rounded-full bg-[#241e30] border border-[#D8C6B5]/30 text-[#D8C6B5] font-mono text-xs md:text-sm font-bold">
                   {round.inputMode === 'MODE_A_CHOICE' && `Mode A • ${round.choiceCount} Choices`}
                   {round.inputMode === 'MODE_B_YEAR' && 'Mode B • Timejinx Year'}
                   {round.inputMode === 'MODE_C_BUZZER' && 'Mode C • Speed Buzzer'}
@@ -297,7 +337,7 @@ export const ProjectorDisplay: React.FC = () => {
                 </span>
               )}
             </div>
-            <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight mt-0.5">
+            <h1 className="font-manor-display text-2xl md:text-3xl font-bold text-[#EFE2D2] tracking-tight mt-0.5">
               {round.title || stageInfo.name}
             </h1>
           </div>
@@ -310,11 +350,21 @@ export const ProjectorDisplay: React.FC = () => {
           </div>
         )}
 
-        {/* Minimalist Projector Controls (Leaderboard & QR moved to /admin) */}
+        {/* Minimalist Projector Controls (Rules & Demo + Sound + Fullscreen) */}
         <div className="flex items-center gap-2.5">
+          {activePhaseKey && (
+            <button
+              onClick={() => setForceBriefing(true)}
+              className="px-3.5 py-2 rounded-xl bg-[#E5B86C] hover:bg-[#f0c77e] text-[#352D45] border-2 border-[#352D45] shadow-[0_3px_0_#1e1828] font-manor-display font-bold text-xs md:text-sm flex items-center gap-1.5 transition"
+              title="เปิดหน้าอธิบายกติกาและตัวอย่าง Demo ของเฟสนี้"
+            >
+              <BookOpen className="w-4 h-4" />
+              <span>กติกา & Demo</span>
+            </button>
+          )}
           <button
             onClick={toggleSound}
-            className="p-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-700 transition"
+            className="p-2.5 rounded-xl bg-[#241e30] hover:bg-[#443a59] text-[#EFE2D2] border border-[#D8C6B5]/30 transition"
             title={state.soundEnabled ? 'ปิดเสียงเอฟเฟกต์' : 'เปิดเสียงเอฟเฟกต์'}
           >
             {state.soundEnabled ? (
@@ -326,10 +376,10 @@ export const ProjectorDisplay: React.FC = () => {
 
           <button
             onClick={toggleFullscreen}
-            className="p-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-700 transition"
+            className="p-2.5 rounded-xl bg-[#241e30] hover:bg-[#443a59] text-[#EFE2D2] border border-[#D8C6B5]/30 transition"
             title="เต็มจอ (Fullscreen)"
           >
-            <Maximize2 className="w-5 h-5 text-amber-400" />
+            <Maximize2 className="w-5 h-5 text-[#E5B86C]" />
           </button>
         </div>
       </header>
@@ -619,13 +669,13 @@ export const ProjectorDisplay: React.FC = () => {
         ========================================================== */}
         {round.gameStage !== 'LOBBY' && round.gameStage !== 'WORLD_MAP' && (
           <>
-        {/* Question Banner (High Contrast & Large Subtitle for Projector Readability) */}
-        <div className="relative rounded-3xl bg-gradient-to-b from-slate-900/95 to-slate-950/95 border-2 border-amber-500/50 shadow-[0_10px_40px_rgba(0,0,0,0.7)] p-5 md:p-6 text-center">
-          <div className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-red-950/95 border border-amber-400/60 text-amber-200 text-base md:text-xl font-extrabold mb-2 shadow">
-            <Sparkles className="w-5 h-5 text-amber-300 shrink-0" />
+        {/* Question Banner (The Christmas Manor Paper-Cut Contrast for Projector Readability) */}
+        <div className="relative rounded-3xl bg-[#352D45]/95 border-[3px] border-[#D8C6B5] shadow-[0_7px_0_#1e1828,0_14px_35px_rgba(0,0,0,0.75)] p-5 md:p-6 text-center">
+          <div className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-[#B94B50] border-2 border-[#EFE2D2]/80 text-[#EFE2D2] font-manor-display text-base md:text-xl font-bold mb-2 shadow">
+            <Sparkles className="w-5 h-5 text-[#E5B86C] shrink-0" />
             <span>{round.subtitle}</span>
           </div>
-          <h2 className="text-2xl md:text-4xl lg:text-5xl font-extrabold text-white leading-tight tracking-tight">
+          <h2 className="font-manor-display text-2xl md:text-4xl lg:text-5xl font-bold text-[#EFE2D2] leading-tight tracking-tight drop-shadow-[0_3px_0_#1e1828]">
             {round.questionText}
           </h2>
         </div>
@@ -2565,14 +2615,14 @@ export const ProjectorDisplay: React.FC = () => {
           3. PERSISTENT REALTIME LEADERBOARD & ECONOMY FOOTER (Hidden on LOBBY & WORLD_MAP)
       ============================================================ */}
       {round.gameStage !== 'LOBBY' && round.gameStage !== 'WORLD_MAP' && (
-      <footer className="relative z-20 bg-slate-950/95 border-t-2 border-amber-500/40 px-6 py-3.5 backdrop-blur-md">
+      <footer className="relative z-20 bg-[#352D45]/95 border-t-[3px] border-[#D8C6B5]/50 px-6 py-3 backdrop-blur-md">
         <div className="max-w-[1800px] mx-auto flex flex-col xl:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3 shrink-0">
-            <div className="p-2 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300">
+            <div className="p-2 rounded-xl bg-[#E5B86C]/20 border border-[#E5B86C]/60 text-[#E5B86C]">
               <Coins className="w-6 h-6" />
             </div>
             <div>
-              <div className="text-xs font-mono uppercase tracking-wider text-amber-400 font-bold">
+              <div className="font-manor-display text-xs uppercase tracking-wider text-[#E5B86C] font-bold">
                 HOLY COINS & NICE SHIELDS • อันดับความมั่งคั่ง & เกราะเด็กดี
               </div>
               {latestTx ? (
@@ -2626,7 +2676,7 @@ export const ProjectorDisplay: React.FC = () => {
                     >
                       #{rank}
                     </span>
-                    <span className="text-xl shrink-0">{team.icon}</span>
+                    <TeamSouthParkAvatar slotNumber={team.number} className="w-9 h-9 shrink-0" />
                     <div className="truncate">
                       <div className="font-extrabold text-sm text-white truncate">{team.name}</div>
                       <div className="flex items-center gap-1.5">
