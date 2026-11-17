@@ -215,6 +215,27 @@ export const StageCardIllustration: React.FC<{
   stage: GameStage;
   status: 'CLEARED' | 'PLAYING' | 'LOCKED';
 }> = ({ stage, status }) => {
+  // Any stage that is LOCKED displays the secure window with padlock
+  if (status === 'LOCKED') {
+    return (
+      <svg viewBox="0 0 130 120" className="w-32 h-28 mx-auto my-2">
+        {/* Dark Window Frame behind */}
+        <rect x="15" y="18" width="100" height="72" rx="4" fill="#0f293a" stroke="#000" strokeWidth="3" />
+        <line x1="65" y1="18" x2="65" y2="90" stroke="#000" strokeWidth="3" />
+        <line x1="15" y1="54" x2="115" y2="54" stroke="#000" strokeWidth="3" />
+
+        <g>
+          <path d="M46 50 L46 34 C46 18, 84 18, 84 34 L84 50" fill="none" stroke="#94a3b8" strokeWidth="10" strokeLinecap="round" />
+          <path d="M46 50 L46 34 C46 18, 84 18, 84 34 L84 50" fill="none" stroke="#000" strokeWidth="2" strokeLinecap="round" />
+          <rect x="38" y="48" width="54" height="50" rx="6" fill="#94a3b8" stroke="#000" strokeWidth="3.5" />
+          <circle cx="65" cy="68" r="6" fill="#0f172a" />
+          <polygon points="62,70 68,70 70,84 60,84" fill="#0f172a" />
+        </g>
+      </svg>
+    );
+  }
+
+  // Active or Cleared Stage Illustrations
   if (stage === 'POLL_MINE') {
     // 8 Wooden Doors (2x4)
     return (
@@ -256,27 +277,31 @@ export const StageCardIllustration: React.FC<{
     );
   }
 
-  // Stage 3 or 4: Window + Padlock when locked, or iconic badge when playing/cleared
+  if (stage === 'QUIXORT') {
+    // Conveyor Belt & Mystery Gift
+    return (
+      <svg viewBox="0 0 130 120" className="w-32 h-28 mx-auto my-2">
+        {/* Machine / Conveyor Belt */}
+        <rect x="18" y="70" width="94" height="22" rx="6" fill="#334155" stroke="#000" strokeWidth="3" />
+        <circle cx="32" cy="81" r="6" fill="#94a3b8" stroke="#000" strokeWidth="2" />
+        <circle cx="65" cy="81" r="6" fill="#94a3b8" stroke="#000" strokeWidth="2" />
+        <circle cx="98" cy="81" r="6" fill="#94a3b8" stroke="#000" strokeWidth="2" />
+        {/* Gift Boxes */}
+        <rect x="25" y="38" width="26" height="26" rx="3" fill="#dc2626" stroke="#000" strokeWidth="2.5" />
+        <rect x="35" y="38" width="6" height="26" fill="#facc15" />
+        {/* Mystery Box in center */}
+        <rect x="58" y="28" width="36" height="36" rx="4" fill="#7c3aed" stroke="#000" strokeWidth="3" />
+        <text x="76" y="54" textAnchor="middle" fontSize="22" fontWeight="bold" fill="#fde047">?</text>
+      </svg>
+    );
+  }
+
+  // TRIVIA_MURDER
   return (
     <svg viewBox="0 0 130 120" className="w-32 h-28 mx-auto my-2">
-      {/* Dark Window Frame behind */}
-      <rect x="15" y="18" width="100" height="72" rx="4" fill="#0f293a" stroke="#000" strokeWidth="3" />
-      <line x1="65" y1="18" x2="65" y2="90" stroke="#000" strokeWidth="3" />
-      <line x1="15" y1="54" x2="115" y2="54" stroke="#000" strokeWidth="3" />
-
-      {status === 'LOCKED' ? (
-        <g>
-          <path d="M46 50 L46 34 C46 18, 84 18, 84 34 L84 50" fill="none" stroke="#94a3b8" strokeWidth="10" strokeLinecap="round" />
-          <path d="M46 50 L46 34 C46 18, 84 18, 84 34 L84 50" fill="none" stroke="#000" strokeWidth="2" strokeLinecap="round" />
-          <rect x="38" y="48" width="54" height="50" rx="6" fill="#94a3b8" stroke="#000" strokeWidth="3.5" />
-          <circle cx="65" cy="68" r="6" fill="#0f172a" />
-          <polygon points="62,70 68,70 70,84 60,84" fill="#0f172a" />
-        </g>
-      ) : (
-        <text x="65" y="70" textAnchor="middle" fontSize="42">
-          {stage === 'QUIXORT' ? '⚙️' : '💀'}
-        </text>
-      )}
+      <rect x="20" y="20" width="90" height="80" rx="6" fill="#1e1b2e" stroke="#000" strokeWidth="3" />
+      <path d="M40 30 L90 30 L65 55 Z" fill="#94a3b8" stroke="#000" strokeWidth="2.5" />
+      <text x="65" y="86" textAnchor="middle" fontSize="32">💀</text>
     </svg>
   );
 };
