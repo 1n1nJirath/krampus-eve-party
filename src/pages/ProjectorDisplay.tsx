@@ -346,33 +346,36 @@ export const ProjectorDisplay: React.FC = () => {
         }
       >
         {/* ==========================================================
-            STAGE 0.1: LOBBY VIEW (Matches Reference Image 2)
+            STAGE 0.1: LOBBY VIEW (The Christmas Manor UI Kit)
         ========================================================== */}
         {round.gameStage === 'LOBBY' && (
           <SnowPineForestFrame variant="LOBBY">
             {/* Title */}
-            <div className="text-center pt-2 pb-1">
+            <div className="text-center pt-1 pb-2">
+              <div className="inline-block px-5 py-1 rounded-full bg-[#352D45] border-2 border-[#D8C6B5] text-[#E5B86C] font-manor-display text-xs md:text-sm tracking-[0.2em] uppercase mb-2 shadow-[0_3px_0_#1e1928]">
+                The Christmas Manor • Live Party Survival
+              </div>
               <h1
-                className="text-5xl md:text-7xl font-black text-[#f59e0b] tracking-wide leading-none"
+                className="font-manor-display text-5xl md:text-7xl font-bold text-[#EFE2D2] tracking-wide leading-none"
                 style={{
-                  WebkitTextStroke: '3px #000000',
-                  textShadow: '0 6px 0 #000000',
+                  WebkitTextStroke: '3px #352D45',
+                  textShadow: '0 6px 0 #352D45, 0 10px 24px rgba(0,0,0,0.6)',
                 }}
               >
                 THE KRAMPUS EVE
               </h1>
               <h2
-                className="text-2xl md:text-4xl font-black text-white mt-2"
+                className="font-manor-display text-2xl md:text-3xl font-bold text-[#E5B86C] mt-2"
                 style={{
-                  WebkitTextStroke: '1.5px #000000',
-                  textShadow: '3px 3px 0px #000000',
+                  WebkitTextStroke: '1px #352D45',
+                  textShadow: '0 3px 0 #352D45',
                 }}
               >
-                มหากาพย์การเอาชีวิตรอดในคืนคริสต์มาสอีฟ
+                มหากาพย์การเอาชีวิตรอดในคฤหาสน์คริสต์มาส
               </h2>
             </div>
 
-            {/* Center 2x2 Dark Slate Team Cards */}
+            {/* Center 2x2 Aged Cream Paper-Cut Team Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-4xl w-full mx-auto my-auto py-3">
               {TEAM_ORDER.map((tid) => {
                 const team = teams[tid];
@@ -381,45 +384,56 @@ export const ProjectorDisplay: React.FC = () => {
                 return (
                   <div
                     key={tid}
-                    className="rounded-xl bg-[#3b4049]/95 border-[3px] border-[#111827] shadow-[0_8px_0_rgba(0,0,0,0.45)] overflow-hidden flex flex-col"
+                    className={`rounded-2xl border-[3px] border-[#352D45] shadow-[0_7px_0_#352D45] overflow-hidden flex flex-col transition-all ${
+                      isRegistered ? 'bg-[#EFE2D2]' : 'bg-[#D8C6B5]/95'
+                    }`}
                   >
-                    {/* Card Header Bar */}
-                    <div className="bg-[#23272e] px-5 py-2.5 border-b-2 border-black/60 flex items-center justify-between gap-2">
+                    {/* Card Header Ribbon */}
+                    <div
+                      className={`px-5 py-2.5 border-b-[3px] border-[#352D45] flex items-center justify-between gap-2 ${
+                        isRegistered ? 'bg-[#B94B50]' : 'bg-[#352D45]'
+                      }`}
+                    >
+                      <span className="font-manor-display text-lg md:text-xl font-bold text-[#EFE2D2] truncate">
+                        TEAM {team.number}: {isRegistered ? `${team.name} ${team.icon}` : 'กำลังรอลงทะเบียน...'}
+                      </span>
                       <span
-                        className="text-lg md:text-2xl font-black text-white truncate"
-                        style={{ textShadow: '2px 2px 0px #000000' }}
+                        className={`px-2.5 py-0.5 rounded-full text-xs font-extrabold border-2 border-[#352D45] shrink-0 ${
+                          isRegistered
+                            ? 'bg-[#536B59] text-[#EFE2D2]'
+                            : 'bg-[#77718B] text-[#EFE2D2]'
+                        }`}
                       >
-                        TEAM {team.number}: {isRegistered ? `${team.name} ${team.icon}` : '.........................'}
+                        {isRegistered ? 'READY' : 'WAITING'}
                       </span>
                     </div>
 
                     {/* Card Body */}
-                    <div className="px-5 py-4 flex-1 flex items-center justify-center min-h-[120px]">
+                    <div className="px-5 py-4 flex-1 flex items-center justify-center min-h-[126px]">
                       {isRegistered ? (
-                        <div className="flex items-center justify-center gap-5 w-full">
+                        <div className="flex items-center justify-center gap-6 w-full">
                           <TeamSouthParkAvatar
                             slotNumber={team.number}
-                            className="w-24 h-24 shrink-0 drop-shadow-[3px_3px_0px_#000]"
+                            className="w-24 h-24 shrink-0"
                           />
-                          <div
-                            className="text-4xl md:text-5xl font-black text-[#4ade80]"
-                            style={{
-                              WebkitTextStroke: '2px #000000',
-                              textShadow: '4px 4px 0px #000000',
-                            }}
-                          >
-                            พร้อมลุย!
+                          <div className="flex flex-col items-start gap-1">
+                            <span className="inline-block px-4 py-1.5 rounded-xl bg-[#536B59] border-[2.5px] border-[#352D45] shadow-[0_4px_0_#352D45] font-manor-display text-2xl md:text-3xl font-bold text-[#EFE2D2]">
+                              พร้อมลุย!
+                            </span>
+                            <span className="font-manor-score text-sm font-bold text-[#352D45]/80">
+                              🪙 {team.coins.toLocaleString()} ฿ • 🛡️ {team.shields} เกราะ
+                            </span>
                           </div>
                         </div>
                       ) : (
-                        <div
-                          className="text-2xl md:text-3xl font-black text-[#facc15] text-center"
-                          style={{
-                            WebkitTextStroke: '1px #000000',
-                            textShadow: '3px 3px 0px #000000',
-                          }}
-                        >
-                          สถานะ: กำลังค้นหาทีม...
+                        <div className="flex items-center justify-center gap-4 opacity-75">
+                          <TeamSouthParkAvatar
+                            slotNumber={team.number}
+                            className="w-16 h-16 grayscale opacity-70"
+                          />
+                          <div className="font-manor-display text-xl md:text-2xl font-bold text-[#352D45]">
+                            สถานะ: กำลังค้นหาทีม...
+                          </div>
                         </div>
                       )}
                     </div>
@@ -428,17 +442,17 @@ export const ProjectorDisplay: React.FC = () => {
               })}
             </div>
 
-            {/* Bottom Caption on Snowbank */}
-            <div className="pb-2 pr-56 md:pr-72 text-right">
-              <p className="text-xs md:text-sm font-black text-slate-900">
-                (หาก Sub-GM สแกนเข้ามาเพิ่ม ชื่อทีมจะปรากฏใน Slot แทนจุดไข่ปลา)
-              </p>
+            {/* Bottom Paper Note */}
+            <div className="pb-1 text-center">
+              <span className="inline-block px-4 py-1.5 rounded-xl bg-[#EFE2D2]/95 border-2 border-[#352D45] shadow-[0_3px_0_#352D45] text-xs md:text-sm font-bold text-[#352D45]">
+                (หาก Sub-GM สแกนเข้ามาเพิ่ม ชื่อทีมจะปรากฏใน Slot แทนสถานะรออัตโนมัติ)
+              </span>
             </div>
           </SnowPineForestFrame>
         )}
 
         {/* ==========================================================
-            STAGE 0.2: MANSION WORLD MAP VIEW (Matches Reference Image 1)
+            STAGE 0.2: MANSION WORLD MAP VIEW (The Christmas Manor UI Kit)
         ========================================================== */}
         {round.gameStage === 'WORLD_MAP' && (() => {
           const clearedList = state.clearedStages || [];
@@ -478,23 +492,19 @@ export const ProjectorDisplay: React.FC = () => {
               {/* Top Centered Title */}
               <div className="text-center pt-1 pb-2">
                 <h1
-                  className="text-5xl md:text-7xl font-black text-[#f59e0b] tracking-wide leading-none"
+                  className="font-manor-display text-5xl md:text-6xl font-bold text-[#EFE2D2] tracking-wide leading-none"
                   style={{
-                    WebkitTextStroke: '3px #000000',
-                    textShadow: '0 6px 0 #000000',
+                    WebkitTextStroke: '3px #352D45',
+                    textShadow: '0 6px 0 #352D45',
                   }}
                 >
                   THE KRAMPUS EVE
                 </h1>
-                <h2
-                  className="text-2xl md:text-4xl font-black text-white mt-1.5"
-                  style={{
-                    WebkitTextStroke: '1.5px #000000',
-                    textShadow: '3px 3px 0px #000000',
-                  }}
-                >
-                  แผนที่ผจญภัยในคฤหาสน์ครามปุส
-                </h2>
+                <div className="inline-block mt-2 px-5 py-1 rounded-xl bg-[#352D45] border-2 border-[#D8C6B5] shadow-[0_4px_0_#1e1928]">
+                  <h2 className="font-manor-display text-xl md:text-2xl font-bold text-[#E5B86C]">
+                    แผนที่ผจญภัยในคฤหาสน์ครามปุส
+                  </h2>
+                </div>
               </div>
 
               {/* 4 Tall Vertical Stage Cards in 1 Horizontal Row */}
@@ -512,23 +522,37 @@ export const ProjectorDisplay: React.FC = () => {
                     <button
                       key={room.stage}
                       onClick={() => setGameStage(room.stage, true)}
-                      className={`rounded-2xl p-4 border-4 text-center transition-all hover:scale-[1.03] flex flex-col justify-between min-h-[300px] ${
+                      className={`rounded-2xl p-4 border-[3px] border-[#352D45] text-center transition-all hover:scale-[1.03] flex flex-col justify-between min-h-[295px] ${
                         isCleared
-                          ? 'bg-[#2d6a4f] border-[#1b4332] shadow-[0_8px_0_#081c15]'
+                          ? 'bg-[#536B59] shadow-[0_7px_0_#352D45]'
                           : isPlaying
-                          ? 'bg-[#0f172a] border-[#fde047] shadow-[0_0_28px_rgba(250,204,21,0.85)]'
-                          : 'bg-[#2b3036] border-[#181a1d] shadow-[0_8px_0_#000000]'
+                          ? 'bg-[#EFE2D2] shadow-[0_0_28px_rgba(229,184,108,0.85),0_7px_0_#352D45]'
+                          : 'bg-[#77718B]/95 shadow-[0_7px_0_#352D45]'
                       }`}
                     >
                       {/* Card Header */}
                       <div>
-                        <div className="text-xl md:text-2xl font-black text-white leading-tight">
+                        <div
+                          className={`inline-block px-3 py-0.5 rounded-lg text-sm font-manor-display font-bold border-2 border-[#352D45] mb-1 ${
+                            isPlaying
+                              ? 'bg-[#B94B50] text-[#EFE2D2]'
+                              : 'bg-[#352D45] text-[#E5B86C]'
+                          }`}
+                        >
                           {room.no}
                         </div>
-                        <div className="text-xs font-extrabold text-amber-200 uppercase tracking-tight mt-0.5">
+                        <div
+                          className={`font-manor-display text-sm font-bold uppercase tracking-tight mt-0.5 ${
+                            isPlaying ? 'text-[#B94B50]' : 'text-[#E5B86C]'
+                          }`}
+                        >
                           {room.eng}
                         </div>
-                        <div className="text-xs font-bold text-slate-100 mt-0.5">
+                        <div
+                          className={`text-xs font-bold mt-0.5 ${
+                            isPlaying ? 'text-[#352D45]' : 'text-[#EFE2D2]'
+                          }`}
+                        >
                           {room.th}
                         </div>
                       </div>
@@ -541,41 +565,17 @@ export const ProjectorDisplay: React.FC = () => {
                       {/* Card Footer Status */}
                       <div className="pt-1">
                         {isCleared ? (
-                          <>
-                            <div
-                              className="text-2xl font-black text-[#4ade80] leading-none"
-                              style={{ textShadow: '2px 2px 0px #000' }}
-                            >
-                              ผ่านแล้ว ✓
-                            </div>
-                            <div className="text-lg font-black text-[#a7f3d0] leading-tight mt-0.5">
-                              (CLEARED)
-                            </div>
-                          </>
+                          <div className="px-3 py-1.5 rounded-xl bg-[#352D45] border-2 border-[#D8C6B5] font-manor-display text-base font-bold text-[#E5B86C]">
+                            ผ่านแล้ว ✓ (CLEARED)
+                          </div>
                         ) : isPlaying ? (
-                          <>
-                            <div
-                              className="text-2xl font-black text-[#fde047] leading-none"
-                              style={{ textShadow: '2px 2px 0px #000' }}
-                            >
-                              กำลังเล่น ⚡
-                            </div>
-                            <div className="text-lg font-black text-[#fef08a] leading-tight mt-0.5">
-                              (PLAYING)
-                            </div>
-                          </>
+                          <div className="px-3 py-1.5 rounded-xl bg-[#B94B50] border-2 border-[#352D45] shadow-[0_3px_0_#352D45] font-manor-display text-base font-bold text-[#EFE2D2]">
+                            กำลังเล่น ⚡ (PLAYING)
+                          </div>
                         ) : (
-                          <>
-                            <div
-                              className="text-2xl font-black text-slate-300 leading-none"
-                              style={{ textShadow: '2px 2px 0px #000' }}
-                            >
-                              ยังไม่ปลดล็อก
-                            </div>
-                            <div className="text-lg font-black text-slate-400 leading-tight mt-0.5">
-                              (LOCKED)
-                            </div>
-                          </>
+                          <div className="px-3 py-1.5 rounded-xl bg-[#352D45]/80 border-2 border-[#352D45] font-manor-display text-base font-bold text-[#D9D6DD]">
+                            ยังไม่ปลดล็อก (LOCKED)
+                          </div>
                         )}
                       </div>
                     </button>
@@ -583,25 +583,25 @@ export const ProjectorDisplay: React.FC = () => {
                 })}
               </div>
 
-              {/* Bottom Crisp White 2-Column Scoreboard Table */}
+              {/* Bottom Aged Cream 2-Column Scoreboard Table */}
               <div className="max-w-4xl w-full mx-auto pt-2 pb-1">
-                <div className="grid grid-cols-1 md:grid-cols-2 bg-white border-[3px] border-black shadow-[5px_5px_0px_#000000]">
+                <div className="grid grid-cols-1 md:grid-cols-2 bg-[#EFE2D2] rounded-2xl border-[3px] border-[#352D45] shadow-[0_6px_0_#352D45] overflow-hidden">
                   {TEAM_ORDER.map((tid) => {
                     const t = teams[tid];
                     return (
                       <div
                         key={tid}
-                        className="flex items-center justify-between border border-black px-3 py-1.5"
+                        className="flex items-center justify-between border border-[#352D45]/40 px-4 py-2"
                       >
-                        <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="flex items-center gap-3 min-w-0">
                           <TeamSouthParkAvatar slotNumber={t.number} className="w-10 h-10 shrink-0" />
-                          <span className="font-black text-base md:text-lg text-black truncate">
+                          <span className="font-manor-display font-bold text-base md:text-lg text-[#352D45] truncate">
                             {t.isRegistered ? t.name : `TEAM ${t.number}`}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1.5 border-l-2 border-black pl-3 shrink-0 font-mono font-black text-lg md:text-xl text-black">
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[#facc15] border-2 border-black text-xs font-black">
-                            $
+                        <div className="flex items-center gap-2 border-l-2 border-[#352D45]/30 pl-3 shrink-0 font-manor-score font-extrabold text-xl text-[#352D45]">
+                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[#E5B86C] border-2 border-[#352D45] text-xs font-black text-[#352D45]">
+                            ฿
                           </span>
                           <span>{t.coins.toLocaleString()} ฿</span>
                         </div>

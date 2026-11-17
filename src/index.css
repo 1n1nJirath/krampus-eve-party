@@ -2,12 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --manor-cranberry: #B94B50;
+  --manor-pine: #536B59;
+  --manor-lavender: #77718B;
+  --manor-cream: #D8C6B5;
+  --manor-paper: #EFE2D2;
+  --manor-rose: #A66B78;
+  --manor-ink: #352D45;
+  --manor-amber: #E5B86C;
+  --manor-snow: #D9D6DD;
+}
+
 @layer base {
   body {
     background-color: #070a12;
     color: #f1f5f9;
-    font-family: 'Prompt', system-ui, -apple-system, sans-serif;
+    font-family: 'Nunito Sans', 'Prompt', system-ui, -apple-system, sans-serif;
   }
+}
+
+.font-manor-display {
+  font-family: 'Fredoka', 'Prompt', sans-serif;
+}
+
+.font-manor-score {
+  font-family: 'Baloo 2', 'Prompt', sans-serif;
 }
 
 /* Custom Dark Christmas Scrollbar */

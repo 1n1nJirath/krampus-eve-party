@@ -190,80 +190,21 @@ export const KrampusSantaCoatCharacter: React.FC<{ className?: string; flipped?:
 );
 
 /**
- * Team Avatar SVG matching the 4 South Park characters from Reference Images:
- * 1: Sheep Warrior with sword | 2: Santa with gift | 3: Red Beanie Kid | 4: Blue Beanie Kid
+ * Team Avatar using the extracted Canva "The Christmas Manor" paper-cut characters:
+ * 1: Red Beanie Kid | 2: White Bunny | 3: Reindeer | 4: Owl/Penguin Gentleman
  */
 export const TeamSouthParkAvatar: React.FC<{ slotNumber: number; className?: string }> = ({
   slotNumber,
   className = 'w-20 h-20',
 }) => {
-  if (slotNumber === 1) {
-    // Sheep Warrior
-    return (
-      <svg viewBox="0 0 110 110" className={className}>
-        {/* Wooden Sword */}
-        <line x1="88" y1="26" x2="88" y2="80" stroke="#cbd5e1" strokeWidth="8" strokeLinecap="round" />
-        <line x1="88" y1="26" x2="88" y2="80" stroke="#000" strokeWidth="2" strokeLinecap="round" />
-        <rect x="78" y="72" width="20" height="6" rx="2" fill="#78350f" stroke="#000" strokeWidth="2" />
-        {/* Fluffy Sheep Body */}
-        <ellipse cx="52" cy="82" rx="28" ry="20" fill="#e2e8f0" stroke="#000" strokeWidth="3" />
-        {/* Cross Straps */}
-        <line x1="34" y1="68" x2="70" y2="96" stroke="#78350f" strokeWidth="5" />
-        <line x1="70" y1="68" x2="34" y2="96" stroke="#78350f" strokeWidth="5" />
-        {/* Horns */}
-        <path d="M30 34 C18 22, 16 40, 26 44 Z" fill="#92400e" stroke="#000" strokeWidth="2.5" />
-        <path d="M74 34 C86 22, 88 40, 78 44 Z" fill="#92400e" stroke="#000" strokeWidth="2.5" />
-        {/* Head */}
-        <circle cx="52" cy="46" r="24" fill="#fde68a" stroke="#000" strokeWidth="3" />
-        <path d="M32 34 Q52 16 72 34 Q62 24 52 32 Q42 24 32 34 Z" fill="#ffffff" stroke="#000" strokeWidth="3" />
-        <ellipse cx="44" cy="46" rx="6" ry="7.5" fill="#fff" stroke="#000" strokeWidth="2" />
-        <ellipse cx="60" cy="46" rx="6" ry="7.5" fill="#fff" stroke="#000" strokeWidth="2" />
-        <circle cx="45" cy="46" r="2.2" fill="#000" />
-        <circle cx="59" cy="46" r="2.2" fill="#000" />
-        <path d="M44 59 Q52 64 60 59" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round" />
-      </svg>
-    );
-  }
-  if (slotNumber === 2) {
-    // Santa holding gift
-    return (
-      <svg viewBox="0 0 110 110" className={className}>
-        {/* Coat */}
-        <path d="M22 100 C22 68, 86 68, 86 100 Z" fill="#dc2626" stroke="#000" strokeWidth="3" />
-        <rect x="24" y="88" width="60" height="7" fill="#1e293b" stroke="#000" strokeWidth="2" />
-        <rect x="49" y="86" width="10" height="11" fill="#facc15" stroke="#000" strokeWidth="2" />
-        {/* Green Gift */}
-        <rect x="74" y="54" width="22" height="22" rx="2" fill="#15803d" stroke="#000" strokeWidth="2.5" />
-        <rect x="83" y="54" width="4" height="22" fill="#dc2626" />
-        {/* Face + Beard */}
-        <circle cx="54" cy="46" r="23" fill="#fde68a" stroke="#000" strokeWidth="3" />
-        <path d="M32 48 C30 74, 78 74, 76 48 Q54 60 32 48 Z" fill="#ffffff" stroke="#000" strokeWidth="2.5" />
-        {/* Santa Hat */}
-        <path d="M32 38 C36 14, 72 14, 76 38 Z" fill="#dc2626" stroke="#000" strokeWidth="3" />
-        <rect x="28" y="32" width="52" height="9" rx="4" fill="#ffffff" stroke="#000" strokeWidth="2.5" />
-        <circle cx="76" cy="24" r="6" fill="#ffffff" stroke="#000" strokeWidth="2.5" />
-        <ellipse cx="46" cy="44" rx="5.5" ry="7" fill="#fff" stroke="#000" strokeWidth="2" />
-        <ellipse cx="62" cy="44" rx="5.5" ry="7" fill="#fff" stroke="#000" strokeWidth="2" />
-        <circle cx="47" cy="44" r="2" fill="#000" />
-        <circle cx="61" cy="44" r="2" fill="#000" />
-      </svg>
-    );
-  }
-  const isTeam3 = slotNumber === 3;
-  // South Park Kid (Stan / Eric style)
+  const safeSlot = ((slotNumber - 1) % 4) + 1;
   return (
-    <svg viewBox="0 0 110 110" className={className}>
-      <path d="M20 100 C20 68, 90 68, 90 100 Z" fill={isTeam3 ? '#b91c1c' : '#0284c7'} stroke="#000" strokeWidth="3" />
-      <circle cx="55" cy="48" r="24" fill="#fde68a" stroke="#000" strokeWidth="3" />
-      <path d="M32 40 C34 18, 76 18, 78 40 Z" fill={isTeam3 ? '#1e3a8a' : '#0369a1'} stroke="#000" strokeWidth="3" />
-      <rect x="30" y="34" width="50" height="8" rx="3" fill={isTeam3 ? '#dc2626' : '#facc15'} stroke="#000" strokeWidth="2.5" />
-      <circle cx="55" cy="18" r="6" fill={isTeam3 ? '#dc2626' : '#facc15'} stroke="#000" strokeWidth="2.5" />
-      <ellipse cx="47" cy="48" rx="6" ry="7.5" fill="#fff" stroke="#000" strokeWidth="2" />
-      <ellipse cx="63" cy="48" rx="6" ry="7.5" fill="#fff" stroke="#000" strokeWidth="2" />
-      <circle cx="48" cy="48" r="2.2" fill="#000" />
-      <circle cx="62" cy="48" r="2.2" fill="#000" />
-      <path d="M47 61 L63 60 L58 65 L50 65 Z" fill="#000" />
-    </svg>
+    <img
+      src={`/art/char-${safeSlot}.png`}
+      alt={`Character ${safeSlot}`}
+      className={`object-contain select-none drop-shadow-[0_4px_6px_rgba(53,45,69,0.5)] ${className}`}
+      draggable={false}
+    />
   );
 };
 
@@ -341,112 +282,53 @@ export const StageCardIllustration: React.FC<{
 };
 
 /**
- * Full-screen Snow & Pine Forest Background Scene matching Reference Images 1 & 2
+ * Full-screen "The Christmas Manor" Storybook Background Scene from Canva Art Concept
+ * - LOBBY: Snowy Manor Exterior at twilight (/art/manor-exterior.png)
+ * - WORLD_MAP: Grand Manor Hallway Interior (/art/manor-interior.png)
  */
 export const SnowPineForestFrame: React.FC<{
   variant: 'LOBBY' | 'WORLD_MAP';
   children: React.ReactNode;
 }> = ({ variant, children }) => {
   const isLobby = variant === 'LOBBY';
+  const bgUrl = isLobby ? '/art/manor-exterior.png' : '/art/manor-interior.png';
+
   return (
-    <div
-      className={`min-h-screen w-full relative overflow-hidden flex flex-col justify-between select-none ${
-        isLobby ? 'bg-[#1b365d]' : 'bg-[#0f5a47]'
-      }`}
-    >
-      {/* Background Snow Dots */}
+    <div className="min-h-screen w-full relative overflow-hidden flex flex-col justify-between select-none bg-[#352D45]">
+      {/* Canva Illustrated Manor Backdrop */}
       <div
-        className="pointer-events-none fixed inset-0 opacity-65"
+        className="pointer-events-none fixed inset-0 bg-cover bg-center scale-[1.01]"
+        style={{ backgroundImage: `url('${bgUrl}')` }}
+      />
+
+      {/* Atmospheric Ink Plum & Warm Amber Vignette for High UI Readability */}
+      <div
+        className="pointer-events-none fixed inset-0"
         style={{
-          backgroundImage:
-            'radial-gradient(#ffffff 2px, transparent 2px), radial-gradient(#e2e8f0 1.5px, transparent 1.5px)',
-          backgroundSize: '90px 90px, 55px 55px',
-          backgroundPosition: '0 0, 25px 35px',
+          background: isLobby
+            ? 'linear-gradient(180deg, rgba(53,45,69,0.68) 0%, rgba(53,45,69,0.28) 42%, rgba(53,45,69,0.65) 100%)'
+            : 'linear-gradient(180deg, rgba(40,30,48,0.72) 0%, rgba(40,30,48,0.38) 48%, rgba(40,30,48,0.78) 100%)',
         }}
       />
 
-      {/* Left Snow Pine Trees Silhouette */}
-      <svg
-        viewBox="0 0 260 500"
-        preserveAspectRatio="none"
-        className="pointer-events-none fixed left-0 bottom-0 h-[82vh] w-[18vw] min-w-[140px] z-0 opacity-95"
-      >
-        <polygon points="90,20 10,160 170,160" fill="#14532d" stroke="#000" strokeWidth="4" />
-        <polygon points="90,20 50,90 130,90" fill="#ffffff" stroke="#000" strokeWidth="3" />
-        <polygon points="90,110 0,270 185,270" fill="#166534" stroke="#000" strokeWidth="4" />
-        <polygon points="90,110 42,190 138,190" fill="#ffffff" stroke="#000" strokeWidth="3" />
-        <polygon points="100,200 -10,410 215,410" fill="#14532d" stroke="#000" strokeWidth="4" />
-        <polygon points="100,200 45,305 155,305" fill="#ffffff" stroke="#000" strokeWidth="3" />
-      </svg>
-
-      {/* Right Snow Pine Trees Silhouette */}
-      <svg
-        viewBox="0 0 260 500"
-        preserveAspectRatio="none"
-        className="pointer-events-none fixed right-0 bottom-0 h-[82vh] w-[18vw] min-w-[140px] z-0 opacity-95"
-      >
-        <polygon points="170,25 85,165 255,165" fill="#14532d" stroke="#000" strokeWidth="4" />
-        <polygon points="170,25 130,95 210,95" fill="#ffffff" stroke="#000" strokeWidth="3" />
-        <polygon points="170,115 70,280 260,280" fill="#166534" stroke="#000" strokeWidth="4" />
-        <polygon points="170,115 120,195 220,195" fill="#ffffff" stroke="#000" strokeWidth="3" />
-        <polygon points="160,210 45,420 270,420" fill="#14532d" stroke="#000" strokeWidth="4" />
-        <polygon points="160,210 105,310 215,310" fill="#ffffff" stroke="#000" strokeWidth="3" />
-      </svg>
-
-      {/* Top Fairy Lights String (Lobby & World Map) */}
-      <svg
-        viewBox="0 0 1200 70"
-        preserveAspectRatio="none"
-        className="pointer-events-none fixed top-0 inset-x-0 w-full h-16 z-10"
-      >
-        <path
-          d="M0,10 Q200,55 400,15 Q600,55 800,15 Q1000,55 1200,10"
-          fill="none"
-          stroke="#111827"
-          strokeWidth="3.5"
-        />
-        {[90, 190, 300, 420, 540, 660, 780, 900, 1020, 1120].map((cx, idx) => (
-          <circle
-            key={cx}
-            cx={cx}
-            cy={idx % 2 === 0 ? 34 : 26}
-            r="6"
-            fill={idx % 3 === 0 ? '#fde047' : idx % 3 === 1 ? '#ef4444' : '#22c55e'}
-            stroke="#000"
-            strokeWidth="2"
-          />
-        ))}
-      </svg>
-
-      {/* Bottom White Snowbank Floor */}
-      <div
-        className={`pointer-events-none fixed inset-x-0 bottom-0 bg-[#f8fafc] border-t-4 border-black z-0 ${
-          isLobby ? 'h-[19vh]' : 'h-[23vh]'
-        }`}
-        style={{
-          borderTopLeftRadius: '45% 24px',
-          borderTopRightRadius: '45% 24px',
-        }}
-      />
-
-      {/* World Map Left & Right Krampus Cutouts */}
-      {!isLobby && (
-        <>
-          <KrampusSantaCoatCharacter className="pointer-events-none fixed left-2 top-8 w-36 md:w-44 z-10 drop-shadow-[4px_4px_0px_#000]" />
-          <KrampusSantaCoatCharacter
-            flipped
-            className="pointer-events-none fixed right-3 bottom-[8vh] w-36 md:w-44 z-20 drop-shadow-[4px_4px_0px_#000]"
-          />
-        </>
-      )}
-
-      {/* Lobby Bottom-Right Krampus Sign Cutout */}
+      {/* Subtle Soft Falling Snow Dots (Lobby) */}
       {isLobby && (
-        <KrampusSignCharacter className="pointer-events-none fixed right-4 bottom-2 w-60 md:w-72 z-20 drop-shadow-[4px_4px_0px_#000]" />
+        <div
+          className="pointer-events-none fixed inset-0 opacity-45"
+          style={{
+            backgroundImage:
+              'radial-gradient(#EFE2D2 1.8px, transparent 1.8px), radial-gradient(#D9D6DD 1.2px, transparent 1.2px)',
+            backgroundSize: '95px 95px, 60px 60px',
+            backgroundPosition: '0 0, 28px 40px',
+          }}
+        />
       )}
+
+      {/* Paper-cutout Inner Frame Accent */}
+      <div className="pointer-events-none fixed inset-2 md:inset-3 rounded-2xl border-2 border-[#D8C6B5]/30 z-0" />
 
       {/* Main Content */}
-      <div className="relative z-10 flex-1 flex flex-col justify-between px-6 md:px-12 py-6 max-w-[1500px] w-full mx-auto">
+      <div className="relative z-10 flex-1 flex flex-col justify-between px-6 md:px-12 py-6 max-w-[1440px] w-full mx-auto">
         {children}
       </div>
     </div>
