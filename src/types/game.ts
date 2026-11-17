@@ -30,6 +30,7 @@ export type ModeDSubType =
  */
 export type EightDoorsSubRound =
   | 'SUB1_SURVIVAL'
+  | 'SUB2_SNAKE_DRAFT'
   | 'SUB2_AUCTION'
   | 'SUB2_DOOR_AND_BET'
   | 'SUB3_POLARITY';
@@ -247,6 +248,7 @@ export interface RoundConfig {
     isSafe: boolean;
   }>;
   cowardFreePick?: boolean;               // true เมื่อประมูล 0 ฿ (Coward's Tax): เปิดฟรีแต่ไม่ได้เงินรางวัล
+  polarityChairs?: Record<string, TeamId>; // สำหรับบันทึกการนั่งเก้าอี้หน้ากระดาน (12 ตัว)
 
   title: string;
   subtitle: string;

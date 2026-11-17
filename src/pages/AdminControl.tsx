@@ -610,8 +610,8 @@ export const AdminControl: React.FC = () => {
                     </span>
                   </div>
 
-                  {/* 4 Step Sub-Round Buttons */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                  {/* 3 Sub-Round Buttons (3 Questions) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <button
                       onClick={() => switchEightDoorsSubRound('SUB1_SURVIVAL')}
                       className={`p-2.5 rounded-xl border text-left transition ${
@@ -621,53 +621,28 @@ export const AdminControl: React.FC = () => {
                       }`}
                     >
                       <div className="text-[11px] font-mono font-black text-emerald-300">
-                        ด่านย่อยที่ 1
+                        ด่านย่อยที่ 1 (ข้อ 1)
                       </div>
-                      <div className="font-extrabold text-xs">เปิดทางรอด (หา #1-#3)</div>
+                      <div className="font-extrabold text-xs">Snake Draft 1 (1→4→1 • หา #1-#3)</div>
                       <div className="text-[10px] text-slate-300 mt-0.5">
-                        ถูก +300🪙 / ผิด -1🛡️
+                        ถูก +300 ฿ / ผิด -1 🛡️ / ไม่เจอ -200 ฿
                       </div>
                     </button>
 
                     <button
-                      onClick={() =>
-                        switchEightDoorsSubRound('SUB2_AUCTION', { auctionIteration: 1 })
-                      }
+                      onClick={() => switchEightDoorsSubRound('SUB2_SNAKE_DRAFT')}
                       className={`p-2.5 rounded-xl border text-left transition ${
-                        (subRound === 'SUB2_AUCTION' || subRound === 'SUB2_DOOR_AND_BET') &&
-                        round.auctionIteration === 1
+                        subRound === 'SUB2_SNAKE_DRAFT'
                           ? 'bg-amber-900/70 border-amber-400 text-white shadow'
                           : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-600'
                       }`}
                     >
                       <div className="text-[11px] font-mono font-black text-amber-300">
-                        ด่านย่อยที่ 2 (รอบ 2.1)
+                        ด่านย่อยที่ 2 (ข้อ 2)
                       </div>
-                      <div className="font-extrabold text-xs">ประมูลรอบแรก (หา #2-#4)</div>
+                      <div className="font-extrabold text-xs">Snake Draft 2 (4→1→4 • หา #2-#4)</div>
                       <div className="text-[10px] text-slate-300 mt-0.5">
-                        บิดทีละ 50🪙 ➔ แทงข้าง
-                      </div>
-                    </button>
-
-                    <button
-                      onClick={() =>
-                        switchEightDoorsSubRound('SUB2_AUCTION', { auctionIteration: 2 })
-                      }
-                      className={`p-2.5 rounded-xl border text-left transition ${
-                        (subRound === 'SUB2_AUCTION' || subRound === 'SUB2_DOOR_AND_BET') &&
-                        round.auctionIteration === 2
-                          ? 'bg-amber-900/70 border-amber-400 text-white shadow'
-                          : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-600'
-                      }`}
-                    >
-                      <div className="text-[11px] font-mono font-black text-amber-300">
-                        ด่านย่อยที่ 2 (รอบ 2.2)
-                      </div>
-                      <div className="font-extrabold text-xs">ประมูลรอบสอง (ล็อกทีม 2.1)</div>
-                      <div className="text-[10px] text-slate-300 mt-0.5">
-                        {round.subRound2LockedTeamId
-                          ? `ล็อก ${teams[round.subRound2LockedTeamId].name}`
-                          : '3 ทีมที่เหลือประมูล'}
+                        ถูก +300 ฿ / ผิด -1 🛡️ / ไม่เจอ -200 ฿
                       </div>
                     </button>
 
@@ -683,10 +658,10 @@ export const AdminControl: React.FC = () => {
                         ด่านย่อยที่ 3 (ข้อ 3)
                       </div>
                       <div className="font-extrabold text-xs">
-                        วัดใจขั้วตรงข้าม (#1 & #{round.choiceCount})
+                        Polarity (#1 &amp; #{round.choiceCount}) + เก้าอี้ 12 ตัว
                       </div>
                       <div className="text-[10px] text-slate-300 mt-0.5">
-                        โหลดคำถามข้อ 3 & ปิดประตูใหม่
+                        ถูก 1 อันดับ +300 ฿ / ถูก 2 อันดับ +700 ฿
                       </div>
                     </button>
                   </div>
@@ -755,19 +730,19 @@ export const AdminControl: React.FC = () => {
                       {
                         sub: 'CHRONO_SUB1_CLASSIC' as ChronoSubRound,
                         title: '1. หยุดเข็มนาฬิกา (Classic)',
-                        desc: '+600 / +300 / ห่าง ≥8 ปีหรือห่างสุด -50 ฿/ปี',
+                        desc: '+600 / ±1 ปี +300 / ±2 ปี 0 / อื่นๆ -100/ปี (max 1,000)',
                         ids: ['tj-1', 'tj-2', 'tj-3'],
                       },
                       {
                         sub: 'CHRONO_SUB2_TRAP' as ChronoSubRound,
                         title: '2. วางกับดักเวลา (Time Trap)',
-                        desc: 'วางกับดักลดสเต็ป 5/10 ปี • ฝ่าได้ x2 (+1,200 ฿)',
+                        desc: '1 ลูก=คู่/คี่ • 2 ลูก=5 ปี • 3 ลูก=10 ปี (ฝ่าได้ x2!)',
                         ids: ['tj-4', 'tj-5', 'tj-6'],
                       },
                       {
                         sub: 'CHRONO_SUB3_FAST_FINGER' as ChronoSubRound,
                         title: '3. สงครามแย่งปี (Fast Finger)',
-                        desc: 'แย่งล็อกปี Realtime • +1,000 / +400 / -150 ฿/ปี',
+                        desc: 'เก้าอี้หน้ากระดาน + แย่งล็อกปี (+1,000 / ≤2 ปี +400)',
                         ids: ['tj-7', 'tj-8', 'tj-9'],
                       },
                     ].map((group) => {

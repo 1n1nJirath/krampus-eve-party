@@ -95,6 +95,7 @@ export const TeamController: React.FC = () => {
 
   // Game 2 ("THE CHRONO CRUSH") specific drafts
   const [draftSliderYear, setDraftSliderYear] = useState<number>(2000);
+  const [draftParity, setDraftParity] = useState<'EVEN' | 'ODD'>('EVEN');
   const [draftTrapAllocations, setDraftTrapAllocations] = useState<Partial<Record<TeamId, number>>>({});
 
   // Game 3 ("THE TOY FACTORY CHAOS") live timer & vibration
@@ -629,8 +630,8 @@ export const TeamController: React.FC = () => {
                 <Lock className="w-12 h-12 text-red-400 mb-2" />
                 <h3 className="text-xl font-extrabold text-white">ปิดรับคำตอบแล้ว!</h3>
               </div>
-            ) : subRound === 'SUB1_SURVIVAL' ? (
-              /* ด่านย่อยที่ 1: Snake Draft (สลับคิวเปิดทันที ทีมละ 2 บาน) */
+            ) : subRound === 'SUB1_SURVIVAL' || subRound === 'SUB2_SNAKE_DRAFT' ? (
+              /* ด่านย่อยที่ 1 & 2: Snake Draft (สลับคิวเปิดทันที ทีมละ 2 บาน) */
               !isMySnakeTurn ? (
                 <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-slate-900/95 border-2 border-amber-500/40 p-6 text-center gap-3">
                   <div className="text-4xl animate-pulse">⏳</div>
@@ -640,13 +641,13 @@ export const TeamController: React.FC = () => {
                       : 'จบรอบ Snake Draft แล้ว!'}
                   </h3>
                   <p className="text-xs text-slate-300">
-                    คิวที่ {Math.min(snakeIdx + 1, snakeOrder.length)}/{snakeOrder.length} • โซนปลอดภัย: อันดับ #{safeMin}–#{safeMax} (+300 ฿/บาน, ถูก 2 บานรับ +800 ฿)
+                    คิวที่ {Math.min(snakeIdx + 1, snakeOrder.length)}/{snakeOrder.length} • โซนปลอดภัย: อันดับ #{safeMin}–#{safeMax} (+300 ฿/บาน • เปิดครบ 8 บานไม่เจอ -200 ฿)
                   </p>
                 </div>
               ) : (
               <>
                 <div className="rounded-xl bg-emerald-950/70 border-2 border-emerald-400 px-3 py-2 text-center text-xs font-black text-emerald-200">
-                  🎯 ตาคุณเลือกแล้ว! (คิว {snakeIdx + 1}/{snakeOrder.length}) — หาอันดับ #{safeMin}–#{safeMax} (+300 ฿ / ถูก 2 บาน +800 ฿)
+                  🎯 ตาคุณเลือกแล้ว! (คิว {snakeIdx + 1}/{snakeOrder.length}) — หาอันดับ #{safeMin}–#{safeMax} (+300 ฿ / พลาด -1 🛡️)
                 </div>
                 <div className="grid grid-cols-2 gap-2.5">
                   {round.choices.slice(0, round.choiceCount).map((choice) => {
@@ -924,8 +925,11 @@ export const TeamController: React.FC = () => {
                 </>
               )
             ) : (
-              /* ด่านย่อยที่ 3: วัดใจขั้วตรงข้าม (เลือก 2 ช่อง: อันดับ #1 และ อันดับ #N) */
+              /* ด่านย่อยที่ 3: วัดใจขั้วตรงข้าม + เก้าอี้ 12 ตัว */
               <>
+                <div className="rounded-xl bg-amber-950/70 border border-amber-400/60 px-3 py-2 text-center text-[11px] font-black text-amber-200">
+                  🪑 เก้าอี้ 12 ตัวหน้ากระดาน: กลุ่มไหนมั่นใจมานั่งก่อนได้เลย (1 ที่นั่ง/กลุ่ม ห้ามซ้ำ) • ถูก 1 อันดับ +300 ฿ / ถูก 2 อันดับ +700 ฿
+                </div>
                 <div className="grid grid-cols-2 gap-2.5">
                   <button
                     type="button"
@@ -1142,9 +1146,23 @@ export const TeamController: React.FC = () => {
             const minY = round.yearMin ?? (round.yearUnit === 'BE' ? 2520 : 1980);
             const maxY = round.yearMax ?? (round.yearUnit === 'BE' ? 2569 : 2026);
             const netTraps = chronoSub === 'CHRONO_SUB2_TRAP' ? getChronoNetTraps(round, selectedTeamId) : 0;
+            const isParityTrap = chronoSub === 'CHRONO_SUB2_TRAP' && netTraps === 1;
             const step = chronoSub === 'CHRONO_SUB2_TRAP' ? getChronoSliderStep(netTraps) : 1;
-            const sliderMin = step > 1 ? Math.ceil(minY / step) * step : minY;
-            const sliderMax = step > 1 ? Math.floor(maxY / step) * step : maxY;
+            const parityBit = draftParity === 'EVEN' ? 0 : 1;
+            const sliderMin = isParityTrap
+              ? minY % 2 === parityBit
+                ? minY
+                : minY + 1
+              : step > 1
+              ? Math.ceil(minY / step) * step
+              : minY;
+            const sliderMax = isParityTrap
+              ? maxY % 2 === parityBit
+                ? maxY
+                : maxY - 1
+              : step > 1
+              ? Math.floor(maxY / step) * step
+              : maxY;
             const clampedSliderYear = Math.min(
               sliderMax,
               Math.max(sliderMin, Math.round((draftSliderYear - sliderMin) / step) * step + sliderMin)
@@ -1178,7 +1196,7 @@ export const TeamController: React.FC = () => {
                       💣 วางกับดักเวลา • โควตาของคุณ: {remainingQuota} / {myQuota} ลูก
                     </div>
                     <div className="text-xs text-slate-200 mt-0.5">
-                      โล่ป้องกันของคุณ: {myShield} 🛡️ • แปะซ้ำทีมเดิมได้ไม่จำกัด! (0 ลูก=1 ปี, 1 ลูก=5 ปี, 2+ ลูก=10 ปี)
+                      1 ลูก = บังคับเลขคู่/คี่ • 2 ลูก = ทีละ 5 ปี • 3 ลูก = ทีละ 10 ปี (ฝ่ากับดักสำเร็จรับ x2!)
                     </div>
                   </div>
 
@@ -1249,7 +1267,7 @@ export const TeamController: React.FC = () => {
                 /* Sub3: สงครามแย่งปี (Exclusive Realtime Lock) */
                 <>
                   <div className="rounded-xl bg-red-950/70 border-2 border-red-400 px-3 py-2 text-center text-xs font-black text-red-100">
-                    ⚡ ใครไวใครได้! แตะเลือก 1 ปี (ล็อกทันที เปลี่ยนใจไม่ได้) — ตรงเป๊ะ +1,000 ฿ / ห่าง 1-2 ปี +400 ฿ / ห่าง ≥3 ปี -150 ฿/ปี
+                    ⚡ 🪑 เก้าอี้หน้ากระดานเหมือนเดิม + ใครไวใครได้! แตะเลือก 1 ปี (ล็อกทันที) — ตรงเป๊ะ +1,000 ฿ / ห่าง ≤2 ปี +400 ฿
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 my-auto">
                     {allYears.map((yr) => {
@@ -1295,9 +1313,38 @@ export const TeamController: React.FC = () => {
                           : 'bg-emerald-950/70 border-emerald-400 text-emerald-200'
                       }`}
                     >
-                      {netTraps >= 1
-                        ? `⚠️ โดนกับดักสุทธิ ${netTraps} ลูก! เลื่อนได้ทีละ ${step} ปี (ฝ่าสำเร็จรับรางวัล x2!)`
+                      {netTraps === 1
+                        ? `⚠️ โดน 1 กับดัก! บังคับเลือกปีเลขคู่ หรือ เลขคี่ (ฝ่าสำเร็จรับรางวัล x2!)`
+                        : netTraps >= 2
+                        ? `⚠️ โดนกับดัก ${netTraps} ลูก! เลื่อนได้ทีละ ${step} ปี (ฝ่าสำเร็จรับรางวัล x2!)`
                         : '🛡️ ปลอดภัยจากกับดัก! เลื่อนได้ปกติทีละ 1 ปี'}
+                    </div>
+                  )}
+
+                  {isParityTrap && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDraftParity('EVEN')}
+                        className={`py-2.5 rounded-xl font-black text-sm border-2 transition ${
+                          draftParity === 'EVEN'
+                            ? 'bg-amber-400 text-black border-white'
+                            : 'bg-slate-900 text-slate-300 border-slate-700'
+                        }`}
+                      >
+                        🔢 บังคับปีเลขคู่ (Even)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDraftParity('ODD')}
+                        className={`py-2.5 rounded-xl font-black text-sm border-2 transition ${
+                          draftParity === 'ODD'
+                            ? 'bg-amber-400 text-black border-white'
+                            : 'bg-slate-900 text-slate-300 border-slate-700'
+                        }`}
+                      >
+                        🔣 บังคับปีเลขคี่ (Odd)
+                      </button>
                     </div>
                   )}
 

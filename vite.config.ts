@@ -195,8 +195,13 @@ function krampusRealtimeServerPlugin(): Plugin {
               } else if (action === 'SNAKE_PICK') {
                 const r = updated.round;
                 const doorKey = String(payload.doorKey || '');
-                if (r?.gameStage === 'POLL_MINE' && r?.eightDoorsSubRound === 'SUB1_SURVIVAL' && r?.status === 'ACTIVE') {
-                  const order: string[] = r.snakeDraftOrder || ['team1', 'team2', 'team3', 'team4', 'team4', 'team3', 'team2', 'team1'];
+                const isSnakeSub = r?.eightDoorsSubRound === 'SUB1_SURVIVAL' || r?.eightDoorsSubRound === 'SUB2_SNAKE_DRAFT';
+                if (r?.gameStage === 'POLL_MINE' && isSnakeSub && r?.status === 'ACTIVE') {
+                  const defaultOrder =
+                    r.eightDoorsSubRound === 'SUB2_SNAKE_DRAFT'
+                      ? ['team4', 'team3', 'team2', 'team1', 'team1', 'team2', 'team3', 'team4']
+                      : ['team1', 'team2', 'team3', 'team4', 'team4', 'team3', 'team2', 'team1'];
+                  const order: string[] = r.snakeDraftOrder?.length ? r.snakeDraftOrder : defaultOrder;
                   const idx = r.snakeDraftIndex ?? 0;
                   if (idx < order.length && order[idx] === teamId) {
                     const count = r.choiceCount || 8;
@@ -204,19 +209,19 @@ function krampusRealtimeServerPlugin(): Plugin {
                     if (doorIdx !== -1 && !r.choices[doorIdx].isOpened) {
                       const door = r.choices[doorIdx];
                       const rank = door.rank ?? doorIdx + 1;
-                      const safeMin = r.safeRankMin ?? 1;
-                      const safeMax = r.safeRankMax ?? (count >= 10 ? 4 : 3);
+                      const isSub2 = r.eightDoorsSubRound === 'SUB2_SNAKE_DRAFT';
+                      const safeMin = r.safeRankMin ?? (isSub2 ? 2 : 1);
+                      const safeMax = r.safeRankMax ?? (isSub2 ? 4 : count >= 10 ? 4 : 3);
                       const isSafe = rank >= safeMin && rank <= safeMax;
                       r.choices[doorIdx] = { ...door, isOpened: true };
                       r.lastOpenedDoorKey = doorKey;
                       const picks = [...(r.snakeDraftPicks || [])];
-                      const prevSafeCount = picks.filter((p: any) => p.teamId === teamId && p.isSafe).length;
                       picks.push({ teamId, doorKey, rank, isSafe });
                       r.snakeDraftPicks = picks;
                       const t = updated.teams?.[teamId];
                       if (t) {
                         if (isSafe) {
-                          t.coins += prevSafeCount >= 1 ? 500 : 300;
+                          t.coins += 300;
                         } else {
                           t.shields = Math.max(0, t.shields - 1);
                           t.candles = t.shields;
@@ -228,11 +233,20 @@ function krampusRealtimeServerPlugin(): Plugin {
                         .slice(0, count)
                         .filter((c: any) => (c.rank ?? 99) >= safeMin && (c.rank ?? 99) <= safeMax)
                         .every((c: any) => c.isOpened);
-                      if (allSafeOpened || nextIdx >= order.length) {
+                      const allTurnsUsed = nextIdx >= order.length;
+                      if (allSafeOpened || allTurnsUsed) {
                         r.status = 'REVEALED';
                         r.rewardsApplied = true;
                         r.timerStartedAt = null;
                         r.timerRemainingMs = 0;
+                        if (allTurnsUsed && !allSafeOpened) {
+                          for (const tid of ['team1', 'team2', 'team3', 'team4']) {
+                            const hasFound = picks.some((p: any) => p.teamId === tid && p.isSafe);
+                            if (!hasFound && updated.teams?.[tid]) {
+                              updated.teams[tid].coins -= 200;
+                            }
+                          }
+                        }
                       }
                     }
                   }

@@ -35,16 +35,16 @@ export function computeChronoRankings(teams: Record<TeamId, Team>): {
   const shields: Partial<Record<TeamId, number>> = {};
   ordered.forEach((tid, idx) => {
     if (idx === 0) {
-      quotas[tid] = 1;
-      shields[tid] = 1;
+      quotas[tid] = 3;
+      shields[tid] = 0;
     } else if (idx === 1) {
-      quotas[tid] = 1;
-      shields[tid] = 1;
-    } else if (idx === 2) {
       quotas[tid] = 2;
       shields[tid] = 0;
+    } else if (idx === 2) {
+      quotas[tid] = 1;
+      shields[tid] = 0;
     } else {
-      quotas[tid] = 3;
+      quotas[tid] = 0;
       shields[tid] = 0;
     }
   });
@@ -66,9 +66,10 @@ export function getChronoNetTraps(round: RoundConfig, targetTid: TeamId): number
   return Math.max(0, received - shield);
 }
 
-export function getChronoSliderStep(netTraps: number): 1 | 5 | 10 {
-  if (netTraps >= 2) return 10;
-  if (netTraps === 1) return 5;
+export function getChronoSliderStep(netTraps: number): 1 | 2 | 5 | 10 {
+  if (netTraps >= 3) return 10;
+  if (netTraps === 2) return 5;
+  if (netTraps === 1) return 2;
   return 1;
 }
 
@@ -89,20 +90,21 @@ export function scoreChronoTeam(
     if (diff <= 2) {
       return { diff, delta: 400, label: `✨ ห่าง ${diff} ปี (+400 ฿)`, netTraps: 0 };
     }
-    const penalty = Math.min(1500, diff * 150);
+    const penalty = Math.min(1000, diff * 100);
     return {
       diff,
       delta: -penalty,
-      label: `💥 โดนกงล้อบดขยี้! ห่าง ${diff} ปี (-${penalty.toLocaleString()} ฿)`,
+      label: `💥 ห่าง ${diff} ปี (-${penalty.toLocaleString()} ฿)`,
       netTraps: 0,
     };
   }
 
   const netTraps = subRound === 'CHRONO_SUB2_TRAP' ? getChronoNetTraps(round, tid) : 0;
   const hasTrapBonus = subRound === 'CHRONO_SUB2_TRAP' && netTraps >= 1;
+  const mult = hasTrapBonus ? 2 : 1;
 
   if (diff === 0) {
-    const reward = hasTrapBonus ? 1200 : 600;
+    const reward = 600 * mult;
     return {
       diff,
       delta: reward,
@@ -112,40 +114,38 @@ export function scoreChronoTeam(
       netTraps,
     };
   }
-  if (diff <= 3 && !isFarthest) {
-    const reward = hasTrapBonus ? 600 : 300;
+  if (diff === 1) {
+    if (isFarthest && maxDiffAmongSubmitted > 0) {
+      return {
+        diff,
+        delta: 0,
+        label: `🛡️ ห่างสุดของข้อ (${diff} ปี) ไม่ได้คะแนน (0 ฿)`,
+        netTraps,
+      };
+    }
+    const reward = 300 * mult;
     return {
       diff,
       delta: reward,
       label: hasTrapBonus
-        ? `⚡ TRAP BREAKER x2! ห่าง ${diff} ปี (+600 ฿)`
-        : `✨ ห่าง ${diff} ปี (+300 ฿)`,
+        ? `⚡ TRAP BREAKER x2! ห่าง ±1 ปี (+600 ฿)`
+        : `✨ ห่าง ±1 ปี (+300 ฿)`,
       netTraps,
     };
   }
-  if (diff <= 3 && isFarthest) {
-    // Edge case: all teams within 1-3 years, team farthest still pays -50/year
-    const penalty = Math.min(1000, diff * 50);
+  if (diff === 2) {
     return {
       diff,
-      delta: -penalty,
-      label: `💀 ห่างสุดของข้อ (${diff} ปี) โดนทับ (-${penalty.toLocaleString()} ฿)`,
+      delta: 0,
+      label: `🛡️ ห่าง ±2 ปี (0 ฿)`,
       netTraps,
     };
   }
-  if (diff >= 8 || isFarthest) {
-    const penalty = Math.min(1000, diff * 50);
-    return {
-      diff,
-      delta: -penalty,
-      label: `${isFarthest ? '💀 ห่างสุดของข้อ' : '💥 ห่าง ≥8 ปี'} (${diff} ปี) (-${penalty.toLocaleString()} ฿)`,
-      netTraps,
-    };
-  }
+  const penalty = Math.min(1000, diff * 100);
   return {
     diff,
-    delta: 0,
-    label: `🛡️ รอดตัว! ห่าง ${diff} ปี (0 ฿)`,
+    delta: -penalty,
+    label: `💥 ห่าง ${diff} ปี (-${penalty.toLocaleString()} ฿)`,
     netTraps,
   };
 }
@@ -157,7 +157,7 @@ export function getSuggestedSafeRange(
   subRound?: EightDoorsSubRound
 ): { min: number; max: number } {
   const isLargeBoard = choiceCount >= 10;
-  if (subRound === 'SUB2_AUCTION' || subRound === 'SUB2_DOOR_AND_BET') {
+  if (subRound === 'SUB2_SNAKE_DRAFT' || subRound === 'SUB2_AUCTION' || subRound === 'SUB2_DOOR_AND_BET') {
     return isLargeBoard ? { min: 3, max: 6 } : { min: 2, max: 4 };
   }
   return isLargeBoard ? { min: 1, max: 4 } : { min: 1, max: 3 };
@@ -227,8 +227,8 @@ export const DEFAULT_PRESETS: QuestionPreset[] = [
     gameStage: 'POLL_MINE',
     inputMode: 'MODE_A_CHOICE',
     eightDoorsSubRound: 'SUB1_SURVIVAL',
-    title: 'THE DOORS OF DOOM • ด่านย่อยที่ 1 (Snake Draft)',
-    subtitle: 'เปิดทางรอดแบบสลับคิว (ทีมละ 2 บาน) — หาประตูโซนปลอดภัย (+300 ฿/บาน, ถูกทั้ง 2 บานรับ +800 ฿ / พลาด -1 🛡️)',
+    title: 'THE DOORS OF DOOM • ด่านย่อยที่ 1 (Snake Draft 1)',
+    subtitle: 'เปิดทางรอดแบบสลับคิว (1-2-3-4-4-3-2-1 ทีมละ 2 บาน) — หาประตูอันดับ 1-3 (ถูก +300 ฿ / พลาด -1 🛡️ / เปิดครบ 8 บานไม่เจอคำตอบ -200 ฿)',
     questionText: 'ข้ออ้างยอดฮิตที่เด็กมหาลัยใช้ "โดดเรียนคาบเช้า" มากที่สุดคืออะไร?',
     choiceCount: 8,
     choices: [
@@ -251,14 +251,14 @@ export const DEFAULT_PRESETS: QuestionPreset[] = [
     id: 'pm-2',
     gameStage: 'POLL_MINE',
     inputMode: 'MODE_A_CHOICE',
-    eightDoorsSubRound: 'SUB2_AUCTION',
-    title: 'THE DOORS OF DOOM • ด่านย่อยที่ 2 (ประมูล & แทงข้าง)',
-    subtitle: 'ประมูลสิทธิ์เปิดประตูโซนปลอดภัย (+700 ฿ / พลาด -1 🛡️) • ทีมอื่นแทงข้าง (+200 ฿ / ผิด -100 ฿)',
+    eightDoorsSubRound: 'SUB2_SNAKE_DRAFT',
+    title: 'THE DOORS OF DOOM • ด่านย่อยที่ 2 (Snake Draft 2)',
+    subtitle: 'สลับคิวย้อนกลับ (4-3-2-1-1-2-3-4 ทีมละ 2 บาน) — หาประตูอันดับ 2-4 (ถูก +300 ฿ / พลาด -1 🛡️ / เปิดครบ 8 บานไม่เจอคำตอบ -200 ฿)',
     questionText: 'เมนูสิ้นคิดเวลาเงินใกล้หมดตอนสิ้นเดือนของเด็กหอคืออะไร?',
     choiceCount: 8,
     choices: [
-      { key: 'A', label: 'ขนมปังปอนด์ทาแยม / นมข้นหวาน', rank: 4, votes: 11, isCorrect: false, isTrap: true },
-      { key: 'B', label: 'บะหมี่กึ่งสำเร็จรูป (มาม่า/ไวไว) ต้มใส่ไข่', rank: 1, votes: 34, isCorrect: true },
+      { key: 'A', label: 'ขนมปังปอนด์ทาแยม / นมข้นหวาน', rank: 4, votes: 11, isCorrect: true },
+      { key: 'B', label: 'บะหมี่กึ่งสำเร็จรูป (มาม่า/ไวไว) ต้มใส่ไข่', rank: 1, votes: 34, isCorrect: false, isTrap: true },
       { key: 'C', label: 'ปลากระป๋องราดข้าวสวยร้อนๆ', rank: 7, votes: 3, isCorrect: false, isTrap: true },
       { key: 'D', label: 'ข้าวกะเพราหมูสับไข่ดาวร้านตามสั่ง', rank: 2, votes: 22, isCorrect: true },
       { key: 'E', label: 'ไปเนียนกินฟรีห้องเพื่อนข้างๆ', rank: 8, votes: 2, isCorrect: false, isTrap: true },
@@ -266,8 +266,8 @@ export const DEFAULT_PRESETS: QuestionPreset[] = [
       { key: 'G', label: 'โจ๊กซอง / ข้าวต้มกุ๊ยหน้าปากซอย', rank: 6, votes: 5, isCorrect: false, isTrap: true },
       { key: 'H', label: 'ข้าวปั้น / แซนด์วิชป้ายเหลืองลดราคาเซเว่น', rank: 5, votes: 9, isCorrect: false, isTrap: true },
     ],
-    correctChoices: ['B', 'D', 'F'],
-    trapChoices: ['A', 'C', 'E', 'G', 'H'],
+    correctChoices: ['A', 'D', 'F'],
+    trapChoices: ['B', 'C', 'E', 'G', 'H'],
     rewardCoins: 300,
     penaltyCoins: 0,
     durationSeconds: 45,
@@ -278,7 +278,7 @@ export const DEFAULT_PRESETS: QuestionPreset[] = [
     inputMode: 'MODE_A_CHOICE',
     eightDoorsSubRound: 'SUB3_POLARITY',
     title: 'THE DOORS OF DOOM • ด่านย่อยที่ 3 (วัดใจขั้วตรงข้าม)',
-    subtitle: 'เลือก 2 บานพร้อมกัน: อันดับ #1 และอันดับสุดท้าย (#N) — ถูก 1 (+400 ฿), ถูก 2 (+1,000 ฿), ผิดหมด (-2 🛡️ & -300 ฿)',
+    subtitle: 'เก้าอี้ 12 ตัวหน้ากระดาน (1 ที่นั่ง/กลุ่ม ห้ามซ้ำ) + เลือกประตูอันดับ #1 และ #8 — ถูก 1 อันดับ +300 ฿ / ถูก 2 อันดับ +700 ฿',
     questionText: 'ของขวัญจับฉลากคริสต์มาส/ปีใหม่ที่เด็กมหาลัย "กุมขมับไม่อยากได้มากที่สุด" คืออะไร?',
     choiceCount: 8,
     choices: [
@@ -312,13 +312,13 @@ export const DEFAULT_PRESETS: QuestionPreset[] = [
     yearMin: 1990,
     yearMax: 2026,
     title: 'THE CHRONO CRUSH • ด่านย่อยที่ 1 (ข้อ 1/3)',
-    subtitle: 'หยุดเข็มนาฬิกา (Classic Timeline): เลื่อนแถบปี ค.ศ. ทีละ 1 ปี — ตรงเป๊ะ +600 ฿ | ห่าง 1-3 ปี +300 ฿ | ห่าง ≥8 ปี/ห่างสุด -50 ฿/ปี',
+    subtitle: 'ตรงเป๊ะ +600 ฿ | ห่าง ±1 ปี +300 ฿ | ห่าง ±2 ปี 0 ฿ | อื่นๆ -100 ฿/ปี (สูงสุด 1,000 ฿)',
     questionText: 'เพลง "คุกกี้เสี่ยงทาย (Koisuru Fortune Cookie)" ของ BNK48 ปล่อย MV ครั้งแรกในปี ค.ศ. ใด?',
     targetYear: 2017,
-    yearPenaltyPerDiff: 50,
+    yearPenaltyPerDiff: 100,
     yearFastestBonus: 0,
     rewardCoins: 600,
-    penaltyCoins: 50,
+    penaltyCoins: 100,
     durationSeconds: 30,
   },
   {
@@ -330,13 +330,13 @@ export const DEFAULT_PRESETS: QuestionPreset[] = [
     yearMin: 2530,
     yearMax: 2569,
     title: 'THE CHRONO CRUSH • ด่านย่อยที่ 1 (ข้อ 2/3)',
-    subtitle: 'หยุดเข็มนาฬิกา (Classic Timeline): เลื่อนแถบปี พ.ศ. ทีละ 1 ปี — ตรงเป๊ะ +600 ฿ | ห่าง 1-3 ปี +300 ฿ | ห่าง ≥8 ปี/ห่างสุด -50 ฿/ปี',
+    subtitle: 'ตรงเป๊ะ +600 ฿ | ห่าง ±1 ปี +300 ฿ | ห่าง ±2 ปี 0 ฿ | อื่นๆ -100 ฿/ปี (สูงสุด 1,000 ฿)',
     questionText: 'รถไฟฟ้า BTS สายสุขุมวิท (หมอชิต – อ่อนนุช) เปิดให้บริการวันแรกในประเทศไทยในปี พ.ศ. ใด?',
     targetYear: 2542,
-    yearPenaltyPerDiff: 50,
+    yearPenaltyPerDiff: 100,
     yearFastestBonus: 0,
     rewardCoins: 600,
-    penaltyCoins: 50,
+    penaltyCoins: 100,
     durationSeconds: 30,
   },
   {
@@ -348,13 +348,13 @@ export const DEFAULT_PRESETS: QuestionPreset[] = [
     yearMin: 1990,
     yearMax: 2026,
     title: 'THE CHRONO CRUSH • ด่านย่อยที่ 1 (ข้อ 3/3)',
-    subtitle: 'หยุดเข็มนาฬิกา (Classic Timeline): เลื่อนแถบปี ค.ศ. ทีละ 1 ปี — ตรงเป๊ะ +600 ฿ | ห่าง 1-3 ปี +300 ฿ | ห่าง ≥8 ปี/ห่างสุด -50 ฿/ปี',
+    subtitle: 'ตรงเป๊ะ +600 ฿ | ห่าง ±1 ปี +300 ฿ | ห่าง ±2 ปี 0 ฿ | อื่นๆ -100 ฿/ปี (สูงสุด 1,000 ฿)',
     questionText: 'เพลง "กังนัมสไตล์ (Gangnam Style - PSY)" กลายเป็นไวรัลทะลุพันล้านวิวครั้งแรกในปี ค.ศ. ใด?',
     targetYear: 2012,
-    yearPenaltyPerDiff: 50,
+    yearPenaltyPerDiff: 100,
     yearFastestBonus: 0,
     rewardCoins: 600,
-    penaltyCoins: 50,
+    penaltyCoins: 100,
     durationSeconds: 30,
   },
   {
@@ -366,13 +366,13 @@ export const DEFAULT_PRESETS: QuestionPreset[] = [
     yearMin: 1980,
     yearMax: 2026,
     title: 'THE CHRONO CRUSH • ด่านย่อยที่ 2 (ข้อ 4/9)',
-    subtitle: 'วางกับดักเวลา (Time Trap): วางกับดักลดความละเอียดแถบปี (5 ปี / 10 ปี) • ฝ่ากับดักสำเร็จรับรางวัล x2!',
+    subtitle: 'วางกับดักเวลา (1 ลูก=คู่/คี่, 2 ลูก=ทีละ 5 ปี, 3 ลูก=ทีละ 10 ปี) • ฝ่ากับดักสำเร็จรับ x2!',
     questionText: 'iPhone รุ่นแรกของโลกถูกเปิดตัวโดย Steve Jobs บนเวที Macworld ในปี ค.ศ. ใด?',
     targetYear: 2007,
-    yearPenaltyPerDiff: 50,
+    yearPenaltyPerDiff: 100,
     yearFastestBonus: 0,
     rewardCoins: 600,
-    penaltyCoins: 50,
+    penaltyCoins: 100,
     durationSeconds: 35,
   },
   {
@@ -384,13 +384,13 @@ export const DEFAULT_PRESETS: QuestionPreset[] = [
     yearMin: 2520,
     yearMax: 2569,
     title: 'THE CHRONO CRUSH • ด่านย่อยที่ 2 (ข้อ 5/9)',
-    subtitle: 'วางกับดักเวลา (Time Trap): วางกับดักลดความละเอียดแถบปี (5 ปี / 10 ปี) • ฝ่ากับดักสำเร็จรับรางวัล x2!',
+    subtitle: 'วางกับดักเวลา (1 ลูก=คู่/คี่, 2 ลูก=ทีละ 5 ปี, 3 ลูก=ทีละ 10 ปี) • ฝ่ากับดักสำเร็จรับ x2!',
     questionText: 'ภาพยนตร์ไทย "พี่มาก..พระโขนง" ทำรายได้ถล่มทลายทะลุพันล้านบาทเข้าฉายในปี พ.ศ. ใด?',
     targetYear: 2556,
-    yearPenaltyPerDiff: 50,
+    yearPenaltyPerDiff: 100,
     yearFastestBonus: 0,
     rewardCoins: 600,
-    penaltyCoins: 50,
+    penaltyCoins: 100,
     durationSeconds: 35,
   },
   {
@@ -402,13 +402,13 @@ export const DEFAULT_PRESETS: QuestionPreset[] = [
     yearMin: 1985,
     yearMax: 2026,
     title: 'THE CHRONO CRUSH • ด่านย่อยที่ 2 (ข้อ 6/9)',
-    subtitle: 'วางกับดักเวลา (Time Trap): วางกับดักลดความละเอียดแถบปี (5 ปี / 10 ปี) • ฝ่ากับดักสำเร็จรับรางวัล x2!',
+    subtitle: 'วางกับดักเวลา (1 ลูก=คู่/คี่, 2 ลูก=ทีละ 5 ปี, 3 ลูก=ทีละ 10 ปี) • ฝ่ากับดักสำเร็จรับ x2!',
     questionText: 'แพลตฟอร์ม YouTube ถูกก่อตั้งขึ้นและอัปโหลดคลิปแรก "Me at the zoo" ในปี ค.ศ. ใด?',
     targetYear: 2005,
-    yearPenaltyPerDiff: 50,
+    yearPenaltyPerDiff: 100,
     yearFastestBonus: 0,
     rewardCoins: 600,
-    penaltyCoins: 50,
+    penaltyCoins: 100,
     durationSeconds: 35,
   },
   {
@@ -420,13 +420,13 @@ export const DEFAULT_PRESETS: QuestionPreset[] = [
     yearMin: 2012,
     yearMax: 2021,
     title: 'THE CHRONO CRUSH • ด่านย่อยที่ 3 (ข้อ 7/9)',
-    subtitle: 'สงครามแย่งปี (Fast Finger Year): แย่งกดล็อกปีก่อนใคร (1 ปีต่อ 1 ทีม) — ตรงเป๊ะ +1,000 ฿ | ห่าง 1-2 ปี +400 ฿ | ห่าง ≥3 ปี -150 ฿/ปี',
+    subtitle: 'เก้าอี้หน้ากระดาน + แย่งกดปี Realtime (ตรงเป๊ะ +1,000 ฿ / ห่าง ≤2 ปี +400 ฿)',
     questionText: 'ซีรีส์ "Squid Game (สควิดเกม เล่นลุ้นตาย)" ซีซั่นแรก ฉายทาง Netflix ปี ค.ศ. ใด?',
     targetYear: 2021,
-    yearPenaltyPerDiff: 150,
+    yearPenaltyPerDiff: 100,
     yearFastestBonus: 0,
     rewardCoins: 1000,
-    penaltyCoins: 150,
+    penaltyCoins: 100,
     durationSeconds: 20,
   },
   {
@@ -438,13 +438,13 @@ export const DEFAULT_PRESETS: QuestionPreset[] = [
     yearMin: 2557,
     yearMax: 2566,
     title: 'THE CHRONO CRUSH • ด่านย่อยที่ 3 (ข้อ 8/9)',
-    subtitle: 'สงครามแย่งปี (Fast Finger Year): แย่งกดล็อกปีก่อนใคร (1 ปีต่อ 1 ทีม) — ตรงเป๊ะ +1,000 ฿ | ห่าง 1-2 ปี +400 ฿ | ห่าง ≥3 ปี -150 ฿/ปี',
+    subtitle: 'เก้าอี้หน้ากระดาน + แย่งกดปี Realtime (ตรงเป๊ะ +1,000 ฿ / ห่าง ≤2 ปี +400 ฿)',
     questionText: 'ละคร "บุพเพสันนิวาส" สร้างปรากฏการณ์ออเจ้าทั่วไทย ออกอากาศครั้งแรกในปี พ.ศ. ใด?',
     targetYear: 2561,
-    yearPenaltyPerDiff: 150,
+    yearPenaltyPerDiff: 100,
     yearFastestBonus: 0,
     rewardCoins: 1000,
-    penaltyCoins: 150,
+    penaltyCoins: 100,
     durationSeconds: 20,
   },
   {
@@ -456,13 +456,13 @@ export const DEFAULT_PRESETS: QuestionPreset[] = [
     yearMin: 2015,
     yearMax: 2024,
     title: 'THE CHRONO CRUSH • ด่านย่อยที่ 3 (ข้อ 9/9)',
-    subtitle: 'สงครามแย่งปี (Fast Finger Year): แย่งกดล็อกปีก่อนใคร (1 ปีต่อ 1 ทีม) — ตรงเป๊ะ +1,000 ฿ | ห่าง 1-2 ปี +400 ฿ | ห่าง ≥3 ปี -150 ฿/ปี',
+    subtitle: 'เก้าอี้หน้ากระดาน + แย่งกดปี Realtime (ตรงเป๊ะ +1,000 ฿ / ห่าง ≤2 ปี +400 ฿)',
     questionText: 'เกม "Among Us" ระเบิดความนิยมทั่วโลกในช่วงล็อกดาวน์ปี ค.ศ. ใด?',
     targetYear: 2020,
-    yearPenaltyPerDiff: 150,
+    yearPenaltyPerDiff: 100,
     yearFastestBonus: 0,
     rewardCoins: 1000,
-    penaltyCoins: 150,
+    penaltyCoins: 100,
     durationSeconds: 20,
   },
 

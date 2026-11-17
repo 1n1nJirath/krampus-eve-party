@@ -733,8 +733,9 @@ export const ProjectorDisplay: React.FC = () => {
           const safeMax = round.safeRankMax ?? suggested.max;
           const snakeOrder = round.snakeDraftOrder || [];
           const snakeIdx = round.snakeDraftIndex ?? 0;
+          const isSnakeSub = subRound === 'SUB1_SURVIVAL' || subRound === 'SUB2_SNAKE_DRAFT';
           const currentTurnTid =
-            subRound === 'SUB1_SURVIVAL' && round.status === 'ACTIVE' && snakeIdx < snakeOrder.length
+            isSnakeSub && round.status === 'ACTIVE' && snakeIdx < snakeOrder.length
               ? snakeOrder[snakeIdx]
               : null;
 
@@ -753,12 +754,13 @@ export const ProjectorDisplay: React.FC = () => {
 
           return (
           <div className="flex-1 flex flex-col justify-between gap-4">
-            {/* Live Sub-Round Status Banner (Snake Draft Turn / Auction Live Leader) */}
-            {subRound === 'SUB1_SURVIVAL' && snakeOrder.length > 0 && (
+            {/* Live Sub-Round Status Banner (Snake Draft Turn / Polarity 12 Chairs / Auction Live Leader) */}
+            {(subRound === 'SUB1_SURVIVAL' || subRound === 'SUB2_SNAKE_DRAFT') && snakeOrder.length > 0 && (
               <div className="rounded-2xl bg-slate-900/95 border-2 border-amber-400/70 px-5 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-lg">
                 <div className="flex items-center gap-2.5">
                   <span className="px-2.5 py-0.5 rounded-lg bg-amber-400 text-slate-950 font-mono font-black text-xs">
-                    SNAKE DRAFT • คิว {Math.min(snakeIdx + 1, snakeOrder.length)}/{snakeOrder.length}
+                    {subRound === 'SUB2_SNAKE_DRAFT' ? 'SNAKE DRAFT 2' : 'SNAKE DRAFT 1'} • คิว{' '}
+                    {Math.min(snakeIdx + 1, snakeOrder.length)}/{snakeOrder.length}
                   </span>
                   {currentTurnTid ? (
                     <span className="text-base md:text-lg font-black text-white">
@@ -771,7 +773,18 @@ export const ProjectorDisplay: React.FC = () => {
                   )}
                 </div>
                 <div className="text-xs md:text-sm font-bold text-slate-300">
-                  โซนปลอดภัย: อันดับ <span className="text-emerald-300 font-black">#{safeMin} – #{safeMax}</span>
+                  โซนปลอดภัย: อันดับ <span className="text-emerald-300 font-black">#{safeMin} – #{safeMax}</span> (+300 ฿)
+                </div>
+              </div>
+            )}
+
+            {subRound === 'SUB3_POLARITY' && (
+              <div className="rounded-2xl bg-purple-950/75 border-2 border-purple-400 px-5 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+                <div className="flex items-center gap-2.5 text-sm md:text-base font-black text-white">
+                  <span>🪑 เก้าอี้ 12 ตัววางหน้ากระดาน: กลุ่มไหนมั่นใจมานั่งก่อนได้เลย (1 ที่นั่ง/กลุ่ม ห้ามซ้ำ!)</span>
+                </div>
+                <div className="text-xs md:text-sm font-black text-amber-300">
+                  ถูก 1 อันดับ +300 ฿ • ถูก 2 อันดับ +700 ฿
                 </div>
               </div>
             )}
@@ -810,7 +823,7 @@ export const ProjectorDisplay: React.FC = () => {
 
                 // Teams that picked this door in current sub-round
                 const teamsWhoPicked =
-                  subRound === 'SUB1_SURVIVAL'
+                  subRound === 'SUB1_SURVIVAL' || subRound === 'SUB2_SNAKE_DRAFT'
                     ? (round.snakeDraftPicks || [])
                         .filter((p) => p.doorKey === choice.key)
                         .map((p) => p.teamId)
@@ -972,8 +985,8 @@ export const ProjectorDisplay: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Sub-Round 1: Snake Draft Picks */}
-                    {subRound === 'SUB1_SURVIVAL' && (
+                    {/* Sub-Round 1 & 2: Snake Draft Picks */}
+                    {(subRound === 'SUB1_SURVIVAL' || subRound === 'SUB2_SNAKE_DRAFT') && (
                       <div className="py-2.5 px-3 rounded-xl bg-black/55 border border-white/15 text-center space-y-1">
                         {isCurrentSnakeTurn ? (
                           <div className="text-amber-300 font-black text-base animate-pulse">
@@ -1897,7 +1910,7 @@ export const ProjectorDisplay: React.FC = () => {
                     💣 กำลังวางกับดักเวลาใส่คู่แข่ง!
                   </div>
                   <div className="text-sm md:text-base text-slate-200 mt-1">
-                    0 ลูก = เลื่อนทีละ 1 ปี • 1 ลูก = ทีละ 5 ปี • 2+ ลูก = ทีละ 10 ปี (ฝ่ากับดักได้รางวัล x2!)
+                    1 ลูก = บังคับเลขคู่/คี่ • 2 ลูก = ทีละ 5 ปี • 3 ลูก = ทีละ 10 ปี (ฝ่ากับดักสำเร็จรับ x2!)
                   </div>
                 </div>
               ) : (
@@ -2018,7 +2031,7 @@ export const ProjectorDisplay: React.FC = () => {
                       </div>
                       {chronoSub === 'CHRONO_SUB2_TRAP' && (
                         <span className="px-2 py-0.5 rounded-lg bg-black/70 border border-amber-400/50 text-[11px] font-mono font-bold text-amber-300 shrink-0">
-                          Step {step} ปี
+                          {netTraps === 1 ? 'คู่/คี่ (Even/Odd)' : `Step ${step} ปี`}
                         </span>
                       )}
                     </div>
@@ -2034,7 +2047,7 @@ export const ProjectorDisplay: React.FC = () => {
                           </span>
                         </div>
                         <div className="text-sm font-black text-red-300">
-                          โดนเล็ง: {trapsRecv} ลูก (สุทธิ {netTraps} ลูก → Step {step} ปี)
+                          โดนเล็ง: {trapsRecv} ลูก ({netTraps === 1 ? 'บังคับคู่/คี่' : `Step ${step} ปี`})
                         </div>
                         <div className="text-xs font-bold text-emerald-300">
                           {sub ? '✓ วางกับดักครบแล้ว' : '⏳ กำลังเลือกเป้าหมาย...'}

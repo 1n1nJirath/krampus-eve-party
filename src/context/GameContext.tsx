@@ -42,6 +42,22 @@ import {
   TEAM_ORDER,
 } from '../data/initialData';
 import { soundFX } from '../utils/sound';
+import { applyBailoutToState, applySnakePickToState, buildSnakeDraftOrder } from '../logic/doorsLogic';
+import { applyChronoClaimToState, applyChronoTrapsToState } from '../logic/chronoLogic';
+import {
+  applyToyDatasetSelection,
+  applyToyFactoryShuffle,
+  buildToyFactoryAssignments,
+} from '../logic/toyFactoryLogic';
+import {
+  applyLmsBuyItem,
+  applyLmsMinigameAction,
+  applyLmsMiseryPull,
+  applyLmsSoulSacrifice,
+  applyLmsUseJetpack,
+  pushLmsFeed,
+  resolveGhostPossessions,
+} from '../logic/lastManLogic';
 
 const STORAGE_KEY = 'krampus_eve_state_v2';
 const SUPABASE_CONFIG_KEY = 'krampus_supabase_config_v2';
@@ -89,592 +105,6 @@ function normalizeGameState(raw: KrampusGameState): KrampusGameState {
       auctionIteration: raw.round?.auctionIteration || 1,
     },
   };
-}
-
-function buildSnakeDraftOrder(teams: Record<TeamId, Team>): TeamId[] {
-  const registered = TEAM_ORDER.filter((tid) => teams[tid]?.isRegistered);
-  const active = registered.length >= 2 ? registered : [...TEAM_ORDER];
-  return [...active, ...[...active].reverse()];
-}
-
-function applyBailoutToState(next: KrampusGameState, tid: TeamId, now: number): boolean {
-  const team = next.teams?.[tid];
-  if (!team || team.shields > 0) return false;
-  const prevBalances = {
-    team1: next.teams.team1.coins,
-    team2: next.teams.team2.coins,
-    team3: next.teams.team3.coins,
-    team4: next.teams.team4.coins,
-  };
-  const prevShields = {
-    team1: next.teams.team1.shields,
-    team2: next.teams.team2.shields,
-    team3: next.teams.team3.shields,
-    team4: next.teams.team4.shields,
-  };
-  team.coins -= 500;
-  team.shields = 2;
-  team.candles = 2;
-  next.transactions.unshift({
-    id: `tx-${now}-${Math.random().toString(36).slice(2, 6)}`,
-    timestamp: now,
-    teamId: tid,
-    delta: -500,
-    reason: `${team.name} ไถ่เกราะเด็กดี +2 🛡️ (Naughty List Bailout)`,
-    prevBalances,
-    prevShields,
-  });
-  return true;
-}
-
-function applySnakePickToState(
-  next: KrampusGameState,
-  tid: TeamId,
-  doorKey: string,
-  now: number
-): boolean {
-  const r = next.round;
-  if (r.gameStage !== 'POLL_MINE' || r.eightDoorsSubRound !== 'SUB1_SURVIVAL' || r.status !== 'ACTIVE') {
-    return false;
-  }
-  const order =
-    r.snakeDraftOrder && r.snakeDraftOrder.length > 0
-      ? r.snakeDraftOrder
-      : buildSnakeDraftOrder(next.teams);
-  const idx = r.snakeDraftIndex ?? 0;
-  if (idx >= order.length || order[idx] !== tid) return false;
-
-  const doorIdx = r.choices.slice(0, r.choiceCount).findIndex((c) => c.key === doorKey);
-  if (doorIdx === -1 || r.choices[doorIdx].isOpened) return false;
-
-  const door = r.choices[doorIdx];
-  const rank = door.rank ?? doorIdx + 1;
-  const suggested = getSuggestedSafeRange(r.choiceCount, 'SUB1_SURVIVAL');
-  const safeMin = r.safeRankMin ?? suggested.min;
-  const safeMax = r.safeRankMax ?? suggested.max;
-  const isSafe = rank >= safeMin && rank <= safeMax;
-
-  r.choices[doorIdx] = { ...door, isOpened: true };
-  r.lastOpenedDoorKey = doorKey;
-
-  const picks = [...(r.snakeDraftPicks || [])];
-  const prevSafeCount = picks.filter((p) => p.teamId === tid && p.isSafe).length;
-  picks.push({ teamId: tid, doorKey, rank, isSafe });
-  r.snakeDraftPicks = picks;
-  r.snakeDraftOrder = order;
-
-  const team = next.teams[tid];
-  const prevBalances = {
-    team1: next.teams.team1.coins,
-    team2: next.teams.team2.coins,
-    team3: next.teams.team3.coins,
-    team4: next.teams.team4.coins,
-  };
-  const prevShields = {
-    team1: next.teams.team1.shields,
-    team2: next.teams.team2.shields,
-    team3: next.teams.team3.shields,
-    team4: next.teams.team4.shields,
-  };
-
-  let deltaCoins = 0;
-  let reason = '';
-  if (isSafe) {
-    deltaCoins = prevSafeCount >= 1 ? 500 : 300;
-    team.coins += deltaCoins;
-    reason =
-      prevSafeCount >= 1
-        ? `${team.name} เปิดประตู ${doorKey} (#${rank}) ถูกทั้ง 2 บาน! โบนัสรวม +800 ฿`
-        : `${team.name} เปิดประตู ${doorKey} (#${rank}) โซนปลอดภัย +300 ฿`;
-  } else {
-    team.shields = Math.max(0, team.shields - 1);
-    team.candles = team.shields;
-    reason = `${team.name} เปิดประตู ${doorKey} (#${rank}) พลาด! เสียเกราะ -1 🛡️`;
-  }
-
-  next.transactions.unshift({
-    id: `tx-${now}-${Math.random().toString(36).slice(2, 6)}`,
-    timestamp: now,
-    teamId: tid,
-    delta: deltaCoins,
-    reason,
-    prevBalances,
-    prevShields,
-  });
-
-  // Check if all safe-zone doors are now opened OR draft finished
-  const nextIdx = idx + 1;
-  r.snakeDraftIndex = nextIdx;
-  const activeDoors = r.choices.slice(0, r.choiceCount);
-  const allSafeOpened = activeDoors
-    .filter((c) => {
-      const cr = c.rank ?? 99;
-      return cr >= safeMin && cr <= safeMax;
-    })
-    .every((c) => c.isOpened);
-
-  if (allSafeOpened || nextIdx >= order.length) {
-    r.status = 'REVEALED';
-    r.rewardsApplied = true;
-    r.timerStartedAt = null;
-    r.timerRemainingMs = 0;
-  }
-  return true;
-}
-
-function applyChronoTrapsToState(
-  next: KrampusGameState,
-  fromTid: TeamId,
-  allocations: Partial<Record<TeamId, number>>,
-  now: number
-): boolean {
-  const r = next.round;
-  if (
-    r.gameStage !== 'TIMEJINX' ||
-    r.chronoSubRound !== 'CHRONO_SUB2_TRAP' ||
-    r.chronoPhase !== 'TRAP_PLACEMENT' ||
-    r.status !== 'ACTIVE'
-  ) {
-    return false;
-  }
-  const quota = r.chronoQuotas?.[fromTid] ?? 1;
-  const cleaned: Partial<Record<TeamId, number>> = {};
-  let sum = 0;
-  for (const targetTid of TEAM_ORDER) {
-    if (targetTid === fromTid) continue;
-    const count = Math.max(0, Math.floor(Number(allocations[targetTid] ?? 0)));
-    if (count > 0) {
-      cleaned[targetTid] = count;
-      sum += count;
-    }
-  }
-  if (sum > quota) return false;
-
-  r.chronoTrapsPlaced = {
-    ...(r.chronoTrapsPlaced || {}),
-    [fromTid]: cleaned,
-  };
-
-  const elapsedMs = r.timerStartedAt ? Math.max(0, now - r.timerStartedAt) : 0;
-  next.submissions[fromTid] = {
-    teamId: fromTid,
-    value: sum,
-    submittedAt: now,
-    elapsedMs,
-    locked: true,
-  };
-  return true;
-}
-
-function applyChronoClaimToState(
-  next: KrampusGameState,
-  tid: TeamId,
-  year: number,
-  now: number
-): boolean {
-  const r = next.round;
-  if (
-    r.gameStage !== 'TIMEJINX' ||
-    r.chronoSubRound !== 'CHRONO_SUB3_FAST_FINGER' ||
-    r.status !== 'ACTIVE'
-  ) {
-    return false;
-  }
-  if (next.submissions[tid]) return false;
-  const minY = r.yearMin ?? 2012;
-  const maxY = r.yearMax ?? 2021;
-  if (year < minY || year > maxY) return false;
-
-  const claims = { ...(r.chronoFastFingerClaims || {}) };
-  const key = String(year);
-  if (claims[key]) return false;
-
-  claims[key] = tid;
-  r.chronoFastFingerClaims = claims;
-
-  const elapsedMs = r.timerStartedAt ? Math.max(0, now - r.timerStartedAt) : 0;
-  next.submissions[tid] = {
-    teamId: tid,
-    value: year,
-    submittedAt: now,
-    elapsedMs,
-    locked: true,
-  };
-  return true;
-}
-
-function buildToyFactoryAssignments(
-  roster: string[],
-  items: ToyFactoryItem[],
-  prevAssignments?: ToyFactoryAssignment[]
-): ToyFactoryAssignment[] {
-  const cleanRoster = roster.map((s) => s.trim()).filter(Boolean);
-  const members: string[] = [];
-  for (let i = 0; i < items.length; i++) {
-    if (cleanRoster.length > 0) {
-      members.push(cleanRoster[i % cleanRoster.length]);
-    } else {
-      members.push(`สมาชิก #${i + 1}`);
-    }
-  }
-  const shuffledItems = [...items];
-  for (let i = shuffledItems.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffledItems[i], shuffledItems[j]] = [shuffledItems[j], shuffledItems[i]];
-  }
-  const prevByMember = new Map((prevAssignments || []).map((a) => [a.memberName, a.itemId]));
-  return members.map((memberName, idx) => {
-    const item = shuffledItems[idx];
-    const prevId = prevByMember.get(memberName);
-    return {
-      memberName,
-      itemId: item.id,
-      label: item.label,
-      realValue: item.realValue,
-      isMystery: Boolean(item.isMystery),
-      mysteryClue: item.mysteryClue,
-      changedOnShuffle: prevAssignments ? prevId !== item.id : false,
-    };
-  });
-}
-
-function applyToyDatasetSelection(
-  next: KrampusGameState,
-  teamId: TeamId,
-  datasetId: string,
-  now: number
-): boolean {
-  const tf = next.round.toyFactory;
-  if (!tf || tf.phase !== 'TOPIC_SELECT') return false;
-  const currentPair = tf.pairings[tf.roundIndex - 1];
-  if (!currentPair || currentPair.sortingTeamId !== teamId) return false;
-  if (tf.usedDatasetIds.includes(datasetId)) return false;
-
-  const datasets = next.toyFactoryDatasets || DEFAULT_TOY_FACTORY_DATASETS;
-  const ds = datasets.find((d) => d.id === datasetId);
-  if (!ds) return false;
-
-  const holdingTeam = next.teams[currentPair.holdingTeamId];
-  const assignments = buildToyFactoryAssignments(holdingTeam?.roster || [], ds.items);
-
-  tf.selectedDatasetId = datasetId;
-  tf.usedDatasetIds = [...tf.usedDatasetIds, datasetId];
-  tf.phase = 'PREP_10S';
-  tf.prepEndsAt = now + 10000;
-  tf.assignments = assignments;
-  next.round.title = `THE TOY FACTORY CHAOS • รอบที่ ${tf.roundIndex}/${tf.pairings.length}`;
-  next.round.subtitle = `${ds.title} (${ds.direction})`;
-  next.round.questionText = `${ds.title} — ${ds.direction}`;
-  return true;
-}
-
-function applyToyFactoryShuffle(
-  next: KrampusGameState,
-  spectatorTeamId: TeamId,
-  now: number
-): boolean {
-  const tf = next.round.toyFactory;
-  if (!tf || tf.phase !== 'ACTION' || next.round.status !== 'ACTIVE') return false;
-  const currentPair = tf.pairings[tf.roundIndex - 1];
-  if (!currentPair) return false;
-  if (
-    spectatorTeamId === currentPair.sortingTeamId ||
-    spectatorTeamId === currentPair.holdingTeamId
-  ) {
-    return false;
-  }
-  if (tf.shuffleUsedThisRound || tf.shuffleUsedByTeams.includes(spectatorTeamId)) {
-    return false;
-  }
-  const elapsed = next.round.timerStartedAt ? Math.max(0, now - next.round.timerStartedAt) : 0;
-  const remainingMs = Math.max(0, next.round.durationSeconds * 1000 - elapsed);
-  if (remainingMs <= 15000) return false;
-
-  const datasets = next.toyFactoryDatasets || DEFAULT_TOY_FACTORY_DATASETS;
-  const ds = datasets.find((d) => d.id === tf.selectedDatasetId);
-  if (!ds) return false;
-
-  const holdingTeam = next.teams[currentPair.holdingTeamId];
-  tf.assignments = buildToyFactoryAssignments(
-    holdingTeam?.roster || [],
-    ds.items,
-    tf.assignments
-  );
-  tf.shuffleUsedThisRound = true;
-  tf.shuffleUsedByTeams = [...tf.shuffleUsedByTeams, spectatorTeamId];
-  tf.phase = 'SHUFFLE_BUFFER_10S';
-  tf.bufferEndsAt = now + 10000;
-
-  next.round.timerStartedAt = null;
-  next.round.timerRemainingMs = remainingMs;
-  next.round.status = 'LOCKED';
-  return true;
-}
-
-function pushLmsFeed(next: KrampusGameState, now: number, icon: string, message: string) {
-  const lms = next.round.lastMan;
-  if (!lms) return;
-  lms.killFeed = [
-    {
-      id: `kf-${now}-${Math.random().toString(36).slice(2, 6)}`,
-      timestamp: now,
-      icon,
-      message,
-    },
-    ...(lms.killFeed || []),
-  ].slice(0, 20);
-}
-
-function applyLmsSoulSacrifice(next: KrampusGameState, teamId: TeamId, now: number): boolean {
-  const lms = next.round.lastMan;
-  const ts = lms?.teamStates?.[teamId];
-  const team = next.teams[teamId];
-  if (!lms || !ts || !team || ts.isGhost || ts.hearts <= 1 || !lms.phase.startsWith('PART1_')) {
-    return false;
-  }
-  ts.hearts -= 1;
-  team.coins += 500;
-  pushLmsFeed(next, now, '💔', `${team.icon} ${team.name} ขายวิญญาณ -1 ❤️ แลกเงินสด +500 ฿!`);
-  return true;
-}
-
-function applyLmsMiseryPull(
-  next: KrampusGameState,
-  teamId: TeamId,
-  targetTeamId: TeamId,
-  now: number
-): boolean {
-  const lms = next.round.lastMan;
-  const targetTs = lms?.teamStates?.[targetTeamId];
-  const targetTeam = next.teams[targetTeamId];
-  const actorTeam = next.teams[teamId];
-  if (
-    !lms ||
-    lms.phase !== 'PART1_MISERY_PULL' ||
-    lms.miseryPullTeamId !== teamId ||
-    !targetTs ||
-    targetTs.isGhost ||
-    targetTs.inKillingFloor
-  ) {
-    return false;
-  }
-  targetTs.inKillingFloor = true;
-  targetTeam.isInKillingFloor = true;
-  lms.phase = 'PART1_BLACK_MARKET';
-  lms.miseryPullTeamId = null;
-  lms.miseryEndsAt = null;
-  next.round.status = 'ACTIVE';
-  next.round.durationSeconds = 25;
-  next.round.timerStartedAt = now;
-  next.round.timerRemainingMs = null;
-  pushLmsFeed(
-    next,
-    now,
-    '🪝',
-    `${actorTeam.icon} ${actorTeam.name} ลาก ${targetTeam.icon} ${targetTeam.name} ตกลงลานประหารด้วยกัน!`
-  );
-  return true;
-}
-
-function applyLmsBuyItem(
-  next: KrampusGameState,
-  teamId: TeamId,
-  itemId: LastManShopItemId,
-  targetTeamId: TeamId | undefined,
-  now: number
-): boolean {
-  const lms = next.round.lastMan;
-  const buyerTs = lms?.teamStates?.[teamId];
-  const buyerTeam = next.teams[teamId];
-  const meta = BLACK_MARKET_ITEMS.find((m) => m.id === itemId);
-  if (
-    !lms ||
-    lms.phase !== 'PART1_BLACK_MARKET' ||
-    next.round.status !== 'ACTIVE' ||
-    !buyerTs ||
-    !buyerTeam ||
-    buyerTs.isGhost ||
-    buyerTs.hearts <= 0 ||
-    !meta ||
-    buyerTeam.coins < meta.price ||
-    (lms.roundStock[itemId] || 0) <= 0
-  ) {
-    return false;
-  }
-
-  const curseKeys = Object.keys(CURSE_CATALOG) as LastManCurseId[];
-  let ok = false;
-  let icon = meta.icon;
-  let msg = '';
-
-  if (itemId === 'CURSE_BOX' && targetTeamId) {
-    const tTs = lms.teamStates[targetTeamId];
-    const tTeam = next.teams[targetTeamId];
-    if (tTs && !tTs.isGhost && tTs.inKillingFloor) {
-      ok = true;
-      const curse = curseKeys[Math.floor(Math.random() * curseKeys.length)];
-      const curseMeta = CURSE_CATALOG[curse];
-      if (tTs.mirrorShield) {
-        tTs.mirrorShield = false;
-        buyerTs.activeCurse = curse;
-        icon = '🪞';
-        msg = `${tTeam.icon} ${tTeam.name} กางโล่กระจกสะท้อนกล่องคำสาป! ${buyerTeam.icon} ${buyerTeam.name} โดน ${curseMeta.icon} ${curseMeta.name} แทน!`;
-      } else {
-        tTs.activeCurse = curse;
-        msg = `${buyerTeam.icon} ${buyerTeam.name} ส่งกล่องคำสาปใส่ ${tTeam.icon} ${tTeam.name} -> ติด ${curseMeta.icon} ${curseMeta.name}!`;
-      }
-    }
-  } else if (itemId === 'SNIPER_SHOT' && targetTeamId && targetTeamId !== teamId) {
-    const tTs = lms.teamStates[targetTeamId];
-    const tTeam = next.teams[targetTeamId];
-    if (tTs && !tTs.isGhost) {
-      ok = true;
-      if (tTs.mirrorShield) {
-        tTs.mirrorShield = false;
-        buyerTs.hearts = Math.max(0, buyerTs.hearts - 1);
-        if (buyerTs.hearts <= 0) buyerTs.isGhost = true;
-        icon = '🪞';
-        msg = `${tTeam.icon} ${tTeam.name} สะท้อนกระสุน! ${buyerTeam.icon} ${buyerTeam.name} โดนยิงเอง -1 ❤️!`;
-      } else {
-        tTs.hearts = Math.max(0, tTs.hearts - 1);
-        if (tTs.hearts <= 0) tTs.isGhost = true;
-        msg = `${buyerTeam.icon} ${buyerTeam.name} จ้างมือปืนยิง ${tTeam.icon} ${tTeam.name} (-1 ❤️)${
-          tTs.isGhost ? ' 💀 กลายเป็นวิญญาณ!' : ''
-        }`;
-      }
-    }
-  } else if (itemId === 'MIRROR_SHIELD' && !buyerTs.mirrorShield) {
-    ok = true;
-    buyerTs.mirrorShield = true;
-    msg = `${buyerTeam.icon} ${buyerTeam.name} กางโล่กระจกสะท้อนรอบนี้!`;
-  } else if (itemId === 'HELL_CHAINS' && lms.gameStock.HELL_CHAINS > 0) {
-    ok = true;
-    lms.gameStock.HELL_CHAINS -= 1;
-    TEAM_ORDER.forEach((tid) => {
-      const s = lms.teamStates[tid];
-      if (!s.isGhost && !s.inKillingFloor) {
-        s.inKillingFloor = true;
-        next.teams[tid].isInKillingFloor = true;
-      }
-    });
-    msg = `${buyerTeam.icon} ${buyerTeam.name} ใช้โซ่ตรวนลากทุกทีมลงนรกยกแก๊ง!!`;
-  } else if (itemId === 'EXECUTIONER_BRIBE' && buyerTs.inKillingFloor) {
-    ok = true;
-    buyerTs.inKillingFloor = false;
-    buyerTeam.isInKillingFloor = false;
-    msg = `${buyerTeam.icon} ${buyerTeam.name} ยัดสินบนเพชฌฆาตหนีขึ้นโซนปลอดภัย!`;
-  } else if (itemId === 'REVIVE_POTION' && buyerTs.hearts < 4) {
-    ok = true;
-    buyerTs.hearts = Math.min(4, buyerTs.hearts + 1);
-    msg = `${buyerTeam.icon} ${buyerTeam.name} ดื่มยาชุบชีวิต (+1 ❤️ -> ${buyerTs.hearts} ดวง)`;
-  } else if (itemId === 'JETPACK' && lms.gameStock.JETPACK > 0) {
-    ok = true;
-    lms.gameStock.JETPACK -= 1;
-    buyerTs.jetpacks += 1;
-    msg = `${buyerTeam.icon} ${buyerTeam.name} ซื้อพลุไอพ่นหนีตายเก็บเข้ากระเป๋า!`;
-  }
-
-  if (!ok) return false;
-  buyerTeam.coins -= meta.price;
-  lms.roundStock[itemId] -= 1;
-  pushLmsFeed(next, now, icon, msg);
-  return true;
-}
-
-function applyLmsMinigameAction(
-  next: KrampusGameState,
-  teamId: TeamId,
-  payload: {
-    subType: string;
-    chalices?: number[];
-    chalice?: number;
-    choice?: 'SPLIT' | 'STEAL';
-    vote?: 'SPARE' | 'EXECUTE';
-  }
-): boolean {
-  const lms = next.round.lastMan;
-  if (!lms || lms.phase !== 'PART1_MINIGAME') return false;
-  if (payload.subType === 'POISON_SET' && Array.isArray(payload.chalices)) {
-    const nextSet = new Set(lms.poisonedChalices || []);
-    payload.chalices.forEach((c) => {
-      if (nextSet.size < 2 && c >= 1 && c <= 4) nextSet.add(c);
-    });
-    lms.poisonedChalices = Array.from(nextSet);
-  } else if (payload.subType === 'CHALICE_PICK') {
-    lms.chalicePicks = { ...lms.chalicePicks, [teamId]: Number(payload.chalice) };
-  } else if (payload.subType === 'SPLIT_STEAL' && payload.choice) {
-    lms.splitStealPicks = { ...lms.splitStealPicks, [teamId]: payload.choice };
-  } else if (payload.subType === 'DARE_VOTE' && payload.vote) {
-    lms.dareVotes = { ...lms.dareVotes, [teamId]: payload.vote };
-  } else if (payload.subType === 'DEATH_DICE') {
-    if (!lms.teamDiceRolls[teamId]) {
-      lms.teamDiceRolls = {
-        ...lms.teamDiceRolls,
-        [teamId]: Math.floor(Math.random() * 6) + 1,
-      };
-    }
-  }
-  return true;
-}
-
-function resolveGhostPossessions(next: KrampusGameState, now: number) {
-  const lms = next.round.lastMan;
-  if (!lms) return;
-  const active = getActiveTeamIds(next.teams);
-  for (const ghostId of active) {
-    const gState = lms.teamStates[ghostId];
-    if (!gState.isGhost) continue;
-    // Find lowest living team at or below ghost's step
-    const victimId = active
-      .filter((tid) => !lms.teamStates[tid].isGhost && gState.step >= lms.teamStates[tid].step)
-      .sort((a, b) => lms.teamStates[a].step - lms.teamStates[b].step)[0];
-    if (victimId) {
-      const vState = lms.teamStates[victimId];
-      const ghostStep = gState.step;
-      const victimStep = vState.step;
-      gState.isGhost = false;
-      gState.hearts = Math.max(1, vState.hearts);
-      gState.step = Math.max(ghostStep, victimStep);
-      vState.isGhost = true;
-      vState.hearts = 0;
-      vState.step = Math.min(ghostStep, victimStep);
-      vState.jetpacks = 0;
-      pushLmsFeed(
-        next,
-        now,
-        '👻',
-        `วิญญาณ ${next.teams[ghostId].icon} ${next.teams[ghostId].name} พุ่งเข้าสิงร่าง ${next.teams[victimId].icon} ${next.teams[victimId].name} สลับชีวิตสำเร็จ!!`
-      );
-    }
-  }
-}
-
-function applyLmsUseJetpack(next: KrampusGameState, teamId: TeamId, now: number): boolean {
-  const lms = next.round.lastMan;
-  const ts = lms?.teamStates?.[teamId];
-  const team = next.teams[teamId];
-  if (
-    !lms ||
-    !ts ||
-    ts.isGhost ||
-    ts.jetpacks <= 0 ||
-    (lms.phase !== 'PART2_CLUE' && lms.phase !== 'PART2_QUESTION' && lms.phase !== 'PART2_REVEAL')
-  ) {
-    return false;
-  }
-  ts.jetpacks -= 1;
-  ts.step = Math.min(25, ts.step + 3);
-  pushLmsFeed(
-    next,
-    now,
-    '🚀',
-    `${team.icon} ${team.name} จุดพลุไอพ่นพุ่งข้าม +3 ขั้น (ถึงขั้น ${ts.step})!`
-  );
-  if (ts.step >= 25 && !lms.winnerTeamId) {
-    lms.winnerTeamId = teamId;
-    lms.phase = 'CHAMPION';
-  }
-  return true;
 }
 
 interface GameContextValue {
@@ -2272,7 +1702,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const targetPresetId =
             subRound === 'SUB1_SURVIVAL'
               ? 'pm-1'
-              : subRound === 'SUB2_AUCTION'
+              : subRound === 'SUB2_SNAKE_DRAFT' || subRound === 'SUB2_AUCTION'
               ? 'pm-2'
               : 'pm-3';
           const matchedPreset = prev.presets.find((p) => p.id === targetPresetId);
@@ -2310,15 +1740,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         const subtitles: Record<EightDoorsSubRound, string> = {
-          SUB1_SURVIVAL: `ด่านย่อยที่ 1: Snake Draft (ทีมละ 2 บาน) — ค้นหาประตูอันดับ ${safeMin}-${safeMax} (+300 ฿/บาน, ถูก 2 บานรับ +800 ฿ / พลาด -1 🛡️)`,
+          SUB1_SURVIVAL: `ด่านย่อยที่ 1: Snake Draft 1 (1-2-3-4-4-3-2-1) — ค้นหาประตูอันดับ ${safeMin}-${safeMax} (+300 ฿ / พลาด -1 🛡️ / เปิดครบ 8 บานไม่เจอคำตอบ -200 ฿)`,
+          SUB2_SNAKE_DRAFT: `ด่านย่อยที่ 2: Snake Draft 2 (4-3-2-1-1-2-3-4) — ค้นหาประตูอันดับ ${safeMin}-${safeMax} (+300 ฿ / พลาด -1 🛡️ / เปิดครบ 8 บานไม่เจอคำตอบ -200 ฿)`,
           SUB2_AUCTION: `ด่านย่อยที่ 2 (รอบ 2.${iter} ประมูลชิงสิทธิ์): บิดเพิ่มทีละ 50 ฿ เพื่อเปิดประตูอันดับ ${safeMin}-${safeMax} (+700 ฿) • ไม่บิดเลยโดน Coward's Tax -100 ฿!`,
           SUB2_DOOR_AND_BET: `ด่านย่อยที่ 2 (รอบ 2.${iter} เลือกประตู & แทงข้าง): ทีมชนะเปิดประตู (+700 ฿ / -1 🛡️) • ทีมอื่นแทงข้าง (+200 ฿ / -100 ฿)!`,
-          SUB3_POLARITY: `ด่านย่อยที่ 3: วัดใจขั้วตรงข้าม — เลือก 2 ประตู: อันดับ #1 และ อันดับ #${choiceCount} (ถูกคู่ +1,000 ฿ / ถูก 1 +400 ฿ / ผิดคู่ -300 ฿ & -2 🛡️)`,
+          SUB3_POLARITY: `ด่านย่อยที่ 3: วัดใจขั้วตรงข้าม (#1 & #${choiceCount}) + เก้าอี้ 12 ตัวหน้ากระดาน (1 ที่นั่ง/กลุ่ม ห้ามซ้ำ) — ถูก 1 อันดับ +300 ฿ / ถูก 2 อันดับ +700 ฿`,
         };
 
         const duration = subRound === 'SUB2_AUCTION' ? 30 : 45;
         const snakeOrder =
-          subRound === 'SUB1_SURVIVAL' ? buildSnakeDraftOrder(prev.teams) : [];
+          subRound === 'SUB1_SURVIVAL'
+            ? buildSnakeDraftOrder(prev.teams, false)
+            : subRound === 'SUB2_SNAKE_DRAFT'
+            ? buildSnakeDraftOrder(prev.teams, true)
+            : [];
 
         return {
           ...prev,
@@ -2549,7 +1984,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Persistent 8-Door Board reveal behavior for Game 1 (POLL_MINE = The 8 Doors of Krampus)
       if (r.gameStage === 'POLL_MINE') {
         const subRound = r.eightDoorsSubRound || 'SUB1_SURVIVAL';
-        if (subRound === 'SUB1_SURVIVAL') {
+        if (subRound === 'SUB1_SURVIVAL' || subRound === 'SUB2_SNAKE_DRAFT') {
           // Open ONLY the doors selected by the 4 teams
           const pickedKeys = new Set(
             TEAM_ORDER.map((tid) => prev.submissions[tid]?.value).filter(Boolean).map(String)
@@ -2788,8 +2223,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (r.gameStage === 'POLL_MINE' && r.inputMode === 'MODE_A_CHOICE') {
           const subRound = r.eightDoorsSubRound || 'SUB1_SURVIVAL';
 
-          if (subRound === 'SUB1_SURVIVAL') {
-            // Snake Draft คำนวณคะแนนทันทีตอนกดเปิดประตูแต่ละบานแล้ว
+          if (subRound === 'SUB1_SURVIVAL' || subRound === 'SUB2_SNAKE_DRAFT') {
+            // Snake Draft คำนวณคะแนนทันทีตอนกดเปิดประตูแต่ละบานแล้ว (+300 ฿/บาน)
             const picks = r.snakeDraftPicks || [];
             if (picks.length > 0) {
               for (const tid of TEAM_ORDER) {
@@ -2797,7 +2232,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 if (teamPicks.length === 0) continue;
                 const safeCount = teamPicks.filter((p) => p.isSafe).length;
                 const wrongCount = teamPicks.length - safeCount;
-                const earned = safeCount >= 2 ? 800 : safeCount * 300;
+                const earned = safeCount * 300;
                 const doorsStr = teamPicks.map((p) => `${p.doorKey}(#${p.rank})`).join(', ');
                 summary.push(
                   `${nextTeams[tid].name}: เปิด ${doorsStr} • ได้ +${earned} ฿${
@@ -2806,7 +2241,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 );
               }
             } else {
-              summary.push('ด่านย่อยที่ 1 (Snake Draft): ยังไม่มีการเปิดประตู');
+              summary.push('ด่านย่อย (Snake Draft): ยังไม่มีการเปิดประตู');
             }
           } else if (subRound === 'SUB2_DOOR_AND_BET') {
             // ด่านย่อยที่ 2 (Phase 3 เฉลยผล):
@@ -2892,24 +2327,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const hits = (hit1 ? 1 : 0) + (hitLast ? 1 : 0);
 
               if (hits === 2) {
-                nextTeams[tid].coins += 1000;
+                nextTeams[tid].coins += 700;
                 summary.push(
-                  `${nextTeams[tid].name}: ทายถูกทั้งอันดับ #1 (${pick1}) และ #${lastRank} (${pickLast})! รับโบนัสใหญ่ (+1,000 ฿)`
+                  `${nextTeams[tid].name}: ทายถูกทั้งอันดับ #1 (${pick1}) และ #${lastRank} (${pickLast})! รับ +700 ฿`
                 );
               } else if (hits === 1) {
-                nextTeams[tid].coins += 400;
+                nextTeams[tid].coins += 300;
                 summary.push(
                   `${nextTeams[tid].name}: ทายถูก 1 ประตู (${
                     hit1 ? `#1=${pick1}` : `#${lastRank}=${pickLast}`
-                  }) (+400 ฿ ไม่เสียเกราะ)`
+                  }) (+300 ฿)`
                 );
               } else {
-                nextTeams[tid].coins -= 300;
-                const newShields = Math.max(0, nextTeams[tid].shields - 2);
-                nextTeams[tid].shields = newShields;
-                nextTeams[tid].candles = newShields;
                 summary.push(
-                  `${nextTeams[tid].name}: ทายผิดทั้ง 2 ประตู (#1=${pick1}, #${lastRank}=${pickLast})! (-300 ฿ และเสียเกราะเด็กดี -2 🛡️ เหลือ ${newShields} ดวง)`
+                  `${nextTeams[tid].name}: ทายผิดทั้ง 2 ประตู (#1=${pick1}, #${lastRank}=${pickLast}) (0 ฿)`
                 );
               }
             }
