@@ -345,14 +345,14 @@ export const PhaseBriefingModal: React.FC<PhaseBriefingModalProps> = ({
         {/* Footer CTA */}
         <div className="px-5 md:px-7 py-4 bg-[#D8C6B5]/70 border-t-[3px] border-[#352D45] flex flex-wrap items-center justify-between gap-3">
           <span className="text-xs md:text-sm font-bold text-[#352D45]">
-            💡 อธิบายกติกาและลองข้อ Demo ให้ครบทุกทีมก่อนเริ่มจับเวลาจริง
+            💡 อธิบายกติกาและลองข้อ Demo ให้ครบทุกทีม (เวลายังไม่เดินจนกว่า Host จะกดเริ่มเกม)
           </span>
           <button
             onClick={onStartGame}
             className="px-6 py-3 rounded-2xl bg-[#536B59] hover:bg-[#435848] border-[3px] border-[#352D45] shadow-[0_5px_0_#352D45] active:translate-y-1 active:shadow-none text-[#EFE2D2] font-manor-display text-lg font-bold flex items-center gap-2.5 transition-all"
           >
             <Play className="w-5 h-5 fill-current" />
-            <span>เข้าใจกติกาแล้ว — เข้าสู่หน้าเล่นเกมจริง</span>
+            <span>ปิดหน้า Demo ➔ เข้าสู่หน้าเตรียมพร้อม</span>
           </button>
         </div>
       </div>

@@ -24,6 +24,7 @@ import {
   Shield,
   Shuffle,
   Map,
+  BookOpen,
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import {
@@ -537,7 +538,7 @@ export const AdminControl: React.FC = () => {
                             </div>
                           )}
 
-                          {/* Quick simulate buttons for Mode A */}
+                          {/* Quick simulate buttons for Mode A & Mode B */}
                           {round.inputMode === 'MODE_A_CHOICE' && (
                             <div className="flex flex-wrap gap-1 justify-center">
                               {round.choices.slice(0, round.choiceCount).map((c) => (
@@ -548,6 +549,24 @@ export const AdminControl: React.FC = () => {
                                   title={`ส่งข้อ ${c.key} แทน Team ${t.number}`}
                                 >
                                   {c.key}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {round.inputMode === 'MODE_B_YEAR' && (
+                            <div className="flex flex-wrap gap-1 justify-center">
+                              {[
+                                { label: `ตรง (${round.targetYear})`, val: round.targetYear },
+                                { label: `+1 (${round.targetYear + 1})`, val: round.targetYear + 1 },
+                                { label: `-5 (${round.targetYear - 5})`, val: round.targetYear - 5 },
+                              ].map((opt) => (
+                                <button
+                                  key={opt.label}
+                                  onClick={() => submitTeamAnswer(tid, opt.val)}
+                                  className="px-2 py-0.5 rounded bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 font-mono text-[11px] font-bold"
+                                  title={`ส่งปี ${opt.val} แทน Team ${t.number}`}
+                                >
+                                  {opt.label}
                                 </button>
                               ))}
                             </div>
@@ -591,6 +610,85 @@ export const AdminControl: React.FC = () => {
                 </div>
 
                 <CountdownTimer size="md" />
+              </div>
+
+              {/* ========================================================
+                  SIMPLIFIED 4-STEP HOST WORKFLOW BAR
+              ======================================================== */}
+              <div className="my-4 p-4 rounded-2xl bg-gradient-to-r from-[#241e30] via-slate-900 to-[#1f2937] border-2 border-[#E5B86C]/60 space-y-3 shadow-lg">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-[#E5B86C]" />
+                    <span className="font-extrabold text-sm text-[#EFE2D2]">
+                      ลำดับการคุมเกม 4 ขั้นตอนง่ายๆ (ควบคุมหน้าจอ Projector & คะแนนในคลิกเดียว)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {round.briefingOpen ? (
+                      <span className="px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 font-bold text-xs">
+                        📖 หน้าจอ /display กำลังเปิดหน้า Demo กติกา
+                      </span>
+                    ) : round.status === 'IDLE' ? (
+                      <span className="px-2.5 py-0.5 rounded-full bg-slate-700 text-[#EFE2D2] font-bold text-xs">
+                        ⏸️ หน้าจอ /display กำลังรอ Standby (ซ่อนโจทย์ • ยังไม่เดินเวลา)
+                      </span>
+                    ) : round.status === 'ACTIVE' ? (
+                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-bold text-xs">
+                        🔥 กำลังเปิดโจทย์ & จับเวลา
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-0.5 rounded-full bg-[#E5B86C] text-[#352D45] font-bold text-xs">
+                        ✨ {round.rewardsApplied ? 'เฉลยและอัปเดตคะแนนแล้ว' : `สถานะ: ${round.status}`}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => updateRoundConfig({ briefingOpen: !round.briefingOpen })}
+                    className={`py-2.5 px-3 rounded-xl border-2 font-bold text-xs flex items-center justify-center gap-1.5 transition ${
+                      round.briefingOpen
+                        ? 'bg-[#E5B86C] text-[#352D45] border-white shadow'
+                        : 'bg-slate-800 hover:bg-slate-700 text-[#EFE2D2] border-slate-600'
+                    }`}
+                  >
+                    <BookOpen className="w-4 h-4 shrink-0" />
+                    <span>{round.briefingOpen ? '1. ปิดหน้า Demo ➔ Standby' : '1. เปิดหน้ากติกา & Demo'}</span>
+                  </button>
+
+                  <div className="py-2 px-3 rounded-xl bg-slate-950/80 border border-slate-700 text-xs flex flex-col justify-center">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">2. ข้อปัจจุบัน (ยังไม่เดินเวลาจนกดเริ่ม)</span>
+                    <span className="font-extrabold text-amber-300 truncate">{round.questionText}</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => startTimer()}
+                    className={`py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-lg transition ${
+                      round.status === 'IDLE' ? 'ring-2 ring-emerald-300 animate-pulse' : ''
+                    }`}
+                  >
+                    <Play className="w-4 h-4 fill-current shrink-0" />
+                    <span>3. เปิดโจทย์ & เริ่มจับเวลา</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const res = revealRound();
+                      if (res?.summary && res.summary.length > 0) {
+                        setScoringFeedback(res.summary);
+                        setTimeout(() => setScoringFeedback(null), 8000);
+                      }
+                    }}
+                    className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-300 hover:brightness-110 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 shadow-lg transition"
+                  >
+                    <Eye className="w-4 h-4 shrink-0" />
+                    <span>4. เฉลย & อัปเดตคะแนนทันที!</span>
+                  </button>
+                </div>
               </div>
 
               {/* ========================================================
@@ -1010,11 +1108,17 @@ export const AdminControl: React.FC = () => {
                 </button>
 
                 <button
-                  onClick={revealRound}
+                  onClick={() => {
+                    const res = revealRound();
+                    if (res?.summary && res.summary.length > 0) {
+                      setScoringFeedback(res.summary);
+                      setTimeout(() => setScoringFeedback(null), 8000);
+                    }
+                  }}
                   className="py-3.5 px-4 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500 hover:brightness-110 text-slate-950 font-black text-base flex items-center justify-center gap-2 shadow-[0_0_25px_rgba(234,179,8,0.5)] transition"
                 >
                   <Eye className="w-5 h-5" />
-                  <span>เฉลยขึ้นจอ (Reveal!)</span>
+                  <span>เฉลยขึ้นจอ & คิดคะแนน (Reveal!)</span>
                 </button>
               </div>
 

@@ -107,6 +107,344 @@ function normalizeGameState(raw: KrampusGameState): KrampusGameState {
   };
 }
 
+/**
+ * Pure helper to compute coin & shield rewards/penalties for a finished round.
+ * Used both when Host clicks "Reveal!" (1-click auto-score) and "คำนวณเหรียญอัตโนมัติ".
+ * Guards against double-application via `prev.round.rewardsApplied`.
+ */
+export function computeRoundScoring(
+  prev: KrampusGameState,
+  quixortOutcome?: 'PASS' | 'FAIL'
+): { nextState: KrampusGameState; summary: string[] } {
+  const summary: string[] = [];
+  if (prev.round.rewardsApplied) {
+    return { nextState: prev, summary };
+  }
+
+  const prevBalances: Record<TeamId, number> = {
+    team1: prev.teams.team1.coins,
+    team2: prev.teams.team2.coins,
+    team3: prev.teams.team3.coins,
+    team4: prev.teams.team4.coins,
+  };
+  const prevShields: Record<TeamId, number> = {
+    team1: prev.teams.team1.shields,
+    team2: prev.teams.team2.shields,
+    team3: prev.teams.team3.shields,
+    team4: prev.teams.team4.shields,
+  };
+  const nextTeams = structuredClone(prev.teams);
+  const r = prev.round;
+  const subs = prev.submissions;
+  let nextChoices = [...r.choices];
+  let lastOpenedDoorKey = r.lastOpenedDoorKey;
+
+  // ============================================================
+  // GAME 1: THE 8 DOORS OF KRAMPUS (3 SUB-ROUNDS)
+  // ============================================================
+  if (r.gameStage === 'POLL_MINE' && r.inputMode === 'MODE_A_CHOICE') {
+    const subRound = r.eightDoorsSubRound || 'SUB1_SURVIVAL';
+
+    if (subRound === 'SUB1_SURVIVAL' || subRound === 'SUB2_SNAKE_DRAFT') {
+      const picks = r.snakeDraftPicks || [];
+      if (picks.length > 0) {
+        for (const tid of TEAM_ORDER) {
+          const teamPicks = picks.filter((p) => p.teamId === tid);
+          if (teamPicks.length === 0) continue;
+          const safeCount = teamPicks.filter((p) => p.isSafe).length;
+          const wrongCount = teamPicks.length - safeCount;
+          const earned = safeCount * 300;
+          const doorsStr = teamPicks.map((p) => `${p.doorKey}(#${p.rank})`).join(', ');
+          summary.push(
+            `${nextTeams[tid].name}: เปิด ${doorsStr} • ได้ +${earned} ฿${
+              wrongCount > 0 ? ` / เสีย -${wrongCount} 🛡️` : ''
+            }`
+          );
+        }
+      } else {
+        summary.push('ด่านย่อย (Snake Draft): ยังไม่มีการเปิดประตู');
+      }
+    } else if (subRound === 'SUB2_DOOR_AND_BET') {
+      const suggested = getSuggestedSafeRange(r.choiceCount, 'SUB2_DOOR_AND_BET');
+      const safeMin = r.safeRankMin ?? suggested.min;
+      const safeMax = r.safeRankMax ?? suggested.max;
+      const winnerTid = r.auctionWinnerTeamId;
+      const winnerSub = winnerTid ? subs[winnerTid] : undefined;
+      const doorKey = String(winnerSub?.value || r.lastOpenedDoorKey || '');
+      const door = nextChoices.find((c) => c.key === doorKey);
+      const rank = door?.rank ?? r.choiceCount;
+      const isSuccess = rank >= safeMin && rank <= safeMax;
+
+      if (doorKey) {
+        lastOpenedDoorKey = doorKey;
+        nextChoices = nextChoices.map((c) =>
+          c.key === doorKey ? { ...c, isOpened: true } : c
+        );
+      }
+
+      if (winnerTid) {
+        if (isSuccess) {
+          if (r.cowardFreePick) {
+            summary.push(
+              `${nextTeams[winnerTid].name} (เปิดฟรี Coward's Tax): เปิดประตู ${doorKey} เจออันดับ #${rank} สำเร็จ! (ได้ 0 ฿ ตามกติกา Coward's Tax)`
+            );
+          } else {
+            nextTeams[winnerTid].coins += 700;
+            summary.push(
+              `${nextTeams[winnerTid].name} (ผู้ชนะประมูล): เปิดประตู ${doorKey} เจออันดับ #${rank} สำเร็จ! (+700 ฿)`
+            );
+          }
+        } else {
+          const newShields = Math.max(0, nextTeams[winnerTid].shields - 1);
+          nextTeams[winnerTid].shields = newShields;
+          nextTeams[winnerTid].candles = newShields;
+          summary.push(
+            `${nextTeams[winnerTid].name} (ผู้ชนะประมูล): เปิดประตู ${doorKey} เจออันดับ #${rank} พลาด! (เสียเกราะเด็กดี -1 🛡️ เหลือ ${newShields} ดวง)`
+          );
+        }
+      }
+
+      for (const tid of TEAM_ORDER) {
+        if (tid === winnerTid) continue;
+        const sub = subs[tid];
+        if (!sub) continue;
+        const betChoice = String(sub.value || sub.secondaryValue || 'SAFE');
+        const betSafe = betChoice === 'SAFE';
+        const betCorrect = (betSafe && isSuccess) || (!betSafe && !isSuccess);
+
+        if (betCorrect) {
+          nextTeams[tid].coins += 200;
+          summary.push(
+            `${nextTeams[tid].name}: แทงข้างว่า "${betSafe ? 'รอด' : 'พัง'}" ถูกต้อง! (+200 ฿)`
+          );
+        } else {
+          nextTeams[tid].coins -= 100;
+          summary.push(
+            `${nextTeams[tid].name}: แทงข้างว่า "${betSafe ? 'รอด' : 'พัง'}" ผิด! (-100 ฿ ไม่เสียเกราะ)`
+          );
+        }
+      }
+    } else if (subRound === 'SUB3_POLARITY') {
+      nextChoices = nextChoices.map((c) => ({ ...c, isOpened: true }));
+      const lastRank = r.choiceCount || 8;
+      const door1Key = nextChoices.slice(0, lastRank).find((c) => c.rank === 1)?.key || 'A';
+      const doorLastKey =
+        nextChoices.slice(0, lastRank).find((c) => c.rank === lastRank)?.key ||
+        DOOR_LABELS[lastRank - 1] ||
+        'H';
+
+      for (const tid of TEAM_ORDER) {
+        const sub = subs[tid];
+        if (!sub) continue;
+        const pick1 = String(sub.value || '');
+        const pickLast = String(sub.secondaryValue || '');
+        const hit1 = pick1 === door1Key;
+        const hitLast = pickLast === doorLastKey;
+        const hits = (hit1 ? 1 : 0) + (hitLast ? 1 : 0);
+
+        if (hits === 2) {
+          nextTeams[tid].coins += 700;
+          summary.push(
+            `${nextTeams[tid].name}: ทายถูกทั้งอันดับ #1 (${pick1}) และ #${lastRank} (${pickLast})! รับ +700 ฿`
+          );
+        } else if (hits === 1) {
+          nextTeams[tid].coins += 300;
+          summary.push(
+            `${nextTeams[tid].name}: ทายถูก 1 ประตู (${
+              hit1 ? `#1=${pick1}` : `#${lastRank}=${pickLast}`
+            }) (+300 ฿)`
+          );
+        } else {
+          summary.push(
+            `${nextTeams[tid].name}: ทายผิดทั้ง 2 ประตู (#1=${pick1}, #${lastRank}=${pickLast}) (0 ฿)`
+          );
+        }
+      }
+    }
+  } else if (r.inputMode === 'MODE_A_CHOICE') {
+    for (const tid of TEAM_ORDER) {
+      const sub = subs[tid];
+      if (!sub) continue;
+      const choiceKey = String(sub.value);
+      const choiceObj = r.choices.find((c) => c.key === choiceKey);
+      const isCorrect = choiceObj?.isCorrect || r.correctChoices.includes(choiceKey);
+      const isTrap = choiceObj?.isTrap || r.trapChoices.includes(choiceKey);
+
+      if (isCorrect) {
+        nextTeams[tid].coins += r.rewardCoins;
+        summary.push(`${nextTeams[tid].name}: ตอบ ${choiceKey} ถูกต้อง (+${r.rewardCoins} เหรียญ)`);
+      } else if (isTrap) {
+        nextTeams[tid].coins -= r.penaltyCoins;
+        if (r.gameStage === 'TRIVIA_MURDER') {
+          nextTeams[tid].isInKillingFloor = true;
+        }
+        summary.push(`${nextTeams[tid].name}: ตอบผิดข้อ ${choiceKey} (-${r.penaltyCoins} เหรียญ)`);
+      } else if (r.gameStage === 'TRIVIA_MURDER') {
+        nextTeams[tid].isInKillingFloor = true;
+        nextTeams[tid].coins -= r.penaltyCoins;
+        summary.push(`${nextTeams[tid].name}: ตอบผิด (-${r.penaltyCoins} เหรียญ & ลงลานประหาร)`);
+      }
+    }
+  } else if (r.inputMode === 'MODE_B_YEAR') {
+    const resolvedYears: Partial<Record<TeamId, number>> = {};
+    let maxDiff = 0;
+    for (const tid of TEAM_ORDER) {
+      const subVal = subs[tid]?.value;
+      let year: number | undefined =
+        subVal !== undefined && subVal !== '' && !Number.isNaN(Number(subVal))
+          ? Number(subVal)
+          : undefined;
+      if (year === undefined && r.chronoFastFingerClaims) {
+        const claimedEntry = Object.entries(r.chronoFastFingerClaims).find(
+          ([, claimTid]) => claimTid === tid
+        );
+        if (claimedEntry) {
+          year = Number(claimedEntry[0]);
+        }
+      }
+      if (year === undefined) continue;
+      resolvedYears[tid] = year;
+      const d = Math.abs(year - r.targetYear);
+      if (d > maxDiff) maxDiff = d;
+    }
+
+    for (const tid of TEAM_ORDER) {
+      const year = resolvedYears[tid];
+      if (year === undefined) continue;
+      const res = scoreChronoTeam(r, tid, year, maxDiff);
+      nextTeams[tid].coins += res.delta;
+      const unitLabel = r.yearUnit === 'BE' ? 'พ.ศ.' : 'ค.ศ.';
+      summary.push(`${nextTeams[tid].name}: ตอบ ${unitLabel} ${year} — ${res.label}`);
+    }
+  } else if (r.inputMode === 'MODE_C_BUZZER') {
+    if (prev.buzzerQueue.length > 0) {
+      const first = prev.buzzerQueue[0];
+      nextTeams[first.teamId].coins += r.rewardCoins;
+      summary.push(`${nextTeams[first.teamId].name}: กดกระดิ่งอันดับ 1 (+${r.rewardCoins} เหรียญ)`);
+    }
+  } else if (r.inputMode === 'MODE_D_SECRET') {
+    if (r.modeDSubType === 'UNIQUE_NUMBER_1_10') {
+      const counts: Record<string, number> = {};
+      for (const tid of TEAM_ORDER) {
+        const v = subs[tid]?.value;
+        if (v !== undefined) {
+          counts[String(v)] = (counts[String(v)] || 0) + 1;
+        }
+      }
+      const uniqueEntries = TEAM_ORDER.filter((tid) => {
+        const v = subs[tid]?.value;
+        return v !== undefined && counts[String(v)] === 1;
+      }).map((tid) => ({ tid, num: Number(subs[tid]!.value) }));
+
+      uniqueEntries.sort((a, b) => (r.uniqueRule === 'HIGHEST' ? b.num - a.num : a.num - b.num));
+      const winnerTid = uniqueEntries[0]?.tid;
+
+      for (const tid of TEAM_ORDER) {
+        const sub = subs[tid];
+        if (!sub) continue;
+        const isDup = counts[String(sub.value)] > 1;
+        if (tid === winnerTid) {
+          nextTeams[tid].coins += r.rewardCoins;
+          nextTeams[tid].isInKillingFloor = false;
+          summary.push(`${nextTeams[tid].name}: ชนะเลขไม่ซ้ำ (${sub.value}) (+${r.rewardCoins} เหรียญ)`);
+        } else if (isDup) {
+          nextTeams[tid].coins -= r.penaltyCoins;
+          summary.push(`${nextTeams[tid].name}: เลขซ้ำ (${sub.value}) โดนลงทัณฑ์ (-${r.penaltyCoins} เหรียญ)`);
+        }
+      }
+    } else if (r.modeDSubType === 'QUIXORT_BET' && quixortOutcome) {
+      for (const tid of TEAM_ORDER) {
+        if (tid === r.activeTeamId) {
+          if (quixortOutcome === 'PASS') {
+            nextTeams[tid].coins += r.rewardCoins;
+            summary.push(`${nextTeams[tid].name} (ทีมลงสนาม): ภารกิจสำเร็จ (+${r.rewardCoins} เหรียญ)`);
+          } else {
+            nextTeams[tid].coins -= r.penaltyCoins;
+            summary.push(`${nextTeams[tid].name} (ทีมลงสนาม): ภารกิจล้มเหลว (-${r.penaltyCoins} เหรียญ)`);
+          }
+          continue;
+        }
+        const sub = subs[tid];
+        if (!sub) continue;
+        const wager = Math.max(0, Number(sub.value) || 0);
+        const prediction = sub.secondaryValue || 'PASS';
+        if (prediction === quixortOutcome) {
+          nextTeams[tid].coins += wager;
+          summary.push(`${nextTeams[tid].name}: แทง ${prediction} ถูก! (+${wager} เหรียญ)`);
+        } else {
+          nextTeams[tid].coins -= wager;
+          summary.push(`${nextTeams[tid].name}: แทง ${prediction} ผิด! (-${wager} เหรียญ)`);
+        }
+      }
+    } else if (r.modeDSubType === 'COIN_WAGER') {
+      let maxBribe = -1;
+      let winnerTid: TeamId | null = null;
+      for (const tid of TEAM_ORDER) {
+        const w = Number(subs[tid]?.value ?? -1);
+        if (w > maxBribe) {
+          maxBribe = w;
+          winnerTid = tid;
+        }
+      }
+      for (const tid of TEAM_ORDER) {
+        const sub = subs[tid];
+        if (!sub) continue;
+        const wager = Math.max(0, Number(sub.value) || 0);
+        if (tid === winnerTid && wager > 0) {
+          const netGain = r.rewardCoins - wager;
+          nextTeams[tid].coins += netGain;
+          nextTeams[tid].isInKillingFloor = false;
+          summary.push(`${nextTeams[tid].name}: ประมูลชนะด้วย ${wager} เหรียญ (สุทธิ ${netGain >= 0 ? '+' : ''}${netGain} เหรียญ)`);
+        } else {
+          nextTeams[tid].coins -= wager;
+          summary.push(`${nextTeams[tid].name}: เสียส่วยประมูล (-${wager} เหรียญ)`);
+        }
+      }
+    } else if (r.modeDSubType === 'CURSED_CHALICE') {
+      for (const tid of TEAM_ORDER) {
+        const sub = subs[tid];
+        if (!sub) continue;
+        const key = String(sub.value);
+        if (r.correctChoices.includes(key)) {
+          nextTeams[tid].coins += r.rewardCoins;
+          summary.push(`${nextTeams[tid].name}: เลือกกล่องปลอดภัย #${key} (+${r.rewardCoins} เหรียญ)`);
+        } else {
+          nextTeams[tid].coins -= r.penaltyCoins;
+          summary.push(`${nextTeams[tid].name}: เลือกกล่องต้องสาป #${key} (-${r.penaltyCoins} เหรียญ)`);
+        }
+      }
+    }
+  }
+
+  const tx: CoinTransaction = {
+    id: `tx-auto-${Date.now()}`,
+    timestamp: Date.now(),
+    teamId: 'ALL',
+    delta: 0,
+    reason: `สรุปผลคะแนนรอบ: ${r.title}`,
+    prevBalances,
+    prevShields,
+  };
+
+  return {
+    summary,
+    nextState: {
+      ...prev,
+      teams: nextTeams,
+      round: {
+        ...prev.round,
+        choices: nextChoices,
+        lastOpenedDoorKey,
+        status: 'REVEALED',
+        rewardsApplied: true,
+        timerStartedAt: null,
+        briefingOpen: false,
+      },
+      transactions: [tx, ...prev.transactions.slice(0, 49)],
+    },
+  };
+}
+
 interface GameContextValue {
   state: KrampusGameState;
   lanIp: string;
@@ -213,7 +551,7 @@ interface GameContextValue {
   pauseTimer: () => void;
   resetTimer: () => void;
   lockRound: () => void;
-  revealRound: () => void;
+  revealRound: () => { summary: string[] };
   resetRoundSubmissions: () => void;
 
   // GM Economy & Team Actions
@@ -767,6 +1105,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           round.chronoShields = rankings.shields;
           round.chronoPhase = 'TRAP_PLACEMENT';
         }
+        const phaseChanged =
+          prev.round.gameStage !== round.gameStage ||
+          (round.gameStage === 'POLL_MINE' &&
+            prev.round.eightDoorsSubRound !== round.eightDoorsSubRound) ||
+          (round.gameStage === 'TIMEJINX' &&
+            prev.round.chronoSubRound !== round.chronoSubRound);
+        round.status = 'IDLE';
+        round.timerStartedAt = null;
+        round.briefingOpen = phaseChanged;
         return {
           ...prev,
           showLeaderboardOverlay: false,
@@ -903,14 +1250,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           rewardCoins: resolvedStage === 'POLL_MINE' ? 300 : 200,
           penaltyCoins: 150,
           durationSeconds: duration,
-          timerStartedAt: getAuthoritativeNow(),
+          timerStartedAt: null,
           timerRemainingMs: duration * 1000,
-          status: 'ACTIVE',
+          status: 'IDLE',
           rewardsApplied: false,
+          briefingOpen: prev.round.gameStage !== resolvedStage,
         },
       }));
     },
-    [commitState, getAuthoritativeNow]
+    [commitState]
   );
 
   const updateRoundConfig = useCallback(
@@ -1140,7 +1488,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       subRound: ChronoSubRound,
       options?: { presetId?: string; phase?: 'TRAP_PLACEMENT' | 'YEAR_GUESS' }
     ) => {
-      const now = getAuthoritativeNow();
       commitState((prev) => {
         const defaultPresetId =
           subRound === 'CHRONO_SUB1_CLASSIC'
@@ -1173,6 +1520,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             : subRound === 'CHRONO_SUB2_TRAP' && phase === 'TRAP_PLACEMENT'
             ? 25
             : baseRound.durationSeconds || 30;
+        const shouldOpenBriefing =
+          prev.round.gameStage !== 'TIMEJINX' ||
+          prev.round.chronoSubRound !== subRound ||
+          !options?.presetId;
 
         return {
           ...prev,
@@ -1189,15 +1540,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             chronoShields: rankings?.shields ?? {},
             chronoFastFingerClaims: {},
             durationSeconds: duration,
-            timerStartedAt: now,
+            timerStartedAt: null,
             timerRemainingMs: duration * 1000,
-            status: 'ACTIVE',
+            status: 'IDLE',
             rewardsApplied: false,
+            briefingOpen: shouldOpenBriefing,
           },
         };
       });
     },
-    [commitState, getAuthoritativeNow]
+    [commitState]
   );
 
   const launchChronoTrapGuessPhase = useCallback(() => {
@@ -1334,6 +1686,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           timerRemainingMs: durSec * 1000,
           status: 'IDLE',
           rewardsApplied: false,
+          briefingOpen: true,
           toyFactory: {
             roundIndex: 1,
             pairings,
@@ -1638,6 +1991,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           timerRemainingMs: durSec * 1000,
           status: 'IDLE',
           rewardsApplied: false,
+          briefingOpen: false,
           toyFactory: {
             ...tf,
             roundIndex: nextIndex,
@@ -1693,7 +2047,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       subRound: EightDoorsSubRound,
       options?: { auctionIteration?: 1 | 2; revealRemaining2To4?: boolean; loadPresetQuestion?: boolean }
     ) => {
-      const now = getAuthoritativeNow();
       commitState((prev) => {
         const iter = options?.auctionIteration ?? prev.round.auctionIteration ?? 1;
         const isFreshSubRound =
@@ -1790,15 +2143,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             subtitle: subtitles[subRound],
             choices: nextChoices,
             durationSeconds: duration,
-            timerStartedAt: now,
+            timerStartedAt: null,
             timerRemainingMs: duration * 1000,
-            status: 'ACTIVE',
+            status: 'IDLE',
             rewardsApplied: false,
+            briefingOpen:
+              prev.round.gameStage !== 'POLL_MINE' ||
+              (isFreshSubRound && prev.round.eightDoorsSubRound !== subRound),
           },
         };
       });
     },
-    [commitState, getAuthoritativeNow]
+    [commitState]
   );
 
   // Resolve Phase 1 of Sub-Round 2 (Auction): find highest bidder, or apply Coward's Tax if 0 bids
@@ -1928,6 +2284,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             timerStartedAt: now,
             timerRemainingMs: durationSec * 1000,
             status: 'ACTIVE',
+            briefingOpen: false,
           },
         };
       });
@@ -1980,16 +2337,56 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const revealRound = useCallback(() => {
     soundFX.playReveal();
+    const curRound = stateRef.current.round;
+    const isTrapPhase =
+      curRound.gameStage === 'TIMEJINX' &&
+      curRound.chronoSubRound === 'CHRONO_SUB2_TRAP' &&
+      curRound.chronoPhase === 'TRAP_PLACEMENT';
+    const needsQuixortOutcome =
+      curRound.inputMode === 'MODE_D_SECRET' && curRound.modeDSubType === 'QUIXORT_BET';
+
+    const previewScored =
+      !curRound.rewardsApplied && !isTrapPhase && !needsQuixortOutcome
+        ? computeRoundScoring(stateRef.current)
+        : { summary: [] as string[] };
+
     commitState((prev) => {
       const r = prev.round;
+      const shouldAutoScore =
+        !r.rewardsApplied &&
+        !(
+          r.gameStage === 'TIMEJINX' &&
+          r.chronoSubRound === 'CHRONO_SUB2_TRAP' &&
+          r.chronoPhase === 'TRAP_PLACEMENT'
+        ) &&
+        !(r.inputMode === 'MODE_D_SECRET' && r.modeDSubType === 'QUIXORT_BET');
+
+      if (shouldAutoScore) {
+        const { nextState } = computeRoundScoring(prev);
+        // Ensure Game 1 Snake Draft picks that were already revealed keep opened doors
+        if (r.gameStage === 'POLL_MINE') {
+          const subRound = r.eightDoorsSubRound || 'SUB1_SURVIVAL';
+          if (subRound === 'SUB1_SURVIVAL' || subRound === 'SUB2_SNAKE_DRAFT') {
+            const pickedKeys = new Set(
+              TEAM_ORDER.map((tid) => prev.submissions[tid]?.value).filter(Boolean).map(String)
+            );
+            nextState.round = {
+              ...nextState.round,
+              choices: nextState.round.choices.map((c) =>
+                pickedKeys.has(c.key) ? { ...c, isOpened: true } : c
+              ),
+            };
+          }
+        }
+        return nextState;
+      }
+
       let nextChoices = [...r.choices];
       let lastOpenedDoorKey = r.lastOpenedDoorKey;
 
-      // Persistent 8-Door Board reveal behavior for Game 1 (POLL_MINE = The 8 Doors of Krampus)
       if (r.gameStage === 'POLL_MINE') {
         const subRound = r.eightDoorsSubRound || 'SUB1_SURVIVAL';
         if (subRound === 'SUB1_SURVIVAL' || subRound === 'SUB2_SNAKE_DRAFT') {
-          // Open ONLY the doors selected by the 4 teams
           const pickedKeys = new Set(
             TEAM_ORDER.map((tid) => prev.submissions[tid]?.value).filter(Boolean).map(String)
           );
@@ -1997,7 +2394,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             pickedKeys.has(c.key) ? { ...c, isOpened: true } : c
           );
         } else if (subRound === 'SUB2_DOOR_AND_BET') {
-          // Open ONLY the door selected by the auction winner
           const winnerTid = r.auctionWinnerTeamId;
           const winnerPick = winnerTid ? String(prev.submissions[winnerTid]?.value || '') : '';
           if (winnerPick) {
@@ -2007,7 +2403,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             );
           }
         } else if (subRound === 'SUB3_POLARITY') {
-          // Reveal #1 and #8 and all remaining doors on the board
           nextChoices = nextChoices.map((c) => ({ ...c, isOpened: true }));
         }
       }
@@ -2020,9 +2415,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           lastOpenedDoorKey,
           timerStartedAt: null,
           status: 'REVEALED',
+          briefingOpen: false,
         },
       };
     });
+
+    if (previewScored.summary.length > 0) {
+      soundFX.playCoinChange(true);
+    }
+    return { summary: previewScored.summary };
   }, [commitState]);
 
   const resetRoundSubmissions = useCallback(() => {
@@ -2201,324 +2602,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Smart 1-Click Auto Scoring for all 4 games & 3 sub-rounds of "The 8 Doors of Krampus"
   const autoApplyRoundScoring = useCallback(
     (quixortOutcome?: 'PASS' | 'FAIL') => {
-      const summary: string[] = [];
-      commitState((prev) => {
-        const prevBalances: Record<TeamId, number> = {
-          team1: prev.teams.team1.coins,
-          team2: prev.teams.team2.coins,
-          team3: prev.teams.team3.coins,
-          team4: prev.teams.team4.coins,
-        };
-        const prevShields: Record<TeamId, number> = {
-          team1: prev.teams.team1.shields,
-          team2: prev.teams.team2.shields,
-          team3: prev.teams.team3.shields,
-          team4: prev.teams.team4.shields,
-        };
-        const nextTeams = structuredClone(prev.teams);
-        const r = prev.round;
-        const subs = prev.submissions;
-        let nextChoices = [...r.choices];
-        let lastOpenedDoorKey = r.lastOpenedDoorKey;
-
-        // ============================================================
-        // GAME 1: THE 8 DOORS OF KRAMPUS (3 SUB-ROUNDS)
-        // ============================================================
-        if (r.gameStage === 'POLL_MINE' && r.inputMode === 'MODE_A_CHOICE') {
-          const subRound = r.eightDoorsSubRound || 'SUB1_SURVIVAL';
-
-          if (subRound === 'SUB1_SURVIVAL' || subRound === 'SUB2_SNAKE_DRAFT') {
-            // Snake Draft คำนวณคะแนนทันทีตอนกดเปิดประตูแต่ละบานแล้ว (+300 ฿/บาน)
-            const picks = r.snakeDraftPicks || [];
-            if (picks.length > 0) {
-              for (const tid of TEAM_ORDER) {
-                const teamPicks = picks.filter((p) => p.teamId === tid);
-                if (teamPicks.length === 0) continue;
-                const safeCount = teamPicks.filter((p) => p.isSafe).length;
-                const wrongCount = teamPicks.length - safeCount;
-                const earned = safeCount * 300;
-                const doorsStr = teamPicks.map((p) => `${p.doorKey}(#${p.rank})`).join(', ');
-                summary.push(
-                  `${nextTeams[tid].name}: เปิด ${doorsStr} • ได้ +${earned} ฿${
-                    wrongCount > 0 ? ` / เสีย -${wrongCount} 🛡️` : ''
-                  }`
-                );
-              }
-            } else {
-              summary.push('ด่านย่อย (Snake Draft): ยังไม่มีการเปิดประตู');
-            }
-          } else if (subRound === 'SUB2_DOOR_AND_BET') {
-            // ด่านย่อยที่ 2 (Phase 3 เฉลยผล):
-            // ทีมชนะประมูล: เจออันดับ safeRankMin..safeRankMax รับ +700 ฿ (ยกเว้น cowardFreePick ได้ 0 ฿) / ถ้าผิด ลดเกราะ -1🛡️
-            // ทีมอื่นแทงข้าง: ทายถูก +200 ฿ / ทายผิด -100 ฿ (ไม่เสียเกราะ)
-            const suggested = getSuggestedSafeRange(r.choiceCount, 'SUB2_DOOR_AND_BET');
-            const safeMin = r.safeRankMin ?? suggested.min;
-            const safeMax = r.safeRankMax ?? suggested.max;
-            const winnerTid = r.auctionWinnerTeamId;
-            const winnerSub = winnerTid ? subs[winnerTid] : undefined;
-            const doorKey = String(winnerSub?.value || r.lastOpenedDoorKey || '');
-            const door = nextChoices.find((c) => c.key === doorKey);
-            const rank = door?.rank ?? r.choiceCount;
-            const isSuccess = rank >= safeMin && rank <= safeMax;
-
-            if (doorKey) {
-              lastOpenedDoorKey = doorKey;
-              nextChoices = nextChoices.map((c) =>
-                c.key === doorKey ? { ...c, isOpened: true } : c
-              );
-            }
-
-            if (winnerTid) {
-              if (isSuccess) {
-                if (r.cowardFreePick) {
-                  summary.push(
-                    `${nextTeams[winnerTid].name} (เปิดฟรี Coward's Tax): เปิดประตู ${doorKey} เจออันดับ #${rank} สำเร็จ! (ได้ 0 ฿ ตามกติกา Coward's Tax)`
-                  );
-                } else {
-                  nextTeams[winnerTid].coins += 700;
-                  summary.push(
-                    `${nextTeams[winnerTid].name} (ผู้ชนะประมูล): เปิดประตู ${doorKey} เจออันดับ #${rank} สำเร็จ! (+700 ฿)`
-                  );
-                }
-              } else {
-                const newShields = Math.max(0, nextTeams[winnerTid].shields - 1);
-                nextTeams[winnerTid].shields = newShields;
-                nextTeams[winnerTid].candles = newShields;
-                summary.push(
-                  `${nextTeams[winnerTid].name} (ผู้ชนะประมูล): เปิดประตู ${doorKey} เจออันดับ #${rank} พลาด! (เสียเกราะเด็กดี -1 🛡️ เหลือ ${newShields} ดวง)`
-                );
-              }
-            }
-
-            for (const tid of TEAM_ORDER) {
-              if (tid === winnerTid) continue;
-              const sub = subs[tid];
-              if (!sub) continue;
-              const betChoice = String(sub.value || sub.secondaryValue || 'SAFE'); // 'SAFE' or 'FAIL'
-              const betSafe = betChoice === 'SAFE';
-              const betCorrect = (betSafe && isSuccess) || (!betSafe && !isSuccess);
-
-              if (betCorrect) {
-                nextTeams[tid].coins += 200;
-                summary.push(
-                  `${nextTeams[tid].name}: แทงข้างว่า "${betSafe ? 'รอด' : 'พัง'}" ถูกต้อง! (+200 ฿)`
-                );
-              } else {
-                nextTeams[tid].coins -= 100;
-                summary.push(
-                  `${nextTeams[tid].name}: แทงข้างว่า "${betSafe ? 'รอด' : 'พัง'}" ผิด! (-100 ฿ ไม่เสียเกราะ)`
-                );
-              }
-            }
-          } else if (subRound === 'SUB3_POLARITY') {
-            // ด่านย่อยที่ 3: วัดใจขั้วตรงข้าม (ค้นหาอันดับ #1 และ อันดับสุดท้าย #N)
-            // ถูก 2 ประตู: +1,000 ฿ | ถูก 1 ประตู: +400 ฿ | ผิดทั้ง 2 ประตู: -2🛡️ และ -300 ฿
-            nextChoices = nextChoices.map((c) => ({ ...c, isOpened: true }));
-            const lastRank = r.choiceCount || 8;
-            const door1Key = nextChoices.slice(0, lastRank).find((c) => c.rank === 1)?.key || 'A';
-            const doorLastKey =
-              nextChoices.slice(0, lastRank).find((c) => c.rank === lastRank)?.key ||
-              DOOR_LABELS[lastRank - 1] ||
-              'H';
-
-            for (const tid of TEAM_ORDER) {
-              const sub = subs[tid];
-              if (!sub) continue;
-              const pick1 = String(sub.value || '');
-              const pickLast = String(sub.secondaryValue || '');
-              const hit1 = pick1 === door1Key;
-              const hitLast = pickLast === doorLastKey;
-              const hits = (hit1 ? 1 : 0) + (hitLast ? 1 : 0);
-
-              if (hits === 2) {
-                nextTeams[tid].coins += 700;
-                summary.push(
-                  `${nextTeams[tid].name}: ทายถูกทั้งอันดับ #1 (${pick1}) และ #${lastRank} (${pickLast})! รับ +700 ฿`
-                );
-              } else if (hits === 1) {
-                nextTeams[tid].coins += 300;
-                summary.push(
-                  `${nextTeams[tid].name}: ทายถูก 1 ประตู (${
-                    hit1 ? `#1=${pick1}` : `#${lastRank}=${pickLast}`
-                  }) (+300 ฿)`
-                );
-              } else {
-                summary.push(
-                  `${nextTeams[tid].name}: ทายผิดทั้ง 2 ประตู (#1=${pick1}, #${lastRank}=${pickLast}) (0 ฿)`
-                );
-              }
-            }
-          }
-        } else if (r.inputMode === 'MODE_A_CHOICE') {
-          // Standard Mode A (e.g. Trivia Murder Party)
-          for (const tid of TEAM_ORDER) {
-            const sub = subs[tid];
-            if (!sub) continue;
-            const choiceKey = String(sub.value);
-            const choiceObj = r.choices.find((c) => c.key === choiceKey);
-            const isCorrect = choiceObj?.isCorrect || r.correctChoices.includes(choiceKey);
-            const isTrap = choiceObj?.isTrap || r.trapChoices.includes(choiceKey);
-
-            if (isCorrect) {
-              nextTeams[tid].coins += r.rewardCoins;
-              summary.push(`${nextTeams[tid].name}: ตอบ ${choiceKey} ถูกต้อง (+${r.rewardCoins} เหรียญ)`);
-            } else if (isTrap) {
-              nextTeams[tid].coins -= r.penaltyCoins;
-              if (r.gameStage === 'TRIVIA_MURDER') {
-                nextTeams[tid].isInKillingFloor = true;
-              }
-              summary.push(`${nextTeams[tid].name}: ตอบผิดข้อ ${choiceKey} (-${r.penaltyCoins} เหรียญ)`);
-            } else {
-              if (r.gameStage === 'TRIVIA_MURDER') {
-                nextTeams[tid].isInKillingFloor = true;
-                nextTeams[tid].coins -= r.penaltyCoins;
-                summary.push(`${nextTeams[tid].name}: ตอบผิด (-${r.penaltyCoins} เหรียญ & ลงลานประหาร)`);
-              }
-            }
-          }
-        } else if (r.inputMode === 'MODE_B_YEAR') {
-          let maxDiff = 0;
-          for (const tid of TEAM_ORDER) {
-            const sub = subs[tid];
-            if (!sub) continue;
-            const d = Math.abs(Number(sub.value) - r.targetYear);
-            if (d > maxDiff) maxDiff = d;
-          }
-
-          for (const tid of TEAM_ORDER) {
-            const sub = subs[tid];
-            if (!sub) continue;
-            const year = Number(sub.value);
-            const res = scoreChronoTeam(r, tid, year, maxDiff);
-            nextTeams[tid].coins += res.delta;
-            const unitLabel = r.yearUnit === 'BE' ? 'พ.ศ.' : 'ค.ศ.';
-            summary.push(
-              `${nextTeams[tid].name}: ตอบ ${unitLabel} ${year} — ${res.label}`
-            );
-          }
-        } else if (r.inputMode === 'MODE_C_BUZZER') {
-          if (prev.buzzerQueue.length > 0) {
-            const first = prev.buzzerQueue[0];
-            nextTeams[first.teamId].coins += r.rewardCoins;
-            summary.push(`${nextTeams[first.teamId].name}: กดกระดิ่งอันดับ 1 (+${r.rewardCoins} เหรียญ)`);
-          }
-        } else if (r.inputMode === 'MODE_D_SECRET') {
-          if (r.modeDSubType === 'UNIQUE_NUMBER_1_10') {
-            const counts: Record<string, number> = {};
-            for (const tid of TEAM_ORDER) {
-              const v = subs[tid]?.value;
-              if (v !== undefined) {
-                counts[String(v)] = (counts[String(v)] || 0) + 1;
-              }
-            }
-            const uniqueEntries = TEAM_ORDER.filter((tid) => {
-              const v = subs[tid]?.value;
-              return v !== undefined && counts[String(v)] === 1;
-            }).map((tid) => ({ tid, num: Number(subs[tid]!.value) }));
-
-            uniqueEntries.sort((a, b) => (r.uniqueRule === 'HIGHEST' ? b.num - a.num : a.num - b.num));
-            const winnerTid = uniqueEntries[0]?.tid;
-
-            for (const tid of TEAM_ORDER) {
-              const sub = subs[tid];
-              if (!sub) continue;
-              const isDup = counts[String(sub.value)] > 1;
-              if (tid === winnerTid) {
-                nextTeams[tid].coins += r.rewardCoins;
-                nextTeams[tid].isInKillingFloor = false;
-                summary.push(`${nextTeams[tid].name}: ชนะเลขไม่ซ้ำ (${sub.value}) (+${r.rewardCoins} เหรียญ)`);
-              } else if (isDup) {
-                nextTeams[tid].coins -= r.penaltyCoins;
-                summary.push(`${nextTeams[tid].name}: เลขซ้ำ (${sub.value}) โดนลงทัณฑ์ (-${r.penaltyCoins} เหรียญ)`);
-              }
-            }
-          } else if (r.modeDSubType === 'QUIXORT_BET' && quixortOutcome) {
-            for (const tid of TEAM_ORDER) {
-              if (tid === r.activeTeamId) {
-                if (quixortOutcome === 'PASS') {
-                  nextTeams[tid].coins += r.rewardCoins;
-                  summary.push(`${nextTeams[tid].name} (ทีมลงสนาม): ภารกิจสำเร็จ (+${r.rewardCoins} เหรียญ)`);
-                } else {
-                  nextTeams[tid].coins -= r.penaltyCoins;
-                  summary.push(`${nextTeams[tid].name} (ทีมลงสนาม): ภารกิจล้มเหลว (-${r.penaltyCoins} เหรียญ)`);
-                }
-                continue;
-              }
-              const sub = subs[tid];
-              if (!sub) continue;
-              const wager = Math.max(0, Number(sub.value) || 0);
-              const prediction = sub.secondaryValue || 'PASS';
-              if (prediction === quixortOutcome) {
-                nextTeams[tid].coins += wager;
-                summary.push(`${nextTeams[tid].name}: แทง ${prediction} ถูก! (+${wager} เหรียญ)`);
-              } else {
-                nextTeams[tid].coins -= wager;
-                summary.push(`${nextTeams[tid].name}: แทง ${prediction} ผิด! (-${wager} เหรียญ)`);
-              }
-            }
-          } else if (r.modeDSubType === 'COIN_WAGER') {
-            let maxBribe = -1;
-            let winnerTid: TeamId | null = null;
-            for (const tid of TEAM_ORDER) {
-              const w = Number(subs[tid]?.value ?? -1);
-              if (w > maxBribe) {
-                maxBribe = w;
-                winnerTid = tid;
-              }
-            }
-            for (const tid of TEAM_ORDER) {
-              const sub = subs[tid];
-              if (!sub) continue;
-              const wager = Math.max(0, Number(sub.value) || 0);
-              if (tid === winnerTid && wager > 0) {
-                const netGain = r.rewardCoins - wager;
-                nextTeams[tid].coins += netGain;
-                nextTeams[tid].isInKillingFloor = false;
-                summary.push(`${nextTeams[tid].name}: ประมูลชนะด้วย ${wager} เหรียญ (สุทธิ ${netGain >= 0 ? '+' : ''}${netGain} เหรียญ)`);
-              } else {
-                nextTeams[tid].coins -= wager;
-                summary.push(`${nextTeams[tid].name}: เสียส่วยประมูล (-${wager} เหรียญ)`);
-              }
-            }
-          } else if (r.modeDSubType === 'CURSED_CHALICE') {
-            for (const tid of TEAM_ORDER) {
-              const sub = subs[tid];
-              if (!sub) continue;
-              const key = String(sub.value);
-              if (r.correctChoices.includes(key)) {
-                nextTeams[tid].coins += r.rewardCoins;
-                summary.push(`${nextTeams[tid].name}: เลือกกล่องปลอดภัย #${key} (+${r.rewardCoins} เหรียญ)`);
-              } else {
-                nextTeams[tid].coins -= r.penaltyCoins;
-                summary.push(`${nextTeams[tid].name}: เลือกกล่องต้องสาป #${key} (-${r.penaltyCoins} เหรียญ)`);
-              }
-            }
-          }
-        }
-
-        const tx: CoinTransaction = {
-          id: `tx-auto-${Date.now()}`,
-          timestamp: Date.now(),
-          teamId: 'ALL',
-          delta: 0,
-          reason: `สรุปผลคะแนนรอบ: ${r.title}`,
-          prevBalances,
-          prevShields,
-        };
-
-        return {
-          ...prev,
-          teams: nextTeams,
-          round: {
-            ...prev.round,
-            choices: nextChoices,
-            lastOpenedDoorKey,
-            status: 'REVEALED',
-            rewardsApplied: true,
-          },
-          transactions: [tx, ...prev.transactions.slice(0, 49)],
-        };
-      });
+      const { summary } = computeRoundScoring(stateRef.current, quixortOutcome);
+      commitState((prev) => computeRoundScoring(prev, quixortOutcome).nextState);
       soundFX.playCoinChange(true);
       return { summary };
     },
@@ -2597,6 +2682,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           timerStartedAt: null,
           timerRemainingMs: null,
           rewardsApplied: false,
+          briefingOpen: true,
           lastMan: lms,
         },
       };
@@ -3532,13 +3618,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           : undefined;
 
         if (stagePreset) {
+          const nextRound = createRoundFromPreset(stagePreset);
+          nextRound.status = 'IDLE';
+          nextRound.timerStartedAt = null;
+          nextRound.briefingOpen = true;
           return {
             ...prev,
             roomLocked: true,
             showLeaderboardOverlay: false,
             submissions: {},
             buzzerQueue: [],
-            round: createRoundFromPreset(stagePreset),
+            round: nextRound,
           };
         }
 
@@ -3548,6 +3638,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           round: {
             ...prev.round,
             gameStage: stage,
+            status: 'IDLE',
+            timerStartedAt: null,
+            briefingOpen: true,
           },
         };
       });

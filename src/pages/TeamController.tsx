@@ -25,6 +25,7 @@ import {
 } from '../data/initialData';
 import { LastManShopItemId, TeamId } from '../types/game';
 import { CountdownTimer } from '../components/CountdownTimer';
+import { TeamSouthParkAvatar } from '../components/SouthParkArt';
 
 export const TeamController: React.FC = () => {
   const {
@@ -209,27 +210,38 @@ export const TeamController: React.FC = () => {
     };
 
     return (
-      <div className="min-h-screen bg-[#070a12] text-slate-100 flex flex-col justify-between p-4 select-none">
-        <div className="max-w-md w-full mx-auto my-auto space-y-4">
-          {/* Header Banner (2D Cutout Style) */}
-          <div className="rounded-3xl bg-[#b91c1c] border-4 border-black shadow-[6px_6px_0px_#000] p-4 text-center">
-            <div className="inline-block px-3 py-0.5 rounded-lg bg-[#facc15] text-black border-2 border-black font-mono text-xs font-black uppercase mb-1">
-              THE KRAMPUS EVE • SUB-GM REGISTRATION
+      <div className="min-h-screen bg-[#1e1828] text-[#EFE2D2] flex flex-col justify-between p-4 select-none relative overflow-hidden">
+        <div
+          className="pointer-events-none fixed inset-0 bg-cover bg-center"
+          style={{ backgroundImage: "url('/art/manor-exterior.png')" }}
+        />
+        <div
+          className="pointer-events-none fixed inset-0"
+          style={{
+            background:
+              'linear-gradient(180deg, rgba(35,28,46,0.86) 0%, rgba(35,28,46,0.80) 50%, rgba(25,19,34,0.92) 100%)',
+          }}
+        />
+        <div className="relative z-10 max-w-md w-full mx-auto my-auto space-y-4">
+          {/* Header Banner (The Christmas Manor UI Kit) */}
+          <div className="rounded-3xl bg-[#B94B50] border-[3px] border-[#352D45] shadow-[0_7px_0_#352D45] p-4 text-center">
+            <div className="inline-block px-3 py-0.5 rounded-full bg-[#E5B86C] text-[#352D45] border-2 border-[#352D45] font-manor-display text-xs font-extrabold uppercase mb-1">
+              THE CHRISTMAS MANOR • SUB-GM REGISTRATION
             </div>
             <h1
-              className="text-2xl font-black text-white"
-              style={{ textShadow: '2px 2px 0px #000' }}
+              className="font-manor-display text-2xl font-bold text-[#EFE2D2]"
+              style={{ textShadow: '0 3px 0 #352D45' }}
             >
               ลงทะเบียนทีมประจำกลุ่ม
             </h1>
-            <p className="text-xs font-bold text-amber-100 mt-0.5">
+            <p className="text-xs font-bold text-[#EFE2D2]/90 mt-0.5">
               1. เลือก Slot ทีม (1-4) • 2. ตั้งชื่อทีม • 3. กด Submit ส่งขึ้นจอใหญ่!
             </p>
           </div>
 
           {/* Step 1: Pick Team Slot (1 - 4) */}
-          <div className="rounded-3xl bg-slate-900 border-4 border-black shadow-[6px_6px_0px_#000] p-4">
-            <div className="text-xs font-mono uppercase text-amber-400 font-black mb-2.5">
+          <div className="rounded-3xl bg-[#EFE2D2] text-[#352D45] border-[3px] border-[#352D45] shadow-[0_7px_0_#352D45] p-4">
+            <div className="font-manor-display text-xs uppercase text-[#B94B50] font-extrabold mb-2.5">
               STEP 1: เลือก SLOT ทีมของคุณ (TEAM 1 - 4)
             </div>
             <div className="grid grid-cols-2 gap-2.5">
@@ -243,34 +255,36 @@ export const TeamController: React.FC = () => {
                     key={tid}
                     type="button"
                     onClick={() => handlePickSlot(tid)}
-                    className={`p-3 rounded-2xl border-[3px] border-black text-left transition-all flex flex-col justify-between ${
+                    className={`p-3 rounded-2xl border-[3px] border-[#352D45] text-left transition-all flex flex-col justify-between ${
                       isSelected
-                        ? 'bg-amber-400 text-black shadow-[4px_4px_0px_#000] scale-[1.02]'
+                        ? 'bg-[#E5B86C] text-[#352D45] shadow-[0_4px_0_#352D45] scale-[1.02]'
                         : isTaken
-                        ? 'bg-emerald-950/90 text-white hover:bg-emerald-900'
-                        : 'bg-slate-800 text-slate-100 hover:bg-slate-700'
+                        ? 'bg-[#536B59] text-[#EFE2D2] hover:brightness-110'
+                        : 'bg-white/80 text-[#352D45] hover:bg-white'
                     }`}
                   >
                     <div className="flex items-center justify-between w-full mb-1">
                       <span
-                        className={`text-xs font-mono font-black px-2 py-0.5 rounded border border-black ${
-                          isSelected ? 'bg-black text-amber-300' : 'bg-slate-950 text-amber-300'
+                        className={`text-xs font-manor-display font-bold px-2 py-0.5 rounded-lg border border-[#352D45] ${
+                          isSelected
+                            ? 'bg-[#352D45] text-[#E5B86C]'
+                            : 'bg-[#352D45] text-[#EFE2D2]'
                         }`}
                       >
                         TEAM {t.number}
                       </span>
-                      <span className="text-2xl">{t.icon}</span>
+                      <TeamSouthParkAvatar slotNumber={t.number} className="w-10 h-10" />
                     </div>
 
-                    <div className="font-extrabold text-sm truncate">
-                      {isTaken ? t.name : 'ว่าง (กดเลือกได้)'}
+                    <div className="font-manor-display font-bold text-sm truncate">
+                      {isTaken ? `${t.icon} ${t.name}` : 'ว่าง (กดเลือกได้)'}
                     </div>
 
                     <div className="mt-1">
                       {isTaken ? (
                         <span
-                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-black border border-black ${
-                            isSelected ? 'bg-emerald-600 text-white' : 'bg-emerald-400 text-black'
+                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-black border border-[#352D45] ${
+                            isSelected ? 'bg-[#536B59] text-[#EFE2D2]' : 'bg-[#EFE2D2] text-[#352D45]'
                           }`}
                         >
                           ✅ พร้อมลุย!
@@ -278,7 +292,7 @@ export const TeamController: React.FC = () => {
                       ) : (
                         <span
                           className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                            isSelected ? 'bg-black/20 text-black' : 'bg-slate-950 text-slate-300'
+                            isSelected ? 'bg-[#352D45]/15 text-[#352D45]' : 'bg-[#D8C6B5] text-[#352D45]'
                           }`}
                         >
                           🟢 Slot ว่างอยู่
@@ -290,10 +304,10 @@ export const TeamController: React.FC = () => {
               })}
             </div>
 
-            {/* Quick Reconnect Button if this slot is already registered (e.g., phone disconnected mid-game) */}
+            {/* Quick Reconnect Button if this slot is already registered */}
             {activeSlotTeam.isRegistered && (
-              <div className="mt-3 pt-3 border-t border-slate-800 flex items-center justify-between gap-2">
-                <span className="text-xs text-emerald-300 font-bold">
+              <div className="mt-3 pt-3 border-t border-[#352D45]/20 flex items-center justify-between gap-2">
+                <span className="text-xs text-[#3c5041] font-bold">
                   Slot นี้ลงทะเบียนชื่อ “{activeSlotTeam.name}” แล้ว
                 </span>
                 <button
@@ -302,7 +316,7 @@ export const TeamController: React.FC = () => {
                     handleSelectTeam(regSlotId);
                     setIsEditingRegistration(false);
                   }}
-                  className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs border-2 border-black shadow-[2px_2px_0px_#000] shrink-0"
+                  className="px-3 py-1.5 rounded-xl bg-[#536B59] hover:bg-[#435848] text-[#EFE2D2] font-manor-display font-bold text-xs border-2 border-[#352D45] shadow-[0_3px_0_#352D45] shrink-0"
                 >
                   เข้าควบคุมทีมนี้ต่อทันที ➔
                 </button>
@@ -313,10 +327,10 @@ export const TeamController: React.FC = () => {
           {/* Step 2: Team Name & Icon Registration Form */}
           <form
             onSubmit={handleSubmitRegistration}
-            className="rounded-3xl bg-slate-900 border-4 border-black shadow-[6px_6px_0px_#000] p-4 space-y-3.5"
+            className="rounded-3xl bg-[#EFE2D2] text-[#352D45] border-[3px] border-[#352D45] shadow-[0_7px_0_#352D45] p-4 space-y-3.5"
           >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-mono uppercase text-amber-400 font-black">
+              <span className="font-manor-display text-xs uppercase text-[#B94B50] font-extrabold">
                 STEP 2: ตั้งชื่อทีมสำหรับ TEAM {activeSlotTeam.number}
               </span>
               <button
@@ -326,14 +340,14 @@ export const TeamController: React.FC = () => {
                     funnySampleNames[Math.floor(Math.random() * funnySampleNames.length)];
                   setRegTeamName(randomName);
                 }}
-                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-600 text-xs font-bold"
+                className="px-2.5 py-1 rounded-lg bg-[#352D45] hover:bg-[#493e5e] text-[#E5B86C] text-xs font-bold"
               >
                 🎲 สุ่มชื่อกวนๆ
               </button>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-200 mb-1">
+              <label className="block text-xs font-extrabold text-[#352D45] mb-1">
                 ชื่อทีมของคุณ (จะเด้งขึ้นจอใหญ่ /display ทันที):
               </label>
               <input
@@ -343,12 +357,12 @@ export const TeamController: React.FC = () => {
                 value={regTeamName}
                 onChange={(e) => setRegTeamName(e.target.value)}
                 placeholder={`พิมพ์ชื่อทีมกลุ่มที่ ${activeSlotTeam.number}...`}
-                className="w-full px-4 py-3 rounded-2xl bg-slate-950 border-[3px] border-black focus:border-amber-400 text-white font-extrabold text-base focus:outline-none"
+                className="w-full px-4 py-3 rounded-2xl bg-white border-[3px] border-[#352D45] focus:border-[#B94B50] text-[#352D45] font-extrabold text-base focus:outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-200 mb-1.5">
+              <label className="block text-xs font-extrabold text-[#352D45] mb-1.5">
                 เลือกไอคอนประจำกลุ่ม:
               </label>
               <div className="grid grid-cols-5 gap-2">
@@ -357,10 +371,10 @@ export const TeamController: React.FC = () => {
                     key={ic}
                     type="button"
                     onClick={() => setRegTeamIcon(ic)}
-                    className={`py-2 rounded-xl text-2xl border-2 border-black flex items-center justify-center transition ${
+                    className={`py-2 rounded-xl text-2xl border-2 border-[#352D45] flex items-center justify-center transition ${
                       regTeamIcon === ic
-                        ? 'bg-amber-400 scale-105 shadow-[3px_3px_0px_#000]'
-                        : 'bg-slate-800 hover:bg-slate-700'
+                        ? 'bg-[#E5B86C] scale-105 shadow-[0_3px_0_#352D45]'
+                        : 'bg-white/80 hover:bg-white'
                     }`}
                   >
                     {ic}
@@ -370,7 +384,7 @@ export const TeamController: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1">
+              <label className="block text-xs font-bold text-[#352D45]/85 mb-1">
                 สโลแกน / คำขวัญข่มขวัญทีมอื่น (ไม่บังคับ):
               </label>
               <input
@@ -379,12 +393,12 @@ export const TeamController: React.FC = () => {
                 value={regTeamMotto}
                 onChange={(e) => setRegTeamMotto(e.target.value)}
                 placeholder="เช่น เด็กดื้อพร้อมบวกครามปุส!"
-                className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border-2 border-slate-700 text-slate-200 text-xs font-bold focus:outline-none focus:border-amber-400"
+                className="w-full px-3.5 py-2 rounded-xl bg-white border-2 border-[#352D45]/60 text-[#352D45] text-xs font-bold focus:outline-none focus:border-[#B94B50]"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1">
+              <label className="block text-xs font-bold text-[#352D45]/85 mb-1">
                 รายชื่อเล่นสมาชิกในทีม (4–10 คน คั่นด้วยเครื่องหมาย ,):
               </label>
               <input
@@ -392,15 +406,15 @@ export const TeamController: React.FC = () => {
                 value={regTeamRoster}
                 onChange={(e) => setRegTeamRoster(e.target.value)}
                 placeholder="เช่น บอล, มายด์, เต้, พลอย, ต้น, แนน"
-                className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border-2 border-slate-700 text-amber-200 text-xs font-bold focus:outline-none focus:border-amber-400"
+                className="w-full px-3.5 py-2 rounded-xl bg-white border-2 border-[#352D45]/60 text-[#352D45] text-xs font-bold focus:outline-none focus:border-[#B94B50]"
               />
             </div>
 
             <button
               type="submit"
-              className="w-full py-4 rounded-2xl bg-[#22c55e] hover:bg-emerald-400 active:scale-[0.99] text-black font-black text-lg border-4 border-black shadow-[5px_5px_0px_#000] flex items-center justify-center gap-2"
+              className="w-full py-4 rounded-2xl bg-[#536B59] hover:bg-[#435848] active:scale-[0.99] text-[#EFE2D2] font-manor-display font-bold text-lg border-[3px] border-[#352D45] shadow-[0_5px_0_#352D45] flex items-center justify-center gap-2"
             >
-              <CheckCircle2 className="w-6 h-6 stroke-[3]" />
+              <CheckCircle2 className="w-6 h-6 stroke-[3] text-[#E5B86C]" />
               <span>Submit ส่งชื่อทีมขึ้นจอใหญ่!</span>
             </button>
           </form>
@@ -423,40 +437,53 @@ export const TeamController: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#070a12] text-slate-100 flex flex-col justify-between select-none pb-6">
+    <div className="min-h-screen bg-[#1e1828] text-[#EFE2D2] flex flex-col justify-between select-none pb-6 relative overflow-hidden">
+      <div
+        className="pointer-events-none fixed inset-0 bg-cover bg-center"
+        style={{ backgroundImage: "url('/art/manor-interior.png')" }}
+      />
+      <div
+        className="pointer-events-none fixed inset-0"
+        style={{
+          background:
+            'linear-gradient(180deg, rgba(28,22,38,0.88) 0%, rgba(28,22,38,0.82) 50%, rgba(22,17,30,0.94) 100%)',
+        }}
+      />
       {/* ============================================================
-          MOBILE CONTROLLER TOP STATUS BAR
+          MOBILE CONTROLLER TOP STATUS BAR (Christmas Manor Theme)
       ============================================================ */}
-      <header className="sticky top-0 z-30 bg-slate-950/95 border-b-2 border-amber-500/40 px-4 py-3 backdrop-blur-md">
+      <header className="sticky top-0 z-30 bg-[#352D45]/95 border-b-[3px] border-[#D8C6B5]/40 px-4 py-3 backdrop-blur-md shadow-md">
         <div className="max-w-lg mx-auto flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
             <button
               onClick={() => setIsEditingRegistration(true)}
-              className="w-11 h-11 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-center text-2xl shrink-0 active:scale-95"
+              className="w-12 h-12 rounded-2xl bg-[#EFE2D2] border-2 border-[#352D45] shadow-[0_3px_0_#1e1828] flex items-center justify-center p-1 shrink-0 active:scale-95 overflow-hidden"
               title="แตะเพื่อแก้ไขชื่อทีมหรือเปลี่ยนทีม"
             >
-              {team.icon}
+              <TeamSouthParkAvatar slotNumber={team.number} className="w-10 h-10" />
             </button>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="text-xs font-mono font-black text-amber-400">
+                <span className="text-xs font-manor-display font-bold text-[#E5B86C]">
                   TEAM {team.number}
                 </span>
-                <span className="px-2 py-0.2 rounded-full bg-slate-800 text-[11px] font-mono text-slate-200">
+                <span className="px-2 py-0.2 rounded-full bg-[#B94B50] text-[11px] font-manor-score font-bold text-[#EFE2D2]">
                   อันดับ #{teamRank}
                 </span>
               </div>
-              <div className="font-extrabold text-sm text-white truncate">{team.name}</div>
+              <div className="font-manor-display font-bold text-sm text-[#EFE2D2] truncate">
+                {team.icon} {team.name}
+              </div>
             </div>
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
-            <div className="text-right font-mono">
-              <div className="text-base font-black text-amber-300 flex items-center justify-end gap-1">
+            <div className="text-right">
+              <div className="font-manor-score text-lg font-extrabold text-[#E5B86C] flex items-center justify-end gap-1 leading-tight">
                 <span>{team.coins.toLocaleString()}</span>
                 <span className="text-sm">🪙</span>
               </div>
-              <div className="text-[11px] text-slate-200 font-bold">
+              <div className="text-[11px] text-[#D8C6B5] font-bold">
                 {team.shields > 0 ? `เกราะ ${'🛡️'.repeat(team.shields)}` : '👹 NAUGHTY LIST'}
               </div>
             </div>
@@ -467,39 +494,49 @@ export const TeamController: React.FC = () => {
       {/* ============================================================
           MAIN CONTROLLER BODY
       ============================================================ */}
-      <main className="flex-1 max-w-lg w-full mx-auto px-4 pt-3 flex flex-col justify-between gap-4">
-        {/* Compact Question & Timer Card */}
-        <div className="rounded-2xl bg-slate-900/95 border border-slate-700/80 p-3.5 shadow-lg">
+      <main className="relative z-10 flex-1 max-w-lg w-full mx-auto px-4 pt-3 flex flex-col justify-between gap-4">
+        {/* Compact Question & Timer Card (Hidden question text while Standby IDLE!) */}
+        <div className="rounded-2xl bg-[#EFE2D2] text-[#352D45] border-[3px] border-[#352D45] shadow-[0_5px_0_#352D45] p-3.5">
           <div className="flex items-center justify-between gap-2 mb-1.5">
-            <span className="px-2.5 py-0.5 rounded-full bg-red-950 border border-red-700/60 text-amber-300 text-[11px] font-bold">
+            <span className="px-2.5 py-0.5 rounded-full bg-[#B94B50] border border-[#352D45] text-[#EFE2D2] font-manor-display text-[11px] font-bold truncate">
               {round.title}
             </span>
             <CountdownTimer size="sm" />
           </div>
-          <p className="text-sm md:text-base font-bold text-white leading-snug">
-            {round.questionText}
-          </p>
-          <p className="text-xs text-amber-200/90 font-semibold mt-1">{round.subtitle}</p>
+          {round.status === 'IDLE' &&
+          round.gameStage !== 'LOBBY' &&
+          round.gameStage !== 'WORLD_MAP' ? (
+            <p className="font-manor-display text-sm md:text-base font-bold text-[#352D45] leading-snug">
+              ⏸️ เตรียมพร้อมรอสัญญาณเริ่มเกมจาก Host...
+            </p>
+          ) : (
+            <p className="font-manor-display text-sm md:text-base font-bold text-[#352D45] leading-snug">
+              {round.questionText}
+            </p>
+          )}
+          <p className="text-xs text-[#77718B] font-bold mt-1">{round.subtitle}</p>
         </div>
 
         {/* Waiting / Ready Overlay if in LOBBY, WORLD_MAP, or Round is IDLE */}
         {(round.gameStage === 'LOBBY' || round.gameStage === 'WORLD_MAP') && (
-          <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-gradient-to-b from-emerald-950/90 to-slate-950 border-4 border-black shadow-[6px_6px_0px_#000] p-6 text-center my-2 space-y-4">
-            <div className="w-20 h-20 rounded-2xl bg-[#fef08a] border-4 border-black shadow-[4px_4px_0px_#000] flex items-center justify-center text-5xl">
-              {team.icon}
+          <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-[#EFE2D2] text-[#352D45] border-[3px] border-[#352D45] shadow-[0_7px_0_#352D45] p-6 text-center my-2 space-y-4">
+            <div className="w-24 h-24 rounded-3xl bg-[#E5B86C]/40 border-[3px] border-[#352D45] shadow-[0_4px_0_#352D45] flex items-center justify-center p-2">
+              <TeamSouthParkAvatar slotNumber={team.number} className="w-20 h-20" />
             </div>
-            <div className="inline-flex items-center gap-1.5 px-4 py-1 rounded-xl bg-[#22c55e] text-black border-2 border-black font-black text-sm shadow-[3px_3px_0px_#000]">
-              <CheckCircle2 className="w-4 h-4 stroke-[3]" />
+            <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-[#536B59] text-[#EFE2D2] border-2 border-[#352D45] font-manor-display font-bold text-sm shadow-[0_3px_0_#352D45]">
+              <CheckCircle2 className="w-4 h-4 stroke-[3] text-[#E5B86C]" />
               <span>พร้อมลุย! (แสดงบนจอ /display แล้ว)</span>
             </div>
             <div>
-              <div className="text-xs font-mono text-amber-300 font-bold">
+              <div className="font-manor-display text-xs text-[#B94B50] font-bold uppercase">
                 TEAM {team.number} REGISTERED
               </div>
-              <h2 className="text-2xl font-black text-white mt-0.5">{team.name}</h2>
-              <p className="text-xs text-slate-300 mt-1">“{team.motto}”</p>
+              <h2 className="font-manor-display text-2xl font-bold text-[#352D45] mt-0.5">
+                {team.icon} {team.name}
+              </h2>
+              <p className="text-xs text-[#77718B] font-bold mt-1">“{team.motto}”</p>
             </div>
-            <p className="text-sm text-amber-200 font-bold">
+            <p className="text-sm text-[#352D45] font-bold bg-white/70 px-4 py-2 rounded-xl border border-[#352D45]/20">
               {round.gameStage === 'LOBBY'
                 ? 'รอ GM ใหญ่กด “เริ่มเข้าสู่คฤหาสน์ (Start Game)”...'
                 : 'เข้าสู่แผนที่คฤหาสน์แล้ว! รอ GM ใหญ่เลือกห้องบททดสอบ...'}
@@ -507,7 +544,7 @@ export const TeamController: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsEditingRegistration(true)}
-              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border-2 border-black text-xs font-bold"
+              className="px-4 py-2 rounded-xl bg-[#352D45] hover:bg-[#493e5e] text-[#EFE2D2] border-2 border-[#352D45] text-xs font-bold"
             >
               ✏️ แก้ไขชื่อทีม / เปลี่ยน Slot ทีม
             </button>
@@ -517,11 +554,17 @@ export const TeamController: React.FC = () => {
         {round.gameStage !== 'LOBBY' &&
           round.gameStage !== 'WORLD_MAP' &&
           round.status === 'IDLE' && (
-            <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-slate-900/70 border-2 border-dashed border-slate-700 p-8 text-center my-2">
-              <Sparkles className="w-12 h-12 text-amber-400 animate-spin mb-3" />
-              <h2 className="text-xl font-extrabold text-white">รอ GM ใหญ่เริ่มจับเวลา...</h2>
-              <p className="text-sm text-slate-300 mt-1">
-                เมื่อ GM กดเริ่มรอบคำถาม ปุ่มส่งคำตอบจะปรากฏขึ้นบนหน้าจอนี้ทันที
+            <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-[#EFE2D2] text-[#352D45] border-[3px] border-[#352D45] shadow-[0_7px_0_#352D45] p-8 text-center my-2 space-y-3">
+              <TeamSouthParkAvatar slotNumber={team.number} className="w-20 h-20" />
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#352D45] text-[#E5B86C] font-manor-display text-xs font-bold">
+                <Sparkles className="w-4 h-4 animate-spin" />
+                <span>STANDBY MODE</span>
+              </div>
+              <h2 className="font-manor-display text-xl md:text-2xl font-bold text-[#352D45]">
+                รอ Host อธิบายกติกาและกดเริ่ม...
+              </h2>
+              <p className="text-sm font-semibold text-[#77718B]">
+                เมื่อ Host กดเปิดโจทย์และเริ่มจับเวลา ปุ่มส่งคำตอบจะปรากฏขึ้นบนหน้าจอนี้ทันที!
               </p>
             </div>
           )}

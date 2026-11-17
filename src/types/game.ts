@@ -283,6 +283,7 @@ export interface RoundConfig {
   timerRemainingMs: number | null; // Used when paused or locked
   status: RoundStatus;
   rewardsApplied: boolean;
+  briefingOpen?: boolean; // Controls whether Rules & Demo modal is visible before round start
 }
 
 export interface TeamSubmission {

@@ -17,6 +17,7 @@ import {
   Shield,
   Gavel,
   BookOpen,
+  Play,
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import {
@@ -80,7 +81,14 @@ const STAGE_META: Record<GameStage, { badge: string; name: string; color: string
 };
 
 export const ProjectorDisplay: React.FC = () => {
-  const { state, toggleSound, setShowLeaderboardOverlay, setGameStage } = useGame();
+  const {
+    state,
+    toggleSound,
+    setShowLeaderboardOverlay,
+    setGameStage,
+    startTimer,
+    updateRoundConfig,
+  } = useGame();
   const {
     round,
     teams,
@@ -90,7 +98,7 @@ export const ProjectorDisplay: React.FC = () => {
     krampusAlertMessage,
   } = state;
 
-  // Phase Rules & Demo Briefing Screen state (auto-shows on entering each phase)
+  // Phase Rules & Demo Briefing Screen state (auto-shows on entering each phase; paused until Host starts)
   const activePhaseKey = getPhaseBriefingKey(round);
   const [dismissedPhases, setDismissedPhases] = useState<Record<string, boolean>>({});
   const [forceBriefing, setForceBriefing] = useState(false);
@@ -100,8 +108,25 @@ export const ProjectorDisplay: React.FC = () => {
   }, [activePhaseKey]);
 
   const showPhaseBriefing = Boolean(
-    activePhaseKey && (forceBriefing || !dismissedPhases[activePhaseKey])
+    activePhaseKey &&
+      (forceBriefing ||
+        round.briefingOpen ||
+        (round.status === 'IDLE' && !dismissedPhases[activePhaseKey]))
   );
+
+  const isSpecialGame3View =
+    round.gameStage === 'QUIXORT' && Boolean(round.toyFactory) && round.toyFactory!.phase !== 'ACTION';
+  const isSpecialGame4View =
+    round.gameStage === 'TRIVIA_MURDER' &&
+    Boolean(round.lastMan) &&
+    round.lastMan!.phase !== 'KRAMPUS_TWIST';
+  const isStandbyPrep =
+    round.gameStage !== 'LOBBY' &&
+    round.gameStage !== 'WORLD_MAP' &&
+    round.gameStage !== 'FINALE' &&
+    round.status === 'IDLE' &&
+    !isSpecialGame3View &&
+    !isSpecialGame4View;
 
   const activeStageArt =
     round.gameStage === 'POLL_MINE'
@@ -267,6 +292,7 @@ export const ProjectorDisplay: React.FC = () => {
           onStartGame={() => {
             setDismissedPhases((prev) => ({ ...prev, [activePhaseKey]: true }));
             setForceBriefing(false);
+            updateRoundConfig({ briefingOpen: false });
           }}
         />
       )}
@@ -668,6 +694,69 @@ export const ProjectorDisplay: React.FC = () => {
             ACTIVE GAME STAGES (POLL_MINE, TIMEJINX, QUIXORT, TRIVIA_MURDER)
         ========================================================== */}
         {round.gameStage !== 'LOBBY' && round.gameStage !== 'WORLD_MAP' && (
+          isStandbyPrep ? (
+            <div className="flex-1 flex flex-col items-center justify-center my-auto py-6">
+              <div className="max-w-4xl w-full rounded-3xl bg-[#EFE2D2] border-4 border-[#352D45] shadow-[0_12px_0_#352D45,0_25px_50px_rgba(0,0,0,0.85)] p-7 md:p-10 text-center text-[#352D45] space-y-6">
+                <div className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-[#B94B50] border-2 border-[#352D45] text-[#EFE2D2] font-manor-display text-sm md:text-base font-bold uppercase tracking-wider shadow-[0_3px_0_#352D45]">
+                  <Clock className="w-4 h-4 text-[#E5B86C]" />
+                  <span>โหมดเตรียมความพร้อม (STANDBY • ยังไม่เริ่มจับเวลา)</span>
+                </div>
+
+                <div>
+                  <div className="text-sm font-manor-display font-bold text-[#77718B] uppercase tracking-widest">
+                    {stageInfo.badge}
+                  </div>
+                  <h2 className="font-manor-display text-3xl md:text-5xl font-bold text-[#352D45] mt-1">
+                    {round.title || stageInfo.name}
+                  </h2>
+                  <p className="text-base md:text-lg font-bold text-[#B94B50] mt-2 max-w-2xl mx-auto">
+                    {round.subtitle}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2">
+                  {TEAM_ORDER.map((tid) => {
+                    const t = teams[tid];
+                    return (
+                      <div
+                        key={tid}
+                        className="rounded-2xl bg-white/80 border-2 border-[#352D45] p-3 flex flex-col items-center gap-1.5 shadow-[0_4px_0_#D8C6B5]"
+                      >
+                        <TeamSouthParkAvatar slotNumber={t.number} className="w-16 h-16" />
+                        <div className="font-manor-display font-bold text-sm text-[#352D45] truncate w-full">
+                          {t.icon} {t.name}
+                        </div>
+                        <div className="font-manor-score font-extrabold text-sm text-[#B94B50]">
+                          🪙 {t.coins.toLocaleString()} ฿ • 🛡️ {t.shields}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
+                  {activePhaseKey && (
+                    <button
+                      type="button"
+                      onClick={() => setForceBriefing(true)}
+                      className="px-6 py-3.5 rounded-2xl bg-[#D8C6B5] hover:bg-[#ccb6a1] border-[3px] border-[#352D45] shadow-[0_5px_0_#352D45] active:translate-y-1 active:shadow-none text-[#352D45] font-manor-display text-base md:text-lg font-bold flex items-center gap-2 transition-all"
+                    >
+                      <BookOpen className="w-5 h-5" />
+                      <span>เปิดหน้าอธิบายกติกา & Demo</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => startTimer()}
+                    className="px-8 py-4 rounded-2xl bg-[#536B59] hover:bg-[#435848] border-[3px] border-[#352D45] shadow-[0_6px_0_#352D45] active:translate-y-1 active:shadow-none text-[#EFE2D2] font-manor-display text-xl md:text-2xl font-bold flex items-center gap-3 transition-all animate-pulse"
+                  >
+                    <Play className="w-6 h-6 fill-current text-[#E5B86C]" />
+                    <span>กดเริ่มเปิดโจทย์ & จับเวลา ({round.durationSeconds} วิ)</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
           <>
         {/* Question Banner (The Christmas Manor Paper-Cut Contrast for Projector Readability) */}
         <div className="relative rounded-3xl bg-[#352D45]/95 border-[3px] border-[#D8C6B5] shadow-[0_7px_0_#1e1828,0_14px_35px_rgba(0,0,0,0.75)] p-5 md:p-6 text-center">
@@ -2608,6 +2697,7 @@ export const ProjectorDisplay: React.FC = () => {
           </div>
         )}
           </>
+          )
         )}
       </main>
 
