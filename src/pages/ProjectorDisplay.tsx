@@ -434,8 +434,7 @@ export const ProjectorDisplay: React.FC = () => {
               <h1
                 className="font-manor-display text-5xl md:text-7xl font-bold text-[#EFE2D2] tracking-wide leading-none"
                 style={{
-                  WebkitTextStroke: '3px #352D45',
-                  textShadow: '0 6px 0 #352D45, 0 10px 24px rgba(0,0,0,0.6)',
+                  textShadow: '0 5px 0 #352D45, 0 10px 24px rgba(0,0,0,0.6)',
                 }}
               >
                 THE KRAMPUS EVE
@@ -443,8 +442,7 @@ export const ProjectorDisplay: React.FC = () => {
               <h2
                 className="font-manor-display text-2xl md:text-3xl font-bold text-[#E5B86C] mt-2"
                 style={{
-                  WebkitTextStroke: '1px #352D45',
-                  textShadow: '0 3px 0 #352D45',
+                  textShadow: '0 3px 0 #352D45, 0 6px 14px rgba(0,0,0,0.5)',
                 }}
               >
                 มหากาพย์การเอาชีวิตรอดในคฤหาสน์คริสต์มาส
@@ -570,8 +568,7 @@ export const ProjectorDisplay: React.FC = () => {
                 <h1
                   className="font-manor-display text-5xl md:text-6xl font-bold text-[#EFE2D2] tracking-wide leading-none"
                   style={{
-                    WebkitTextStroke: '3px #352D45',
-                    textShadow: '0 6px 0 #352D45',
+                    textShadow: '0 5px 0 #352D45, 0 10px 24px rgba(0,0,0,0.6)',
                   }}
                 >
                   THE KRAMPUS EVE
