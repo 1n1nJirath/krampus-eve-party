@@ -38,6 +38,7 @@ import {
 import { ChronoSubRound, GameStage, TeamId, YearUnit } from '../types/game';
 import { CountdownTimer } from '../components/CountdownTimer';
 import { QrCodeModal } from '../components/QrCodeModal';
+import { SafeActionButton } from '../components/SafeActionButton';
 
 export const AdminControl: React.FC = () => {
   const {
@@ -307,8 +308,9 @@ export const AdminControl: React.FC = () => {
 
             {/* Action Buttons: Open QR on Admin / Show Lobby / Start Game (Mansion World Map) */}
             <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-              <button
+              <SafeActionButton
                 type="button"
+                showSpinner={false}
                 onClick={() => setGameStage('LOBBY')}
                 className={`px-3.5 py-2.5 rounded-2xl font-extrabold text-xs border transition ${
                   round.gameStage === 'LOBBY'
@@ -317,7 +319,7 @@ export const AdminControl: React.FC = () => {
                 }`}
               >
                 🏠 เปิดหน้า Lobby
-              </button>
+              </SafeActionButton>
 
               <button
                 type="button"
@@ -328,8 +330,9 @@ export const AdminControl: React.FC = () => {
                 <span>QR Code 4 ทีม</span>
               </button>
 
-              <button
+              <SafeActionButton
                 type="button"
+                loadingText="กำลังเริ่มเกม..."
                 onClick={() => {
                   const regCount = TEAM_ORDER.filter((tid) => teams[tid].isRegistered).length;
                   if (regCount < 2) {
@@ -349,7 +352,7 @@ export const AdminControl: React.FC = () => {
                 className="px-5 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-sm border-2 border-white shadow-[0_0_25px_rgba(16,185,129,0.5)] flex items-center gap-2 active:scale-95 transition"
               >
                 <span>🏰 เริ่มเข้าสู่คฤหาสน์ (Start Game)</span>
-              </button>
+              </SafeActionButton>
             </div>
           </div>
         </div>
@@ -437,7 +440,9 @@ export const AdminControl: React.FC = () => {
                           {preset.questionText}
                         </p>
                       </div>
-                      <button
+                      <SafeActionButton
+                        type="button"
+                        showSpinner={false}
                         onClick={() => loadPreset(preset)}
                         className={`px-3.5 py-2 rounded-xl font-black text-xs shrink-0 transition ${
                           isCurrent
@@ -446,7 +451,7 @@ export const AdminControl: React.FC = () => {
                         }`}
                       >
                         {isCurrent ? '✓ โหลดอยู่' : 'โหลดข้อนี้'}
-                      </button>
+                      </SafeActionButton>
                     </div>
                   );
                 })}
@@ -645,8 +650,9 @@ export const AdminControl: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-2.5">
-                  <button
+                  <SafeActionButton
                     type="button"
+                    showSpinner={false}
                     onClick={() => updateRoundConfig({ briefingOpen: !round.briefingOpen })}
                     className={`py-2.5 px-3 rounded-xl border-2 font-bold text-xs flex items-center justify-center gap-1.5 transition ${
                       round.briefingOpen
@@ -656,15 +662,16 @@ export const AdminControl: React.FC = () => {
                   >
                     <BookOpen className="w-4 h-4 shrink-0" />
                     <span>{round.briefingOpen ? '1. ปิดหน้า Demo ➔ Standby' : '1. เปิดหน้ากติกา & Demo'}</span>
-                  </button>
+                  </SafeActionButton>
 
                   <div className="py-2 px-3 rounded-xl bg-slate-950/80 border border-slate-700 text-xs flex flex-col justify-center">
                     <span className="text-[10px] text-slate-400 font-bold uppercase">2. ข้อปัจจุบัน (ยังไม่เดินเวลาจนกดเริ่ม)</span>
                     <span className="font-extrabold text-amber-300 truncate">{round.questionText}</span>
                   </div>
 
-                  <button
+                  <SafeActionButton
                     type="button"
+                    loadingText="กำลังเริ่มจับเวลา..."
                     onClick={() => startTimer()}
                     className={`py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-lg transition ${
                       round.status === 'IDLE' ? 'ring-2 ring-emerald-300 animate-pulse' : ''
@@ -672,10 +679,11 @@ export const AdminControl: React.FC = () => {
                   >
                     <Play className="w-4 h-4 fill-current shrink-0" />
                     <span>3. เปิดโจทย์ & เริ่มจับเวลา</span>
-                  </button>
+                  </SafeActionButton>
 
-                  <button
+                  <SafeActionButton
                     type="button"
+                    loadingText="กำลังเฉลย & คิดคะแนน..."
                     onClick={() => {
                       const res = revealRound();
                       if (res?.summary && res.summary.length > 0) {
@@ -687,7 +695,7 @@ export const AdminControl: React.FC = () => {
                   >
                     <Eye className="w-4 h-4 shrink-0" />
                     <span>4. เฉลย & อัปเดตคะแนนทันที!</span>
-                  </button>
+                  </SafeActionButton>
                 </div>
               </div>
 
@@ -710,7 +718,9 @@ export const AdminControl: React.FC = () => {
 
                   {/* 3 Sub-Round Buttons (3 Questions) */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <button
+                    <SafeActionButton
+                      type="button"
+                      showSpinner={false}
                       onClick={() => switchEightDoorsSubRound('SUB1_SURVIVAL')}
                       className={`p-2.5 rounded-xl border text-left transition ${
                         subRound === 'SUB1_SURVIVAL'
@@ -725,9 +735,11 @@ export const AdminControl: React.FC = () => {
                       <div className="text-[10px] text-slate-300 mt-0.5">
                         ถูก +300 ฿ / ผิด -1 🛡️ / ไม่เจอ -200 ฿
                       </div>
-                    </button>
+                    </SafeActionButton>
 
-                    <button
+                    <SafeActionButton
+                      type="button"
+                      showSpinner={false}
                       onClick={() => switchEightDoorsSubRound('SUB2_SNAKE_DRAFT')}
                       className={`p-2.5 rounded-xl border text-left transition ${
                         subRound === 'SUB2_SNAKE_DRAFT'
@@ -742,9 +754,11 @@ export const AdminControl: React.FC = () => {
                       <div className="text-[10px] text-slate-300 mt-0.5">
                         ถูก +300 ฿ / ผิด -1 🛡️ / ไม่เจอ -200 ฿
                       </div>
-                    </button>
+                    </SafeActionButton>
 
-                    <button
+                    <SafeActionButton
+                      type="button"
+                      showSpinner={false}
                       onClick={() => switchEightDoorsSubRound('SUB3_POLARITY')}
                       className={`p-2.5 rounded-xl border text-left transition ${
                         subRound === 'SUB3_POLARITY'
@@ -761,18 +775,19 @@ export const AdminControl: React.FC = () => {
                       <div className="text-[10px] text-slate-300 mt-0.5">
                         ถูก 1 อันดับ +300 ฿ / ถูก 2 อันดับ +700 ฿
                       </div>
-                    </button>
+                    </SafeActionButton>
                   </div>
 
                   <div className="flex justify-end">
-                    <button
+                    <SafeActionButton
                       type="button"
+                      loadingText="กำลังสรุปเกม..."
                       onClick={finishEightDoorsGame}
                       className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40 font-bold text-xs flex items-center gap-1.5 transition"
                     >
                       <Map className="w-3.5 h-3.5" />
                       <span>จบเกมที่ 1 (ปิดเกราะเด็กดี) ➔ กลับ Mansion World Map</span>
-                    </button>
+                    </SafeActionButton>
                   </div>
 
                   {/* Special Sub-Round 2 Phase 1 -> Phase 2 Auction Resolution Banner */}
@@ -781,7 +796,9 @@ export const AdminControl: React.FC = () => {
                       <div className="text-xs text-amber-200 font-bold">
                         🔨 เมื่อทีมบิดเสร็จแล้ว กดปุ่มนี้เพื่อหักเงินผู้ชนะสูงสุด (หรือคิด Coward&apos;s Tax -100 ฿ หากไม่มีคนบิด) และไปหน้าเลือกประตู/แทงข้าง:
                       </div>
-                      <button
+                      <SafeActionButton
+                        type="button"
+                        loadingText="กำลังตัดสินประมูล..."
                         onClick={() => {
                           const res = resolveSubRound2Auction();
                           setScoringFeedback([res.message]);
@@ -791,7 +808,7 @@ export const AdminControl: React.FC = () => {
                       >
                         <Gavel className="w-4 h-4" />
                         <span>ตัดสินผู้ชนะประมูล & หักเงินบิด ➔ ไปช่วงเลือกประตู/แทงข้าง</span>
-                      </button>
+                      </SafeActionButton>
                     </div>
                   )}
 
@@ -860,9 +877,10 @@ export const AdminControl: React.FC = () => {
                           </div>
                           <div className="grid grid-cols-3 gap-1.5">
                             {group.ids.map((pid, idx) => (
-                              <button
+                              <SafeActionButton
                                 key={pid}
                                 type="button"
+                                showSpinner={false}
                                 onClick={() => switchChronoSubRound(group.sub, { presetId: pid })}
                                 className={`py-1.5 rounded-lg font-mono font-bold text-xs border transition ${
                                   round.presetId === pid
@@ -871,7 +889,7 @@ export const AdminControl: React.FC = () => {
                                 }`}
                               >
                                 ข้อ {idx + 1}
-                              </button>
+                              </SafeActionButton>
                             ))}
                           </div>
                         </div>
@@ -886,25 +904,27 @@ export const AdminControl: React.FC = () => {
                         <div className="text-xs text-amber-200 font-bold">
                           💣 จังหวะที่ 1: ทุกทีมกำลังวางกับดักเวลา — เมื่อวางเสร็จแล้ว กดปุ่มนี้เพื่อคำนวณ Step (1/5/10 ปี) และเริ่มทายปี:
                         </div>
-                        <button
+                        <SafeActionButton
                           type="button"
+                          loadingText="กำลังเปิดแถบเลื่อน..."
                           onClick={launchChronoTrapGuessPhase}
-                          className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs shadow-lg shrink-0"
+                          className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs shadow-lg shrink-0 flex items-center gap-1.5"
                         >
                           🚀 จังหวะที่ 2: เปิดแถบเลื่อนทายปี!
-                        </button>
+                        </SafeActionButton>
                       </div>
                     )}
 
                   <div className="flex justify-end">
-                    <button
+                    <SafeActionButton
                       type="button"
+                      loadingText="กำลังจบเกม..."
                       onClick={finishChronoGame}
                       className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40 font-bold text-xs flex items-center gap-1.5 transition"
                     >
                       <Map className="w-3.5 h-3.5" />
                       <span>จบเกมที่ 2 (ครบ 9 ข้อ) ➔ กลับ Mansion World Map</span>
-                    </button>
+                    </SafeActionButton>
                   </div>
                 </div>
               )}
@@ -924,21 +944,23 @@ export const AdminControl: React.FC = () => {
                       ⚙️ คอนโซลควบคุมเกมที่ 3: THE TOY FACTORY CHAOS (4 รอบ)
                     </span>
                     <div className="flex items-center gap-2">
-                      <button
+                      <SafeActionButton
                         type="button"
+                        loadingText="กำลังสุ่มจับคู่..."
                         onClick={startToyFactoryGame}
-                        className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-black text-xs shadow"
+                        className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-black text-xs shadow flex items-center gap-1"
                       >
                         🎲 {tf ? 'สุ่มจับคู่เริ่มเกมที่ 3 ใหม่' : 'เริ่มเกมที่ 3 (สุ่มจับคู่ 4 รอบ)'}
-                      </button>
-                      <button
+                      </SafeActionButton>
+                      <SafeActionButton
                         type="button"
+                        loadingText="กำลังจบเกม..."
                         onClick={finishToyFactoryGame}
                         className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40 font-bold text-xs flex items-center gap-1"
                       >
                         <Map className="w-3.5 h-3.5" />
                         <span>จบเกมที่ 3 ➔ World Map</span>
-                      </button>
+                      </SafeActionButton>
                     </div>
                   </div>
 
@@ -967,31 +989,34 @@ export const AdminControl: React.FC = () => {
                       {/* Phase Controls */}
                       <div className="flex flex-wrap gap-2">
                         {tf.phase === 'PREP_10S' && (
-                          <button
+                          <SafeActionButton
                             type="button"
+                            loadingText="กำลังเริ่มจับเวลา..."
                             onClick={startToyFactoryActionPhase}
-                            className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs"
+                            className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1"
                           >
                             ▶ ครบ 10 วิแล้ว / เริ่มจับเวลาหลัก (Action Phase)!
-                          </button>
+                          </SafeActionButton>
                         )}
                         {tf.phase === 'SHUFFLE_BUFFER_10S' && (
-                          <button
+                          <SafeActionButton
                             type="button"
+                            loadingText="กำลังเดินเวลาต่อ..."
                             onClick={resumeToyFactoryFromBuffer}
-                            className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs"
+                            className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs flex items-center gap-1"
                           >
                             ▶ ครบ Buffer 10 วิแล้ว / เดินเวลาหลักต่อ!
-                          </button>
+                          </SafeActionButton>
                         )}
                         {tf.phase === 'ACTION' && (
-                          <button
+                          <SafeActionButton
                             type="button"
+                            loadingText="กำลังเปิดหน้าตรวจ..."
                             onClick={enterToyFactoryRevealPhase}
-                            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs"
+                            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1"
                           >
                             🎭 หมดเวลา / เข้าสู่หน้าตรวจคำตอบทีละตัว (Reveal & Judge)
-                          </button>
+                          </SafeActionButton>
                         )}
                       </div>
 
@@ -1003,23 +1028,25 @@ export const AdminControl: React.FC = () => {
                               📋 ตรวจลำดับทีละตัวจากซ้ายไปขวา (ผิดสะสม: {wrongCount} จุด = -{wrongCount * 100} ฿):
                             </span>
                             {!round.rewardsApplied ? (
-                              <button
+                              <SafeActionButton
                                 type="button"
+                                loadingText="กำลังคิดเงิน..."
                                 onClick={finalizeToyFactoryRound}
-                                className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs"
+                                className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1"
                               >
                                 💰 คิดเงิน & คำสาปรอบนี้
-                              </button>
+                              </SafeActionButton>
                             ) : (
-                              <button
+                              <SafeActionButton
                                 type="button"
+                                loadingText="กำลังเปลี่ยนรอบ..."
                                 onClick={nextToyFactoryRound}
-                                className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-black text-xs"
+                                className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-black text-xs flex items-center gap-1"
                               >
                                 {tf.roundIndex >= tf.pairings.length
                                   ? '🏁 จบเกมที่ 3 ➔ World Map'
                                   : `➔ ไปรอบที่ ${tf.roundIndex + 1}`}
-                              </button>
+                              </SafeActionButton>
                             )}
                           </div>
 
@@ -1047,16 +1074,18 @@ export const AdminControl: React.FC = () => {
                                 </div>
                                 <div className="flex items-center gap-1 shrink-0">
                                   {slot.isMystery && !slot.revealed && (
-                                    <button
+                                    <SafeActionButton
                                       type="button"
+                                      showSpinner={false}
                                       onClick={() => revealToyFactoryMystery(slot.index)}
                                       className="px-2 py-1 rounded bg-amber-400 text-black font-black"
                                     >
                                       🔦 เปิด ???
-                                    </button>
+                                    </SafeActionButton>
                                   )}
-                                  <button
+                                  <SafeActionButton
                                     type="button"
+                                    showSpinner={false}
                                     onClick={() => judgeToyFactorySlot(slot.index, 'CORRECT')}
                                     className={`px-2 py-1 rounded font-black ${
                                       slot.verdict === 'CORRECT'
@@ -1065,9 +1094,10 @@ export const AdminControl: React.FC = () => {
                                     }`}
                                   >
                                     ✓ ถูก
-                                  </button>
-                                  <button
+                                  </SafeActionButton>
+                                  <SafeActionButton
                                     type="button"
+                                    showSpinner={false}
                                     onClick={() => judgeToyFactorySlot(slot.index, 'WRONG')}
                                     className={`px-2 py-1 rounded font-black ${
                                       slot.verdict === 'WRONG'
@@ -1076,7 +1106,7 @@ export const AdminControl: React.FC = () => {
                                     }`}
                                   >
                                     ✗ ผิด
-                                  </button>
+                                  </SafeActionButton>
                                 </div>
                               </div>
                             ))}
@@ -1091,23 +1121,29 @@ export const AdminControl: React.FC = () => {
 
               {/* Primary 3 Action Buttons (Separated from Reset to prevent misclicks!) */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 my-4">
-                <button
+                <SafeActionButton
+                  type="button"
+                  loadingText="กำลังเริ่มจับเวลา..."
                   onClick={() => startTimer()}
                   className="py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg transition"
                 >
                   <Play className="w-5 h-5 fill-current" />
                   <span>เริ่มจับเวลา (Start)</span>
-                </button>
+                </SafeActionButton>
 
-                <button
+                <SafeActionButton
+                  type="button"
+                  showSpinner={false}
                   onClick={round.status === 'ACTIVE' ? pauseTimer : lockRound}
                   className="py-3.5 px-4 rounded-2xl bg-amber-600 hover:bg-amber-500 text-slate-950 font-black text-sm flex items-center justify-center gap-2 shadow-lg transition"
                 >
                   <Pause className="w-5 h-5 fill-current" />
                   <span>หยุด / ล็อกคำตอบ</span>
-                </button>
+                </SafeActionButton>
 
-                <button
+                <SafeActionButton
+                  type="button"
+                  loadingText="กำลังเฉลย & คิดคะแนน..."
                   onClick={() => {
                     const res = revealRound();
                     if (res?.summary && res.summary.length > 0) {
@@ -1119,7 +1155,7 @@ export const AdminControl: React.FC = () => {
                 >
                   <Eye className="w-5 h-5" />
                   <span>เฉลยขึ้นจอ & คิดคะแนน (Reveal!)</span>
-                </button>
+                </SafeActionButton>
               </div>
 
               {/* Secondary Bar: Minute:Second Custom Timer + Presets + Auto-Score + Reset */}
@@ -1205,21 +1241,27 @@ export const AdminControl: React.FC = () => {
                   {/* Auto-Calculate Coins & Shields Button */}
                   {round.inputMode === 'MODE_D_SECRET' && round.modeDSubType === 'QUIXORT_BET' ? (
                     <div className="flex items-center gap-2">
-                      <button
+                      <SafeActionButton
+                        type="button"
+                        loadingText="กำลังจ่าย PASS..."
                         onClick={() => handleAutoScore('PASS')}
-                        className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black"
+                        className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-1"
                       >
                         ✓ ทีมสนามสำเร็จ (จ่าย PASS)
-                      </button>
-                      <button
+                      </SafeActionButton>
+                      <SafeActionButton
+                        type="button"
+                        loadingText="กำลังจ่าย FAIL..."
                         onClick={() => handleAutoScore('FAIL')}
-                        className="px-3 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-black"
+                        className="px-3 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-black flex items-center gap-1"
                       >
                         ✕ ทีมสนามล้มเหลว (จ่าย FAIL)
-                      </button>
+                      </SafeActionButton>
                     </div>
                   ) : (
-                    <button
+                    <SafeActionButton
+                      type="button"
+                      loadingText="กำลังคำนวณคะแนน..."
                       onClick={() => handleAutoScore()}
                       disabled={round.rewardsApplied}
                       className={`px-4 py-2 rounded-xl font-black text-xs flex items-center gap-1.5 transition ${
@@ -1234,18 +1276,20 @@ export const AdminControl: React.FC = () => {
                           ? '✓ คำนวณเหรียญ & เกราะรอบนี้แล้ว'
                           : 'คำนวณเหรียญ & เกราะอัตโนมัติตามกติกา'}
                       </span>
-                    </button>
+                    </SafeActionButton>
                   )}
 
                   {/* Separated Reset Button with Confirmation Dialog */}
-                  <button
+                  <SafeActionButton
+                    type="button"
+                    showSpinner={false}
                     onClick={handleConfirmResetSubmissions}
                     className="px-3 py-2 rounded-xl bg-red-950/50 hover:bg-red-900/70 text-red-300 border border-red-800/60 font-bold text-xs flex items-center gap-1.5 transition ml-2"
                     title="มีหน้าต่างถามยืนยันก่อนล้างข้อมูล"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>ล้างคำตอบรอบนี้</span>
-                  </button>
+                  </SafeActionButton>
                 </div>
               </div>
 
@@ -1699,14 +1743,16 @@ export const AdminControl: React.FC = () => {
                   ระบบเศรษฐกิจเหรียญศักดิ์สิทธิ์ & เกราะเด็กดี 🛡️ (Scoreboard & Economy)
                 </h3>
               </div>
-              <button
+              <SafeActionButton
+                type="button"
+                loadingText="กำลังย้อนกลับ..."
                 onClick={undoLastTransaction}
                 disabled={transactions.length === 0}
                 className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-xs font-bold text-amber-300 flex items-center gap-1 border border-slate-700"
               >
                 <Undo2 className="w-3.5 h-3.5" />
                 <span>ย้อนกลับ ({transactions.length})</span>
-              </button>
+              </SafeActionButton>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
@@ -2043,19 +2089,23 @@ export const AdminControl: React.FC = () => {
               </h2>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button
+              <SafeActionButton
+                type="button"
+                loadingText="กำลังเริ่มเกมที่ 4..."
                 onClick={startLastManStandingGame}
-                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs shadow-lg"
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs shadow-lg flex items-center gap-1"
               >
                 💀 เริ่มเกมที่ 4 (Krampus Twist + นับ 4 ❤️)
-              </button>
+              </SafeActionButton>
               {round.gameStage === 'TRIVIA_MURDER' && (
-                <button
+                <SafeActionButton
+                  type="button"
+                  loadingText="กำลังไป Finale..."
                   onClick={() => finishLastManStandingGame(true)}
-                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs"
+                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs flex items-center gap-1"
                 >
                   🏆 ไปหน้า Finale / Leaderboard
-                </button>
+                </SafeActionButton>
               )}
             </div>
           </div>
@@ -2124,12 +2174,14 @@ export const AdminControl: React.FC = () => {
                             <span className="text-purple-200 font-bold truncate">
                               {curse.icon} {curse.name}
                             </span>
-                            <button
+                            <SafeActionButton
+                              type="button"
+                              showSpinner={false}
                               onClick={() => penalizeLastManCurseViolation(tid)}
                               className="px-1.5 py-0.5 rounded bg-red-600 hover:bg-red-500 text-white font-black shrink-0"
                             >
                               -1 ❤️
-                            </button>
+                            </SafeActionButton>
                           </div>
                         )}
                       </div>
@@ -2146,108 +2198,136 @@ export const AdminControl: React.FC = () => {
                       KRAMPUS STEP: {lms.krampusStep}
                     </div>
                     {cursedTeams.length > 0 && (
-                      <button
+                      <SafeActionButton
+                        type="button"
+                        loadingText="กำลังส่ง Warning..."
                         onClick={triggerLastManFreezeWarning}
-                        className="px-3 py-1.5 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs animate-pulse"
+                        className="px-3 py-1.5 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs animate-pulse flex items-center gap-1"
                       >
                         🗿 KRAMPUS มองอยู่! (Freeze 3 วิ)
-                      </button>
+                      </SafeActionButton>
                     )}
                   </div>
 
                   {/* Part 1 Controls */}
                   <div className="flex flex-wrap gap-2">
-                    <button
+                    <SafeActionButton
+                      type="button"
+                      loadingText="กำลังเปิดคำถาม..."
                       onClick={() => startLastManPart1Trivia(lms.part1Round)}
-                      className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs"
+                      className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center gap-1"
                     >
                       1️⃣ เปิดคำถามรอบที่ {lms.part1Round} (15 วิ)
-                    </button>
-                    <button
+                    </SafeActionButton>
+                    <SafeActionButton
+                      type="button"
+                      loadingText="กำลังเฉลย..."
                       onClick={revealLastManPart1Trivia}
-                      className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs"
+                      className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs flex items-center gap-1"
                     >
                       2️⃣ เฉลยคำถาม &amp; เปิดประตูกล
-                    </button>
+                    </SafeActionButton>
                     {lms.phase === 'PART1_MISERY_PULL' && (
-                      <button
+                      <SafeActionButton
+                        type="button"
+                        loadingText="กำลังสุ่มดึง..."
                         onClick={autoResolveMiseryPull}
-                        className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs animate-pulse"
+                        className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs animate-pulse flex items-center gap-1"
                       >
                         🪝 หมดเวลา 10 วิ: สุ่มดึงเพื่อนตกนรก!
-                      </button>
+                      </SafeActionButton>
                     )}
-                    <button
+                    <SafeActionButton
+                      type="button"
+                      loadingText="กำลังเปิดตลาดมืด..."
                       onClick={enterLastManBlackMarket}
-                      className="px-3 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-black text-xs"
+                      className="px-3 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-black text-xs flex items-center gap-1"
                     >
                       3️⃣ เปิดตลาดมืดละลายทรัพย์ (25 วิ)
-                    </button>
-                    <button
+                    </SafeActionButton>
+                    <SafeActionButton
+                      type="button"
+                      loadingText="กำลังเปิดมินิเกม..."
                       onClick={enterLastManMinigame}
-                      className="px-3 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-xs"
+                      className="px-3 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-xs flex items-center gap-1"
                     >
                       4️⃣ เข้ามินิเกมลานประหาร (รอบ {lms.part1Round})
-                    </button>
+                    </SafeActionButton>
                     {lms.phase === 'PART1_MINIGAME' && lms.part1Round === 4 && (
-                      <button
+                      <SafeActionButton
+                        type="button"
+                        loadingText="กำลังทอยเต๋า..."
                         onClick={rollKrampusDeathDice}
-                        className="px-3 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-black font-black text-xs"
+                        className="px-3 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-black font-black text-xs flex items-center gap-1"
                       >
                         🎲 Krampus ทอยเต๋า ({lms.krampusDiceRoll ?? '?'})
-                      </button>
+                      </SafeActionButton>
                     )}
-                    <button
+                    <SafeActionButton
+                      type="button"
+                      loadingText="กำลังเฉลยมินิเกม..."
                       onClick={revealLastManMinigame}
-                      className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-black text-xs"
+                      className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-black text-xs flex items-center gap-1"
                     >
                       5️⃣ เฉลยมินิเกม &amp; ตัดสินหัวใจ
-                    </button>
+                    </SafeActionButton>
                     {lms.part1Round < 4 ? (
-                      <button
+                      <SafeActionButton
+                        type="button"
+                        loadingText="กำลังไปรอบถัดไป..."
                         onClick={advanceFromLastManMinigame}
-                        className="px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-black text-xs"
+                        className="px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-black text-xs flex items-center gap-1"
                       >
                         ➡️ {lms.part1Round === 2 && lms.phase === 'PART1_MINIGAME_REVEAL'
                           ? '💸 เก็บภาษีคนงก (>1,000 ฿)'
                           : `ไปรอบถัดไป (รอบ ${lms.part1Round + 1}/4)`}
-                      </button>
+                      </SafeActionButton>
                     ) : (
-                      <button
+                      <SafeActionButton
+                        type="button"
+                        loadingText="กำลังเริ่มบันได 25 ขั้น..."
                         onClick={startLastManPart2Escape}
-                        className="px-3 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-rose-500 text-black font-black text-xs shadow-lg"
+                        className="px-3 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-rose-500 text-black font-black text-xs shadow-lg flex items-center gap-1"
                       >
                         🪜 เข้าสู่ช่วงที่ 2: บันไดหนีตาย 25 ขั้น!
-                      </button>
+                      </SafeActionButton>
                     )}
                   </div>
 
                   {/* Part 2 Controls */}
                   <div className="pt-3 border-t border-slate-800 flex flex-wrap gap-2">
-                    <button
+                    <SafeActionButton
+                      type="button"
+                      loadingText="กำลังรีสตาร์ท..."
                       onClick={startLastManPart2Escape}
-                      className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-black text-xs"
+                      className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-black text-xs flex items-center gap-1"
                     >
                       🔄 รีสตาร์ทช่วงที่ 2 (แปลง 400 ฿ = +1 ขั้น)
-                    </button>
-                    <button
+                    </SafeActionButton>
+                    <SafeActionButton
+                      type="button"
+                      loadingText="กำลังเปิดคำถาม..."
                       onClick={openLastManPart2Question}
-                      className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs"
+                      className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center gap-1"
                     >
                       ⏱️ เปิดคำถาม + 3 ตัวเลือก &amp; จับเวลา
-                    </button>
-                    <button
+                    </SafeActionButton>
+                    <SafeActionButton
+                      type="button"
+                      loadingText="กำลังเฉลย..."
                       onClick={revealLastManPart2Question}
-                      className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs"
+                      className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs flex items-center gap-1"
                     >
                       ✅ เฉลย &amp; เดินหน้า (+Krampus 1.5 ขั้น)
-                    </button>
-                    <button
+                    </SafeActionButton>
+                    <SafeActionButton
+                      type="button"
+                      loadingText="กำลังเปิดข้อถัดไป..."
                       onClick={nextLastManPart2Question}
-                      className="px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-black text-xs"
+                      className="px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-black text-xs flex items-center gap-1"
                     >
                       ➡️ ข้อถัดไป (แสดงเบาะแส)
-                    </button>
+                    </SafeActionButton>
                   </div>
                 </div>
 

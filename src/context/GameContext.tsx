@@ -108,6 +108,19 @@ function normalizeGameState(raw: KrampusGameState): KrampusGameState {
 }
 
 /**
+ * Records an `actionId` in `state.processedActionIds` to prevent duplicate execution
+ * when both `STATE_SYNC` and `TEAM_ACTION` arrive across tabs/channels.
+ * Returns `false` if this exact `actionId` was already applied.
+ */
+export function markActionProcessed(state: KrampusGameState, actionId?: string): boolean {
+  if (!actionId) return true;
+  const list = state.processedActionIds || [];
+  if (list.includes(actionId)) return false;
+  state.processedActionIds = [actionId, ...list].slice(0, 60);
+  return true;
+}
+
+/**
  * Pure helper to compute coin & shield rewards/penalties for a finished round.
  * Used both when Host clicks "Reveal!" (1-click auto-score) and "คำนวณเหรียญอัตโนมัติ".
  * Guards against double-application via `prev.round.rewardsApplied`.
@@ -625,6 +638,22 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return Date.now() + serverTimeOffset;
   }, [serverTimeOffset]);
 
+  // Synchronous action locks to drop duplicate/rapid clicks before React re-renders
+  const actionLocksRef = useRef<Map<string, number>>(new Map());
+  const acquireActionLock = useCallback((key: string, cooldownMs = 450): boolean => {
+    const now = Date.now();
+    const last = actionLocksRef.current.get(key) || 0;
+    if (now - last < cooldownMs) {
+      return false;
+    }
+    actionLocksRef.current.set(key, now);
+    return true;
+  }, []);
+
+  const createActionId = useCallback((actor: string, action: string, now: number) => {
+    return `${actor}-${action}-${now}-${Math.random().toString(36).slice(2, 6)}`;
+  }, []);
+
   // Sync sound setting
   useEffect(() => {
     soundFX.enabled = state.soundEnabled;
@@ -805,9 +834,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })
         .on('broadcast', { event: 'TEAM_ACTION' }, ({ payload }) => {
           if (!payload) return;
-          const { teamId, action, data, clientNow } = payload;
+          const { teamId, action, data, clientNow, actionId } = payload;
           commitState((prev) => {
             const next = structuredClone(prev);
+            if (!markActionProcessed(next, actionId)) {
+              return prev;
+            }
             const now = clientNow || Date.now();
             if (action === 'SUBMIT_ANSWER') {
               const elapsedMs = next.round.timerStartedAt
@@ -919,9 +951,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const registerTeam = useCallback(
     (teamId: TeamId, name: string, icon?: string, motto?: string, roster?: string[]) => {
+      if (!acquireActionLock(`${teamId}:REGISTER_TEAM`, 500)) return;
       soundFX.playSubmit();
       const trimmedName = name.trim();
       const now = getAuthoritativeNow();
+      const actionId = createActionId(teamId, 'REGISTER_TEAM', now);
 
       fetch('/api/sync', {
         method: 'POST',
@@ -930,6 +964,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           type: 'TEAM_ACTION',
           teamId,
           action: 'REGISTER_TEAM',
+          actionId,
           payload: { name: trimmedName, icon, motto, roster },
         }),
       }).catch(() => {});
@@ -942,6 +977,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             payload: {
               teamId,
               action: 'REGISTER_TEAM',
+              actionId,
               data: { name: trimmedName, icon, motto, roster },
               clientNow: now,
             },
@@ -952,29 +988,28 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       commitState((prev) => {
         const current = prev.teams[teamId];
         if (!current) return prev;
-        return {
-          ...prev,
-          teams: {
-            ...prev.teams,
-            [teamId]: {
-              ...current,
-              name: trimmedName || current.name,
-              icon: icon || current.icon,
-              motto: motto !== undefined ? motto : current.motto,
-              roster: roster !== undefined ? roster : current.roster,
-              isRegistered: true,
-            },
-          },
+        const next = structuredClone(prev);
+        if (!markActionProcessed(next, actionId)) return prev;
+        next.teams[teamId] = {
+          ...current,
+          name: trimmedName || current.name,
+          icon: icon || current.icon,
+          motto: motto !== undefined ? motto : current.motto,
+          roster: roster !== undefined ? roster : current.roster,
+          isRegistered: true,
         };
+        return next;
       });
     },
-    [commitState, getAuthoritativeNow]
+    [acquireActionLock, commitState, createActionId, getAuthoritativeNow]
   );
 
   const submitTeamAnswer = useCallback(
     (teamId: TeamId, value: string | number, secondaryValue?: string) => {
+      if (!acquireActionLock(`${teamId}:SUBMIT_ANSWER`, 450)) return;
       soundFX.playSubmit();
       const now = getAuthoritativeNow();
+      const actionId = createActionId(teamId, 'SUBMIT_ANSWER', now);
 
       fetch('/api/sync', {
         method: 'POST',
@@ -983,6 +1018,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           type: 'TEAM_ACTION',
           teamId,
           action: 'SUBMIT_ANSWER',
+          actionId,
           payload: { value, secondaryValue },
         }),
       }).catch(() => {});
@@ -991,31 +1027,28 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         supaChannelRef.current.send({
           type: 'broadcast',
           event: 'TEAM_ACTION',
-          payload: { teamId, action: 'SUBMIT_ANSWER', data: { value, secondaryValue }, clientNow: now },
+          payload: { teamId, action: 'SUBMIT_ANSWER', actionId, data: { value, secondaryValue }, clientNow: now },
         }).catch(() => {});
       }
 
       commitState((prev) => {
-        const elapsedMs = prev.round.timerStartedAt
-          ? Math.max(0, now - prev.round.timerStartedAt)
+        const next = structuredClone(prev);
+        if (!markActionProcessed(next, actionId)) return prev;
+        const elapsedMs = next.round.timerStartedAt
+          ? Math.max(0, now - next.round.timerStartedAt)
           : 0;
-        return {
-          ...prev,
-          submissions: {
-            ...prev.submissions,
-            [teamId]: {
-              teamId,
-              value,
-              secondaryValue,
-              submittedAt: now,
-              elapsedMs,
-              locked: true,
-            },
-          },
+        next.submissions[teamId] = {
+          teamId,
+          value,
+          secondaryValue,
+          submittedAt: now,
+          elapsedMs,
+          locked: true,
         };
+        return next;
       });
     },
-    [commitState, getAuthoritativeNow]
+    [acquireActionLock, commitState, createActionId, getAuthoritativeNow]
   );
 
   const clearTeamSubmission = useCallback(
@@ -1044,7 +1077,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const pressTeamBuzzer = useCallback(
     (teamId: TeamId) => {
+      if (!acquireActionLock(`${teamId}:PRESS_BUZZER`, 450)) return;
       const now = getAuthoritativeNow();
+      const actionId = createActionId(teamId, 'PRESS_BUZZER', now);
 
       fetch('/api/sync', {
         method: 'POST',
@@ -1053,6 +1088,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           type: 'TEAM_ACTION',
           teamId,
           action: 'PRESS_BUZZER',
+          actionId,
         }),
       }).catch(() => {});
 
@@ -1060,35 +1096,32 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         supaChannelRef.current.send({
           type: 'broadcast',
           event: 'TEAM_ACTION',
-          payload: { teamId, action: 'PRESS_BUZZER', data: {}, clientNow: now },
+          payload: { teamId, action: 'PRESS_BUZZER', actionId, data: {}, clientNow: now },
         }).catch(() => {});
       }
 
       commitState((prev) => {
         if (prev.round.status !== 'ACTIVE') return prev;
         if (prev.buzzerQueue.some((b) => b.teamId === teamId)) return prev;
-        const firstTime = prev.buzzerQueue.length > 0 ? prev.buzzerQueue[0].pressedAt : now;
-        const elapsedFromStartMs = prev.round.timerStartedAt
-          ? Math.max(0, now - prev.round.timerStartedAt)
+        const next = structuredClone(prev);
+        if (!markActionProcessed(next, actionId)) return prev;
+        const firstTime = next.buzzerQueue.length > 0 ? next.buzzerQueue[0].pressedAt : now;
+        const elapsedFromStartMs = next.round.timerStartedAt
+          ? Math.max(0, now - next.round.timerStartedAt)
           : 0;
-        const rank = prev.buzzerQueue.length + 1;
+        const rank = next.buzzerQueue.length + 1;
         soundFX.playBuzzer(rank);
-        return {
-          ...prev,
-          buzzerQueue: [
-            ...prev.buzzerQueue,
-            {
-              teamId,
-              pressedAt: now,
-              deltaMs: Math.max(0, now - firstTime),
-              elapsedFromStartMs,
-              rank,
-            },
-          ],
-        };
+        next.buzzerQueue.push({
+          teamId,
+          pressedAt: now,
+          deltaMs: Math.max(0, now - firstTime),
+          elapsedFromStartMs,
+          rank,
+        });
+        return next;
       });
     },
-    [commitState, getAuthoritativeNow]
+    [acquireActionLock, commitState, createActionId, getAuthoritativeNow]
   );
 
   // ==============================================================
@@ -1401,7 +1434,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const bailoutNiceShield = useCallback(
     (teamId: TeamId) => {
+      if (!acquireActionLock(`${teamId}:BAILOUT_SHIELD`, 500)) return;
       const now = getAuthoritativeNow();
+      const actionId = createActionId(teamId, 'BAILOUT_SHIELD', now);
       fetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1409,6 +1444,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           type: 'TEAM_ACTION',
           teamId,
           action: 'BAILOUT_SHIELD',
+          actionId,
           payload: {},
         }),
       }).catch(() => {});
@@ -1418,24 +1454,27 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .send({
             type: 'broadcast',
             event: 'TEAM_ACTION',
-            payload: { teamId, action: 'BAILOUT_SHIELD', data: {}, clientNow: now },
+            payload: { teamId, action: 'BAILOUT_SHIELD', actionId, data: {}, clientNow: now },
           })
           .catch(() => {});
       }
 
       commitState((prev) => {
         const next = structuredClone(prev);
+        if (!markActionProcessed(next, actionId)) return prev;
         if (!applyBailoutToState(next, teamId, now)) return prev;
         return next;
       });
       soundFX.playReveal();
     },
-    [commitState, getAuthoritativeNow]
+    [acquireActionLock, commitState, createActionId, getAuthoritativeNow]
   );
 
   const submitSnakeDraftPick = useCallback(
     (teamId: TeamId, doorKey: string) => {
+      if (!acquireActionLock(`${teamId}:SNAKE_PICK`, 500)) return;
       const now = getAuthoritativeNow();
+      const actionId = createActionId(teamId, 'SNAKE_PICK', now);
       fetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1443,6 +1482,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           type: 'TEAM_ACTION',
           teamId,
           action: 'SNAKE_PICK',
+          actionId,
           payload: { doorKey },
         }),
       }).catch(() => {});
@@ -1452,19 +1492,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .send({
             type: 'broadcast',
             event: 'TEAM_ACTION',
-            payload: { teamId, action: 'SNAKE_PICK', data: { doorKey }, clientNow: now },
+            payload: { teamId, action: 'SNAKE_PICK', actionId, data: { doorKey }, clientNow: now },
           })
           .catch(() => {});
       }
 
       commitState((prev) => {
         const next = structuredClone(prev);
+        if (!markActionProcessed(next, actionId)) return prev;
         if (!applySnakePickToState(next, teamId, doorKey, now)) return prev;
         return next;
       });
       soundFX.playReveal();
     },
-    [commitState, getAuthoritativeNow]
+    [acquireActionLock, commitState, createActionId, getAuthoritativeNow]
   );
 
   const finishEightDoorsGame = useCallback(() => {
@@ -1488,6 +1529,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       subRound: ChronoSubRound,
       options?: { presetId?: string; phase?: 'TRAP_PLACEMENT' | 'YEAR_GUESS' }
     ) => {
+      if (!acquireActionLock('host:switchChronoSubRound', 400)) return;
       commitState((prev) => {
         const defaultPresetId =
           subRound === 'CHRONO_SUB1_CLASSIC'
@@ -1574,7 +1616,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const placeChronoTraps = useCallback(
     (teamId: TeamId, allocations: Partial<Record<TeamId, number>>) => {
+      if (!acquireActionLock(`${teamId}:PLACE_CHRONO_TRAPS`, 500)) return;
       const now = getAuthoritativeNow();
+      const actionId = createActionId(teamId, 'PLACE_CHRONO_TRAPS', now);
       fetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1582,6 +1626,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           type: 'TEAM_ACTION',
           teamId,
           action: 'PLACE_CHRONO_TRAPS',
+          actionId,
           payload: { allocations },
         }),
       }).catch(() => {});
@@ -1591,24 +1636,27 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .send({
             type: 'broadcast',
             event: 'TEAM_ACTION',
-            payload: { teamId, action: 'PLACE_CHRONO_TRAPS', data: { allocations }, clientNow: now },
+            payload: { teamId, action: 'PLACE_CHRONO_TRAPS', actionId, data: { allocations }, clientNow: now },
           })
           .catch(() => {});
       }
 
       commitState((prev) => {
         const next = structuredClone(prev);
+        if (!markActionProcessed(next, actionId)) return prev;
         if (!applyChronoTrapsToState(next, teamId, allocations, now)) return prev;
         return next;
       });
       soundFX.playReveal();
     },
-    [commitState, getAuthoritativeNow]
+    [acquireActionLock, commitState, createActionId, getAuthoritativeNow]
   );
 
   const claimChronoYear = useCallback(
     (teamId: TeamId, year: number) => {
+      if (!acquireActionLock(`${teamId}:CLAIM_CHRONO_YEAR`, 500)) return;
       const now = getAuthoritativeNow();
+      const actionId = createActionId(teamId, 'CLAIM_CHRONO_YEAR', now);
       fetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1616,6 +1664,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           type: 'TEAM_ACTION',
           teamId,
           action: 'CLAIM_CHRONO_YEAR',
+          actionId,
           payload: { year },
         }),
       }).catch(() => {});
@@ -1625,19 +1674,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .send({
             type: 'broadcast',
             event: 'TEAM_ACTION',
-            payload: { teamId, action: 'CLAIM_CHRONO_YEAR', data: { year }, clientNow: now },
+            payload: { teamId, action: 'CLAIM_CHRONO_YEAR', actionId, data: { year }, clientNow: now },
           })
           .catch(() => {});
       }
 
       commitState((prev) => {
         const next = structuredClone(prev);
+        if (!markActionProcessed(next, actionId)) return prev;
         if (!applyChronoClaimToState(next, teamId, year, now)) return prev;
         return next;
       });
       soundFX.playBuzzer(1);
     },
-    [commitState, getAuthoritativeNow]
+    [acquireActionLock, commitState, createActionId, getAuthoritativeNow]
   );
 
   const finishChronoGame = useCallback(() => {
@@ -1708,7 +1758,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const selectToyFactoryDataset = useCallback(
     (teamId: TeamId, datasetId: string) => {
+      if (!acquireActionLock(`${teamId}:SELECT_TOY_DATASET`, 500)) return;
       const now = getAuthoritativeNow();
+      const actionId = createActionId(teamId, 'SELECT_TOY_DATASET', now);
       fetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1716,6 +1768,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           type: 'TEAM_ACTION',
           teamId,
           action: 'SELECT_TOY_DATASET',
+          actionId,
           payload: { datasetId },
         }),
       }).catch(() => {});
@@ -1725,19 +1778,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .send({
             type: 'broadcast',
             event: 'TEAM_ACTION',
-            payload: { teamId, action: 'SELECT_TOY_DATASET', data: { datasetId }, clientNow: now },
+            payload: { teamId, action: 'SELECT_TOY_DATASET', actionId, data: { datasetId }, clientNow: now },
           })
           .catch(() => {});
       }
 
       commitState((prev) => {
         const next = structuredClone(prev);
+        if (!markActionProcessed(next, actionId)) return prev;
         if (!applyToyDatasetSelection(next, teamId, datasetId, now)) return prev;
         return next;
       });
       soundFX.playSubmit();
     },
-    [commitState, getAuthoritativeNow]
+    [acquireActionLock, commitState, createActionId, getAuthoritativeNow]
   );
 
   const startToyFactoryActionPhase = useCallback(() => {
@@ -1766,7 +1820,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const triggerToyFactoryShuffle = useCallback(
     (spectatorTeamId: TeamId) => {
+      if (!acquireActionLock(`${spectatorTeamId}:TOY_SHUFFLE`, 600)) return;
       const now = getAuthoritativeNow();
+      const actionId = createActionId(spectatorTeamId, 'TOY_SHUFFLE', now);
       fetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1774,6 +1830,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           type: 'TEAM_ACTION',
           teamId: spectatorTeamId,
           action: 'TOY_SHUFFLE',
+          actionId,
           payload: {},
         }),
       }).catch(() => {});
@@ -1783,19 +1840,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .send({
             type: 'broadcast',
             event: 'TEAM_ACTION',
-            payload: { teamId: spectatorTeamId, action: 'TOY_SHUFFLE', data: {}, clientNow: now },
+            payload: { teamId: spectatorTeamId, action: 'TOY_SHUFFLE', actionId, data: {}, clientNow: now },
           })
           .catch(() => {});
       }
 
       commitState((prev) => {
         const next = structuredClone(prev);
+        if (!markActionProcessed(next, actionId)) return prev;
         if (!applyToyFactoryShuffle(next, spectatorTeamId, now)) return prev;
         return next;
       });
       soundFX.playBuzzer(1);
     },
-    [commitState, getAuthoritativeNow]
+    [acquireActionLock, commitState, createActionId, getAuthoritativeNow]
   );
 
   const resumeToyFactoryFromBuffer = useCallback(() => {
@@ -1908,6 +1966,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const finalizeToyFactoryRound = useCallback(() => {
+    if (!acquireActionLock('host:finalizeToyFactoryRound', 500)) return;
     commitState((prev) => {
       const tf = prev.round.toyFactory;
       if (!tf || prev.round.rewardsApplied) return prev;
@@ -1959,6 +2018,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [commitState]);
 
   const nextToyFactoryRound = useCallback(() => {
+    if (!acquireActionLock('host:nextToyFactoryRound', 500)) return;
     commitState((prev) => {
       const tf = prev.round.toyFactory;
       if (!tf) return prev;
@@ -2047,6 +2107,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       subRound: EightDoorsSubRound,
       options?: { auctionIteration?: 1 | 2; revealRemaining2To4?: boolean; loadPresetQuestion?: boolean }
     ) => {
+      if (!acquireActionLock('host:switchEightDoorsSubRound', 400)) return;
       commitState((prev) => {
         const iter = options?.auctionIteration ?? prev.round.auctionIteration ?? 1;
         const isFreshSubRound =
@@ -2160,6 +2221,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Resolve Phase 1 of Sub-Round 2 (Auction): find highest bidder, or apply Coward's Tax if 0 bids
   const resolveSubRound2Auction = useCallback(
     (overrideWinnerTeamId?: TeamId) => {
+      if (!acquireActionLock('host:resolveSubRound2Auction', 500)) {
+        return { winnerTeamId: null, winningBid: 0, message: '' };
+      }
       let resultWinner: TeamId | null = null;
       let resultBid = 0;
       let resultMsg = '';
@@ -2273,6 +2337,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const startTimer = useCallback(
     (customDurationSeconds?: number) => {
+      if (!acquireActionLock('host:startTimer', 400)) return;
       const now = getAuthoritativeNow();
       commitState((prev) => {
         const durationSec = customDurationSeconds ?? prev.round.durationSeconds;
@@ -2336,6 +2401,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [commitState]);
 
   const revealRound = useCallback(() => {
+    if (!acquireActionLock('host:revealRound', 500)) {
+      return { summary: [] as string[] };
+    }
     soundFX.playReveal();
     const curRound = stateRef.current.round;
     const isTrapPhase =
@@ -2602,6 +2670,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Smart 1-Click Auto Scoring for all 4 games & 3 sub-rounds of "The 8 Doors of Krampus"
   const autoApplyRoundScoring = useCallback(
     (quixortOutcome?: 'PASS' | 'FAIL') => {
+      if (!acquireActionLock('host:autoApplyRoundScoring', 500)) {
+        return { summary: [] as string[] };
+      }
       const { summary } = computeRoundScoring(stateRef.current, quixortOutcome);
       commitState((prev) => computeRoundScoring(prev, quixortOutcome).nextState);
       soundFX.playCoinChange(true);
@@ -2691,6 +2762,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const startLastManPart1Trivia = useCallback(
     (roundNum?: number) => {
+      if (!acquireActionLock('host:startLastManPart1Trivia', 450)) return;
       const now = getAuthoritativeNow();
       soundFX.playTick(true);
       commitState((prev) => {
@@ -2753,6 +2825,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const revealLastManPart1Trivia = useCallback(() => {
+    if (!acquireActionLock('host:revealLastManPart1Trivia', 500)) return;
     const now = getAuthoritativeNow();
     soundFX.playReveal();
     commitState((prev) => {
@@ -3213,6 +3286,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const openLastManPart2Question = useCallback(() => {
+    if (!acquireActionLock('host:openLastManPart2Question', 450)) return;
     const now = getAuthoritativeNow();
     soundFX.playTick(true);
     commitState((prev) => {
@@ -3239,6 +3313,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [commitState, getAuthoritativeNow]);
 
   const revealLastManPart2Question = useCallback(() => {
+    if (!acquireActionLock('host:revealLastManPart2Question', 500)) return;
     const now = getAuthoritativeNow();
     soundFX.playReveal();
     commitState((prev) => {
@@ -3326,6 +3401,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [commitState, getAuthoritativeNow]);
 
   const nextLastManPart2Question = useCallback(() => {
+    if (!acquireActionLock('host:nextLastManPart2Question', 500)) return;
     const now = getAuthoritativeNow();
     commitState((prev) => {
       const next = structuredClone(prev);
@@ -3388,13 +3464,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const lmsSoulSacrifice = useCallback(
     (teamId: TeamId) => {
+      if (!acquireActionLock(`${teamId}:LMS_SOUL_SACRIFICE`, 500)) return;
       const now = getAuthoritativeNow();
+      const actionId = createActionId(teamId, 'LMS_SOUL_SACRIFICE', now);
       soundFX.playCoinChange(true);
       if (connectionMode === 'LOCAL_SERVER') {
         fetch('/api/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'TEAM_ACTION', action: 'LMS_SOUL_SACRIFICE', teamId, payload: {} }),
+          body: JSON.stringify({ type: 'TEAM_ACTION', action: 'LMS_SOUL_SACRIFICE', actionId, teamId, payload: {} }),
         }).catch(() => {});
         return;
       }
@@ -3402,21 +3480,24 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         supaChannelRef.current.send({
           type: 'broadcast',
           event: 'TEAM_ACTION',
-          payload: { action: 'LMS_SOUL_SACRIFICE', teamId, data: {} },
+          payload: { action: 'LMS_SOUL_SACRIFICE', actionId, teamId, data: {}, clientNow: now },
         });
       }
       commitState((prev) => {
         const next = structuredClone(prev);
+        if (!markActionProcessed(next, actionId)) return prev;
         applyLmsSoulSacrifice(next, teamId, now);
         return next;
       });
     },
-    [commitState, connectionMode, getAuthoritativeNow]
+    [acquireActionLock, commitState, connectionMode, createActionId, getAuthoritativeNow]
   );
 
   const lmsMiseryPull = useCallback(
     (teamId: TeamId, targetTeamId: TeamId) => {
+      if (!acquireActionLock(`${teamId}:LMS_MISERY_PULL`, 500)) return;
       const now = getAuthoritativeNow();
+      const actionId = createActionId(teamId, 'LMS_MISERY_PULL', now);
       soundFX.playSubmit();
       if (connectionMode === 'LOCAL_SERVER') {
         fetch('/api/sync', {
@@ -3425,6 +3506,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           body: JSON.stringify({
             type: 'TEAM_ACTION',
             action: 'LMS_MISERY_PULL',
+            actionId,
             teamId,
             payload: { targetTeamId },
           }),
@@ -3435,21 +3517,24 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         supaChannelRef.current.send({
           type: 'broadcast',
           event: 'TEAM_ACTION',
-          payload: { action: 'LMS_MISERY_PULL', teamId, data: { targetTeamId } },
+          payload: { action: 'LMS_MISERY_PULL', actionId, teamId, data: { targetTeamId }, clientNow: now },
         });
       }
       commitState((prev) => {
         const next = structuredClone(prev);
+        if (!markActionProcessed(next, actionId)) return prev;
         applyLmsMiseryPull(next, teamId, targetTeamId, now);
         return next;
       });
     },
-    [commitState, connectionMode, getAuthoritativeNow]
+    [acquireActionLock, commitState, connectionMode, createActionId, getAuthoritativeNow]
   );
 
   const lmsBuyItem = useCallback(
     (teamId: TeamId, itemId: LastManShopItemId, targetTeamId?: TeamId) => {
+      if (!acquireActionLock(`${teamId}:LMS_BUY_${itemId}`, 500)) return;
       const now = getAuthoritativeNow();
+      const actionId = createActionId(teamId, `LMS_BUY_${itemId}`, now);
       soundFX.playCoinChange(false);
       if (connectionMode === 'LOCAL_SERVER') {
         fetch('/api/sync', {
@@ -3458,6 +3543,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           body: JSON.stringify({
             type: 'TEAM_ACTION',
             action: 'LMS_BUY_ITEM',
+            actionId,
             teamId,
             payload: { itemId, targetTeamId },
           }),
@@ -3468,16 +3554,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         supaChannelRef.current.send({
           type: 'broadcast',
           event: 'TEAM_ACTION',
-          payload: { action: 'LMS_BUY_ITEM', teamId, data: { itemId, targetTeamId } },
+          payload: { action: 'LMS_BUY_ITEM', actionId, teamId, data: { itemId, targetTeamId }, clientNow: now },
         });
       }
       commitState((prev) => {
         const next = structuredClone(prev);
+        if (!markActionProcessed(next, actionId)) return prev;
         applyLmsBuyItem(next, teamId, itemId, targetTeamId, now);
         return next;
       });
     },
-    [commitState, connectionMode, getAuthoritativeNow]
+    [acquireActionLock, commitState, connectionMode, createActionId, getAuthoritativeNow]
   );
 
   const lmsMinigameAction = useCallback(
@@ -3491,6 +3578,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         vote?: 'SPARE' | 'EXECUTE';
       }
     ) => {
+      if (!acquireActionLock(`${teamId}:LMS_MG_${payload.subType}`, 450)) return;
+      const now = getAuthoritativeNow();
+      const actionId = createActionId(teamId, `LMS_MG_${payload.subType}`, now);
       soundFX.playSubmit();
       if (connectionMode === 'LOCAL_SERVER') {
         fetch('/api/sync', {
@@ -3499,6 +3589,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           body: JSON.stringify({
             type: 'TEAM_ACTION',
             action: 'LMS_MINIGAME_ACTION',
+            actionId,
             teamId,
             payload,
           }),
@@ -3509,27 +3600,30 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         supaChannelRef.current.send({
           type: 'broadcast',
           event: 'TEAM_ACTION',
-          payload: { action: 'LMS_MINIGAME_ACTION', teamId, data: payload },
+          payload: { action: 'LMS_MINIGAME_ACTION', actionId, teamId, data: payload, clientNow: now },
         });
       }
       commitState((prev) => {
         const next = structuredClone(prev);
+        if (!markActionProcessed(next, actionId)) return prev;
         applyLmsMinigameAction(next, teamId, payload);
         return next;
       });
     },
-    [commitState, connectionMode]
+    [acquireActionLock, commitState, connectionMode, createActionId, getAuthoritativeNow]
   );
 
   const lmsUseJetpack = useCallback(
     (teamId: TeamId) => {
+      if (!acquireActionLock(`${teamId}:LMS_USE_JETPACK`, 500)) return;
       const now = getAuthoritativeNow();
+      const actionId = createActionId(teamId, 'LMS_USE_JETPACK', now);
       soundFX.playReveal();
       if (connectionMode === 'LOCAL_SERVER') {
         fetch('/api/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'TEAM_ACTION', action: 'LMS_USE_JETPACK', teamId, payload: {} }),
+          body: JSON.stringify({ type: 'TEAM_ACTION', action: 'LMS_USE_JETPACK', actionId, teamId, payload: {} }),
         }).catch(() => {});
         return;
       }
@@ -3537,16 +3631,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         supaChannelRef.current.send({
           type: 'broadcast',
           event: 'TEAM_ACTION',
-          payload: { action: 'LMS_USE_JETPACK', teamId, data: {} },
+          payload: { action: 'LMS_USE_JETPACK', actionId, teamId, data: {}, clientNow: now },
         });
       }
       commitState((prev) => {
         const next = structuredClone(prev);
+        if (!markActionProcessed(next, actionId)) return prev;
         applyLmsUseJetpack(next, teamId, now);
         return next;
       });
     },
-    [commitState, connectionMode, getAuthoritativeNow]
+    [acquireActionLock, commitState, connectionMode, createActionId, getAuthoritativeNow]
   );
 
   const finishLastManStandingGame = useCallback(

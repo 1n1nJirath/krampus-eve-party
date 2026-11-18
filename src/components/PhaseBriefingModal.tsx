@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { BookOpen, Play, Eye, EyeOff, Sparkles, Coins, AlertTriangle } from 'lucide-react';
 import { RoundConfig } from '../types/game';
+import { SafeActionButton } from './SafeActionButton';
 
 export type PhaseBriefingKey =
   | 'POLL_MINE:SUB1_SURVIVAL'
@@ -347,13 +348,15 @@ export const PhaseBriefingModal: React.FC<PhaseBriefingModalProps> = ({
           <span className="text-xs md:text-sm font-bold text-[#352D45]">
             💡 อธิบายกติกาและลองข้อ Demo ให้ครบทุกทีม (เวลายังไม่เดินจนกว่า Host จะกดเริ่มเกม)
           </span>
-          <button
+          <SafeActionButton
+            type="button"
             onClick={onStartGame}
+            loadingText="กำลังเข้าสู่หน้าเตรียมพร้อม..."
             className="px-6 py-3 rounded-2xl bg-[#536B59] hover:bg-[#435848] border-[3px] border-[#352D45] shadow-[0_5px_0_#352D45] active:translate-y-1 active:shadow-none text-[#EFE2D2] font-manor-display text-lg font-bold flex items-center gap-2.5 transition-all"
           >
             <Play className="w-5 h-5 fill-current" />
             <span>ปิดหน้า Demo ➔ เข้าสู่หน้าเตรียมพร้อม</span>
-          </button>
+          </SafeActionButton>
         </div>
       </div>
     </div>

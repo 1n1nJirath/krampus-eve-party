@@ -11,6 +11,7 @@ import {
   Gavel,
   Shield,
   Skull,
+  Loader2,
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import {
@@ -26,6 +27,7 @@ import {
 import { LastManShopItemId, TeamId } from '../types/game';
 import { CountdownTimer } from '../components/CountdownTimer';
 import { TeamSouthParkAvatar } from '../components/SouthParkArt';
+import { SafeActionButton, useSafeClick } from '../components/SafeActionButton';
 
 export const TeamController: React.FC = () => {
   const {
@@ -162,6 +164,31 @@ export const TeamController: React.FC = () => {
     return sorted.findIndex((t) => t.id === selectedTeamId) + 1;
   }, [teams, selectedTeamId]);
 
+  // Guarded registration submit handler (prevents Enter-key or double-click multi-fire)
+  const [safeSubmitRegistration, isSubmittingReg] = useSafeClick(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      const activeSlotTeam = teams[regSlotId];
+      const finalName =
+        regTeamName.trim() || `Team ${activeSlotTeam.number} (${activeSlotTeam.name.split(' ')[0]})`;
+      const parsedRoster = regTeamRoster
+        .split(/[,\n]+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .slice(0, 10);
+      registerTeam(
+        regSlotId,
+        finalName,
+        regTeamIcon,
+        regTeamMotto.trim() || 'พร้อมลุย!',
+        parsedRoster
+      );
+      handleSelectTeam(regSlotId);
+      setIsEditingRegistration(false);
+    },
+    { cooldownMs: 500, preventDefault: true, stopPropagation: true }
+  );
+
   // ==============================================================
   // 1. SUB-GM REGISTRATION & SLOT SELECTION SCREEN (/play)
   // ==============================================================
@@ -187,26 +214,6 @@ export const TeamController: React.FC = () => {
       setRegTeamMotto(t.motto || 'พร้อมลุยคืนคริสต์มาสอีฟ!');
       setRegTeamIcon(t.icon);
       setRegTeamRoster((t.roster || []).join(', '));
-    };
-
-    const handleSubmitRegistration = (e: React.FormEvent) => {
-      e.preventDefault();
-      const finalName =
-        regTeamName.trim() || `Team ${activeSlotTeam.number} (${activeSlotTeam.name.split(' ')[0]})`;
-      const parsedRoster = regTeamRoster
-        .split(/[,\n]+/)
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .slice(0, 10);
-      registerTeam(
-        regSlotId,
-        finalName,
-        regTeamIcon,
-        regTeamMotto.trim() || 'พร้อมลุย!',
-        parsedRoster
-      );
-      handleSelectTeam(regSlotId);
-      setIsEditingRegistration(false);
     };
 
     return (
@@ -326,7 +333,7 @@ export const TeamController: React.FC = () => {
 
           {/* Step 2: Team Name & Icon Registration Form */}
           <form
-            onSubmit={handleSubmitRegistration}
+            onSubmit={safeSubmitRegistration}
             className="rounded-3xl bg-[#EFE2D2] text-[#352D45] border-[3px] border-[#352D45] shadow-[0_7px_0_#352D45] p-4 space-y-3.5"
           >
             <div className="flex items-center justify-between">
@@ -412,10 +419,18 @@ export const TeamController: React.FC = () => {
 
             <button
               type="submit"
-              className="w-full py-4 rounded-2xl bg-[#536B59] hover:bg-[#435848] active:scale-[0.99] text-[#EFE2D2] font-manor-display font-bold text-lg border-[3px] border-[#352D45] shadow-[0_5px_0_#352D45] flex items-center justify-center gap-2"
+              disabled={isSubmittingReg}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full py-4 rounded-2xl bg-[#536B59] hover:bg-[#435848] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed text-[#EFE2D2] font-manor-display font-bold text-lg border-[3px] border-[#352D45] shadow-[0_5px_0_#352D45] flex items-center justify-center gap-2 transition"
             >
-              <CheckCircle2 className="w-6 h-6 stroke-[3] text-[#E5B86C]" />
-              <span>Submit ส่งชื่อทีมขึ้นจอใหญ่!</span>
+              {isSubmittingReg ? (
+                <Loader2 className="w-6 h-6 animate-spin text-[#E5B86C]" />
+              ) : (
+                <CheckCircle2 className="w-6 h-6 stroke-[3] text-[#E5B86C]" />
+              )}
+              <span>
+                {isSubmittingReg ? 'กำลังส่งชื่อทีม...' : 'Submit ส่งชื่อทีมขึ้นจอใหญ่!'}
+              </span>
             </button>
           </form>
         </div>
@@ -641,13 +656,14 @@ export const TeamController: React.FC = () => {
             <div className="px-4 py-2 rounded-xl bg-black/60 border border-red-500/40 text-xs font-mono text-amber-300">
               ยอดเงินปัจจุบัน: {team.coins.toLocaleString()} ฿ → หลังไถ่: {(team.coins - 500).toLocaleString()} ฿
             </div>
-            <button
+            <SafeActionButton
               type="button"
+              loadingText="กำลังไถ่เกราะเด็กดี..."
               onClick={() => bailoutNiceShield(selectedTeamId)}
-              className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-black text-lg shadow-xl active:scale-95 transition"
+              className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-black text-lg shadow-xl active:scale-95 transition flex items-center justify-center gap-2"
             >
               🛡️ ไถ่เกราะเด็กดี +2 ดวง (ราคา 500 ฿)
-            </button>
+            </SafeActionButton>
           </div>
         )}
 
@@ -726,16 +742,17 @@ export const TeamController: React.FC = () => {
                   })}
                 </div>
 
-                <button
+                <SafeActionButton
                   type="button"
                   disabled={!draftChoice}
+                  loadingText="กำลังเปิดประตู..."
                   onClick={() => {
                     if (draftChoice) {
                       submitSnakeDraftPick(selectedTeamId, draftChoice);
                       setDraftChoice(null);
                     }
                   }}
-                  className={`w-full py-4 rounded-2xl font-black text-lg uppercase tracking-wider transition-all shadow-xl ${
+                  className={`w-full py-4 rounded-2xl font-black text-lg uppercase tracking-wider transition-all shadow-xl flex items-center justify-center gap-2 ${
                     draftChoice
                       ? 'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 shadow-[0_0_25px_rgba(234,179,8,0.5)] active:scale-95'
                       : 'bg-slate-800 text-slate-500 cursor-not-allowed'
@@ -744,7 +761,7 @@ export const TeamController: React.FC = () => {
                   {draftChoice
                     ? `ยืนยันเปิดประตู [ ${draftChoice} ] ทันที!`
                     : 'กรุณาแตะเลือกประตูที่ยังไม่เปิด'}
-                </button>
+                </SafeActionButton>
               </>
               )
             ) : subRound === 'SUB2_AUCTION' ? (
@@ -818,9 +835,10 @@ export const TeamController: React.FC = () => {
                     ))}
                   </div>
 
-                  <button
+                  <SafeActionButton
                     type="button"
                     disabled={cannotAffordBid || draftAuctionBid < minNextBid || draftAuctionBid > team.coins}
+                    loadingText="กำลังส่งบิด..."
                     onClick={() => submitTeamAnswer(selectedTeamId, draftAuctionBid)}
                     className={`w-full py-4 rounded-2xl font-black text-lg uppercase shadow-xl flex items-center justify-center gap-2 ${
                       cannotAffordBid || draftAuctionBid < minNextBid || draftAuctionBid > team.coins
@@ -836,7 +854,7 @@ export const TeamController: React.FC = () => {
                         ? `ต้องบิดอย่างน้อย ${minNextBid.toLocaleString()} ฿`
                         : `ยืนยันบิดประมูล [ ${draftAuctionBid.toLocaleString()} ฿ ]`}
                     </span>
-                  </button>
+                  </SafeActionButton>
                 </>
               )
             ) : subRound === 'SUB2_DOOR_AND_BET' ? (
@@ -888,11 +906,12 @@ export const TeamController: React.FC = () => {
                     })}
                   </div>
 
-                  <button
+                  <SafeActionButton
                     type="button"
                     disabled={!draftChoice}
+                    loadingText="กำลังเปิดประตู..."
                     onClick={() => draftChoice && submitTeamAnswer(selectedTeamId, draftChoice)}
-                    className={`w-full py-4 rounded-2xl font-black text-lg uppercase transition-all shadow-xl ${
+                    className={`w-full py-4 rounded-2xl font-black text-lg uppercase transition-all shadow-xl flex items-center justify-center gap-2 ${
                       draftChoice
                         ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 active:scale-95'
                         : 'bg-slate-800 text-slate-500 cursor-not-allowed'
@@ -901,7 +920,7 @@ export const TeamController: React.FC = () => {
                     {draftChoice
                       ? `ยืนยันเปิดประตู [ ${draftChoice} ]`
                       : 'เลือกประตูที่ยังไม่เปิด 1 บาน'}
-                  </button>
+                  </SafeActionButton>
                 </>
               ) : (
                 /* อีก 3 ทีมที่เหลือ: ปุ่มแทงข้าง [ ทายว่ารอด (ถูก) ] หรือ [ ทายว่าพัง (ผิด) ] */
@@ -949,11 +968,12 @@ export const TeamController: React.FC = () => {
                     </button>
                   </div>
 
-                  <button
+                  <SafeActionButton
                     type="button"
                     disabled={!draftSideBet}
+                    loadingText="กำลังส่งคำทาย..."
                     onClick={() => draftSideBet && submitTeamAnswer(selectedTeamId, draftSideBet)}
-                    className={`w-full py-4 rounded-2xl font-black text-lg uppercase transition-all shadow-xl ${
+                    className={`w-full py-4 rounded-2xl font-black text-lg uppercase transition-all shadow-xl flex items-center justify-center gap-2 ${
                       draftSideBet
                         ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 active:scale-95'
                         : 'bg-slate-800 text-slate-500 cursor-not-allowed'
@@ -964,7 +984,7 @@ export const TeamController: React.FC = () => {
                       : draftSideBet === 'FAIL'
                       ? 'ยืนยันแทงข้าง: [ ทายว่าพัง (ผิด) ]'
                       : 'แตะเลือก ทายว่ารอด หรือ ทายว่าพัง'}
-                  </button>
+                  </SafeActionButton>
                 </>
               )
             ) : (
@@ -1076,15 +1096,16 @@ export const TeamController: React.FC = () => {
                   })}
                 </div>
 
-                <button
+                <SafeActionButton
                   type="button"
                   disabled={!draftRank1Door || !draftRank8Door}
+                  loadingText="กำลังส่งคำตอบ..."
                   onClick={() => {
                     if (draftRank1Door && draftRank8Door) {
                       submitTeamAnswer(selectedTeamId, draftRank1Door, draftRank8Door);
                     }
                   }}
-                  className={`w-full py-4 rounded-2xl font-black text-base uppercase transition-all shadow-xl ${
+                  className={`w-full py-4 rounded-2xl font-black text-base uppercase transition-all shadow-xl flex items-center justify-center gap-2 ${
                     draftRank1Door && draftRank8Door
                       ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 active:scale-95'
                       : 'bg-slate-800 text-slate-500 cursor-not-allowed'
@@ -1093,7 +1114,7 @@ export const TeamController: React.FC = () => {
                   {draftRank1Door && draftRank8Door
                     ? `ยืนยันส่งคู่ [ #1 = ${draftRank1Door} | #${round.choiceCount} = ${draftRank8Door} ]`
                     : `กรุณาเลือกประตูทั้งอันดับ #1 และ #${round.choiceCount}`}
-                </button>
+                </SafeActionButton>
               </>
             )}
           </div>
@@ -1154,15 +1175,16 @@ export const TeamController: React.FC = () => {
                     })}
                   </div>
 
-                  <button
+                  <SafeActionButton
                     type="button"
                     disabled={!draftChoice}
+                    loadingText="กำลังส่งคำตอบ..."
                     onClick={() => {
                       if (draftChoice) {
                         submitTeamAnswer(selectedTeamId, draftChoice);
                       }
                     }}
-                    className={`w-full py-4 rounded-2xl font-black text-lg uppercase tracking-wider transition-all shadow-xl ${
+                    className={`w-full py-4 rounded-2xl font-black text-lg uppercase tracking-wider transition-all shadow-xl flex items-center justify-center gap-2 ${
                       draftChoice
                         ? 'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 shadow-[0_0_25px_rgba(234,179,8,0.5)] active:scale-95'
                         : 'bg-slate-800 text-slate-500 cursor-not-allowed'
@@ -1171,7 +1193,7 @@ export const TeamController: React.FC = () => {
                     {draftChoice
                       ? `ยืนยันคำตอบข้อ [ ${draftChoice} ]`
                       : 'กรุณาแตะเลือกช้อยส์ก่อน'}
-                  </button>
+                  </SafeActionButton>
                 </>
               )}
             </div>
@@ -1298,13 +1320,14 @@ export const TeamController: React.FC = () => {
                     })}
                   </div>
 
-                  <button
+                  <SafeActionButton
                     type="button"
+                    loadingText="กำลังวางกับดัก..."
                     onClick={() => placeChronoTraps(selectedTeamId, draftTrapAllocations)}
-                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-black text-lg shadow-xl active:scale-95"
+                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-black text-lg shadow-xl active:scale-95 flex items-center justify-center gap-2"
                   >
                     💣 ยืนยันวางกับดัก ({usedQuota}/{myQuota} ลูก)
-                  </button>
+                  </SafeActionButton>
                 </>
               ) : chronoSub === 'CHRONO_SUB3_FAST_FINGER' ? (
                 /* Sub3: สงครามแย่งปี (Exclusive Realtime Lock) */
@@ -1317,12 +1340,13 @@ export const TeamController: React.FC = () => {
                       const claimTid = round.chronoFastFingerClaims?.[String(yr)];
                       const claimTeam = claimTid ? teams[claimTid] : null;
                       return (
-                        <button
+                        <SafeActionButton
                           key={yr}
                           type="button"
                           disabled={Boolean(claimTid)}
+                          loadingText="กำลังแย่งล็อก..."
                           onClick={() => claimChronoYear(selectedTeamId, yr)}
-                          className={`p-3 rounded-2xl border-2 text-center transition-all ${
+                          className={`p-3 rounded-2xl border-2 text-center transition-all flex flex-col items-center justify-center ${
                             claimTeam
                               ? 'bg-slate-950 border-red-500/60 opacity-60 cursor-not-allowed'
                               : 'bg-slate-900 hover:bg-amber-500/20 border-amber-400/70 active:scale-95'
@@ -1340,7 +1364,7 @@ export const TeamController: React.FC = () => {
                               แตะเพื่อแย่งล็อก!
                             </div>
                           )}
-                        </button>
+                        </SafeActionButton>
                       );
                     })}
                   </div>
@@ -1436,13 +1460,14 @@ export const TeamController: React.FC = () => {
                     </div>
                   </div>
 
-                  <button
+                  <SafeActionButton
                     type="button"
+                    loadingText="กำลังส่งคำตอบ..."
                     onClick={() => submitTeamAnswer(selectedTeamId, clampedSliderYear)}
-                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-black text-lg uppercase tracking-wider shadow-xl active:scale-95"
+                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-black text-lg uppercase tracking-wider shadow-xl active:scale-95 flex items-center justify-center gap-2"
                   >
                     ยืนยันปี {unitLabel} {clampedSliderYear}
-                  </button>
+                  </SafeActionButton>
                 </>
               )}
             </div>
@@ -1475,8 +1500,9 @@ export const TeamController: React.FC = () => {
                 <div className="text-xl font-bold text-white">กระดิ่งถูกล็อกแล้ว</div>
               </div>
             ) : (
-              <button
+              <SafeActionButton
                 type="button"
+                loadingText="กำลังกด..."
                 onClick={() => pressTeamBuzzer(selectedTeamId)}
                 className="relative w-64 h-64 sm:w-72 sm:h-72 rounded-full bg-gradient-to-b from-red-500 via-red-600 to-red-900 border-8 border-amber-400 shadow-[0_0_70px_rgba(220,38,38,0.85),inset_0_8px_25px_rgba(255,255,255,0.4)] active:scale-90 transition-transform flex flex-col items-center justify-center gap-2"
               >
@@ -1487,7 +1513,7 @@ export const TeamController: React.FC = () => {
                 <span className="text-xs font-mono text-amber-200 font-bold">
                   TAP TO BUZZ IN
                 </span>
-              </button>
+              </SafeActionButton>
             )}
           </div>
         )}
@@ -1591,10 +1617,11 @@ export const TeamController: React.FC = () => {
                           {datasets.map((ds) => {
                             const used = tf.usedDatasetIds.includes(ds.id);
                             return (
-                              <button
+                              <SafeActionButton
                                 key={ds.id}
                                 type="button"
                                 disabled={used}
+                                loadingText="กำลังเลือกโจทย์..."
                                 onClick={() => selectToyFactoryDataset(selectedTeamId, ds.id)}
                                 className={`p-3.5 rounded-2xl border-2 text-left transition-all ${
                                   used
@@ -1613,7 +1640,7 @@ export const TeamController: React.FC = () => {
                                 <div className="text-xs text-amber-300 font-bold mt-0.5">
                                   {ds.direction}
                                 </div>
-                              </button>
+                              </SafeActionButton>
                             );
                           })}
                         </div>
@@ -1720,9 +1747,10 @@ export const TeamController: React.FC = () => {
                           </div>
                         </div>
 
-                        <button
+                        <SafeActionButton
                           type="button"
                           disabled={!canClickShuffle}
+                          loadingText="กำลังส่ง SHUFFLE..."
                           onClick={() => triggerToyFactoryShuffle(selectedTeamId)}
                           className={`flex-1 min-h-[150px] rounded-3xl border-4 border-black p-6 flex flex-col items-center justify-center gap-2 font-black transition-all ${
                             canClickShuffle
@@ -1743,7 +1771,7 @@ export const TeamController: React.FC = () => {
                               ? 'กดได้เฉพาะช่วงเวลา Action เท่านั้น'
                               : 'กดได้ 1 ครั้งตลอดทั้งเกม!'}
                           </span>
-                        </button>
+                        </SafeActionButton>
                       </div>
                     )}
                   </div>
@@ -1826,13 +1854,14 @@ export const TeamController: React.FC = () => {
                   </div>
 
                   {isPart1 && !myState.isGhost && myState.hearts > 1 && (
-                    <button
+                    <SafeActionButton
                       type="button"
+                      loadingText="กำลังขายวิญญาณ..."
                       onClick={() => lmsSoulSacrifice(selectedTeamId)}
-                      className="w-full py-2 rounded-xl bg-rose-950 hover:bg-rose-900 border border-rose-500 text-rose-200 font-black text-xs"
+                      className="w-full py-2 rounded-xl bg-rose-950 hover:bg-rose-900 border border-rose-500 text-rose-200 font-black text-xs flex items-center justify-center gap-1.5"
                     >
                       💔 ขายวิญญาณ (-1 ❤️ แลกเงินสด +500 ฿)
-                    </button>
+                    </SafeActionButton>
                   )}
 
                   {myCurse && (
@@ -1872,9 +1901,10 @@ export const TeamController: React.FC = () => {
                     ) : (
                       <div className="grid grid-cols-1 gap-2.5 my-auto">
                         {round.choices.slice(0, 4).map((c) => (
-                          <button
+                          <SafeActionButton
                             key={c.key}
                             type="button"
+                            loadingText="กำลังส่งคำตอบ..."
                             onClick={() => submitTeamAnswer(selectedTeamId, c.key)}
                             className="p-4 rounded-2xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] border-2 border-amber-400/60 text-left flex items-center gap-3"
                           >
@@ -1882,7 +1912,7 @@ export const TeamController: React.FC = () => {
                               {c.key}
                             </span>
                             <span className="font-bold text-sm text-white">{c.label}</span>
-                          </button>
+                          </SafeActionButton>
                         ))}
                       </div>
                     )}
@@ -1916,14 +1946,15 @@ export const TeamController: React.FC = () => {
                           {active
                             .filter((tid) => !lms.teamStates[tid].isGhost && !lms.teamStates[tid].inKillingFloor)
                             .map((tid) => (
-                              <button
+                              <SafeActionButton
                                 key={tid}
                                 type="button"
+                                loadingText="กำลังลากทีม..."
                                 onClick={() => lmsMiseryPull(selectedTeamId, tid)}
-                                className="py-3 px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-sm border-2 border-black"
+                                className="py-3 px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-sm border-2 border-black flex items-center justify-center gap-1.5"
                               >
                                 🪝 ลาก {teams[tid].icon} {teams[tid].name} ลงลานประหาร!
-                              </button>
+                              </SafeActionButton>
                             ))}
                         </div>
                       </div>
@@ -1978,14 +2009,16 @@ export const TeamController: React.FC = () => {
                                   return tid !== selectedTeamId;
                                 })
                                 .map((tid) => (
-                                  <button
+                                  <SafeActionButton
                                     key={tid}
                                     type="button"
+                                    disabled={lmsShopBusy}
+                                    loadingText="กำลังซื้อ..."
                                     onClick={() => handleBuyWithDebounce(lmsPendingTargetItem, tid)}
-                                    className="py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs text-left"
+                                    className="py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs text-left flex items-center gap-1.5"
                                   >
                                     {teams[tid].icon} {teams[tid].name} ({lms.teamStates[tid].hearts} ❤️)
-                                  </button>
+                                  </SafeActionButton>
                                 ))}
                             </div>
                           </div>
@@ -2016,10 +2049,11 @@ export const TeamController: React.FC = () => {
                               lmsShopBusy || stockLeft <= 0 || cantAfford || notEligible || !hasTargets;
 
                             return (
-                              <button
+                              <SafeActionButton
                                 key={item.id}
                                 type="button"
                                 disabled={disabled}
+                                loadingText="กำลังดำเนินการ..."
                                 onClick={() => {
                                   if (item.needsTarget) {
                                     setLmsPendingTargetItem(item.id);
@@ -2047,7 +2081,7 @@ export const TeamController: React.FC = () => {
                                   </div>
                                 </div>
                                 <div className="text-[11px] text-slate-300 mt-1">{item.description}</div>
-                              </button>
+                              </SafeActionButton>
                             );
                           })}
                         </div>
@@ -2068,9 +2102,11 @@ export const TeamController: React.FC = () => {
                           {[1, 2, 3, 4].map((num) => {
                             const picked = lmsPoisonPicks.includes(num);
                             return (
-                              <button
+                              <SafeActionButton
                                 key={num}
                                 type="button"
+                                cooldownMs={350}
+                                showSpinner={false}
                                 onClick={() => {
                                   const next = picked
                                     ? lmsPoisonPicks.filter((x) => x !== num)
@@ -2090,7 +2126,7 @@ export const TeamController: React.FC = () => {
                                 }`}
                               >
                                 🍷 ถ้วย #{num}
-                              </button>
+                              </SafeActionButton>
                             );
                           })}
                         </div>
@@ -2106,9 +2142,10 @@ export const TeamController: React.FC = () => {
                           {[1, 2, 3, 4].map((num) => {
                             const picked = lms.chalicePicks[selectedTeamId] === num;
                             return (
-                              <button
+                              <SafeActionButton
                                 key={num}
                                 type="button"
+                                showSpinner={false}
                                 onClick={() =>
                                   lmsMinigameAction(selectedTeamId, {
                                     subType: 'CHALICE_PICK',
@@ -2122,7 +2159,7 @@ export const TeamController: React.FC = () => {
                                 }`}
                               >
                                 🍷 ดื่มถ้วย #{num}
-                              </button>
+                              </SafeActionButton>
                             );
                           })}
                         </div>
@@ -2135,38 +2172,40 @@ export const TeamController: React.FC = () => {
                           🤝 หักหลังแบ่งสมบัติ (Split or Steal)
                         </h3>
                         <div className="grid grid-cols-1 gap-3">
-                          <button
+                          <SafeActionButton
                             type="button"
+                            loadingText="กำลังส่งคำตอบ..."
                             onClick={() =>
                               lmsMinigameAction(selectedTeamId, {
                                 subType: 'SPLIT_STEAL',
                                 choice: 'SPLIT',
                               })
                             }
-                            className={`py-4 rounded-2xl border-2 font-black text-base ${
+                            className={`py-4 rounded-2xl border-2 font-black text-base flex items-center justify-center gap-2 ${
                               lms.splitStealPicks[selectedTeamId] === 'SPLIT'
                                 ? 'bg-emerald-500 text-black border-white'
                                 : 'bg-emerald-950 text-emerald-200 border-emerald-500'
                             }`}
                           >
                             🤝 จับมือรอดไปด้วยกัน (SPLIT)
-                          </button>
-                          <button
+                          </SafeActionButton>
+                          <SafeActionButton
                             type="button"
+                            loadingText="กำลังส่งคำตอบ..."
                             onClick={() =>
                               lmsMinigameAction(selectedTeamId, {
                                 subType: 'SPLIT_STEAL',
                                 choice: 'STEAL',
                               })
                             }
-                            className={`py-4 rounded-2xl border-2 font-black text-base ${
+                            className={`py-4 rounded-2xl border-2 font-black text-base flex items-center justify-center gap-2 ${
                               lms.splitStealPicks[selectedTeamId] === 'STEAL'
                                 ? 'bg-red-600 text-white border-yellow-300'
                                 : 'bg-red-950 text-red-200 border-red-500'
                             }`}
                           >
                             🗡️ แทงข้างหลัง! (STEAL +300 ฿)
-                          </button>
+                          </SafeActionButton>
                         </div>
                       </div>
                     )}
@@ -2177,8 +2216,9 @@ export const TeamController: React.FC = () => {
                           🎭 โหวตชี้ชะตาทีมบนลานประหาร!
                         </h3>
                         <div className="grid grid-cols-2 gap-3">
-                          <button
+                          <SafeActionButton
                             type="button"
+                            showSpinner={false}
                             onClick={() =>
                               lmsMinigameAction(selectedTeamId, {
                                 subType: 'DARE_VOTE',
@@ -2192,9 +2232,10 @@ export const TeamController: React.FC = () => {
                             }`}
                           >
                             💚 ไว้ชีวิต
-                          </button>
-                          <button
+                          </SafeActionButton>
+                          <SafeActionButton
                             type="button"
+                            showSpinner={false}
                             onClick={() =>
                               lmsMinigameAction(selectedTeamId, {
                                 subType: 'DARE_VOTE',
@@ -2208,7 +2249,7 @@ export const TeamController: React.FC = () => {
                             }`}
                           >
                             💀 ประหาร (-1 ❤️)
-                          </button>
+                          </SafeActionButton>
                         </div>
                       </div>
                     )}
@@ -2223,15 +2264,16 @@ export const TeamController: React.FC = () => {
                             🎲 {lms.teamDiceRolls[selectedTeamId]}
                           </div>
                         ) : (
-                          <button
+                          <SafeActionButton
                             type="button"
+                            loadingText="กำลังทอยเต๋า..."
                             onClick={() =>
                               lmsMinigameAction(selectedTeamId, { subType: 'DEATH_DICE' })
                             }
-                            className="w-full py-5 rounded-2xl bg-orange-500 hover:bg-orange-400 text-black font-black text-xl border-4 border-black"
+                            className="w-full py-5 rounded-2xl bg-orange-500 hover:bg-orange-400 text-black font-black text-xl border-4 border-black flex items-center justify-center gap-2"
                           >
                             🎲 กดทอยลูกเต๋า!
-                          </button>
+                          </SafeActionButton>
                         )}
                       </div>
                     )}
@@ -2267,13 +2309,14 @@ export const TeamController: React.FC = () => {
                   lms.phase === 'CHAMPION') && (
                   <div className="flex-1 flex flex-col justify-between gap-3">
                     {!myState.isGhost && myState.jetpacks > 0 && lms.phase !== 'CHAMPION' && (
-                      <button
+                      <SafeActionButton
                         type="button"
+                        loadingText="กำลังจุดพลุไอพ่น..."
                         onClick={() => lmsUseJetpack(selectedTeamId)}
-                        className="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-400 to-orange-500 text-black font-black text-base border-4 border-black shadow-[4px_4px_0px_#000] active:scale-95"
+                        className="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-400 to-orange-500 text-black font-black text-base border-4 border-black shadow-[4px_4px_0px_#000] active:scale-95 flex items-center justify-center gap-2"
                       >
                         🚀 จุดพลุไอพ่นหนีตาย (+3 ขั้นทันที! เหลือ {myState.jetpacks})
-                      </button>
+                      </SafeActionButton>
                     )}
 
                     {lms.phase === 'CHAMPION' ? (
@@ -2303,19 +2346,20 @@ export const TeamController: React.FC = () => {
                         ).map((btn) => {
                           const unlocked = lms.phase === 'PART2_QUESTION';
                           return (
-                            <button
+                            <SafeActionButton
                               key={btn.key}
                               type="button"
                               disabled={!unlocked}
+                              loadingText="กำลังส่งคำตอบ..."
                               onClick={() => submitTeamAnswer(selectedTeamId, btn.key)}
-                              className={`rounded-3xl border-4 border-black font-black text-3xl flex items-center justify-center shadow-[6px_6px_0px_#000] transition-all ${
+                              className={`rounded-3xl border-4 border-black font-black text-3xl flex items-center justify-center gap-2 shadow-[6px_6px_0px_#000] transition-all ${
                                 unlocked
                                   ? `${btn.bg} active:scale-95`
                                   : 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-70'
                               }`}
                             >
                               {unlocked ? btn.label : `🔒 ${btn.label}`}
-                            </button>
+                            </SafeActionButton>
                           );
                         })}
                       </div>
@@ -2374,15 +2418,16 @@ export const TeamController: React.FC = () => {
                       );
                     })}
                   </div>
-                  <button
+                  <SafeActionButton
                     type="button"
                     disabled={draftSecretNum === null}
+                    loadingText="กำลังผนึกเลขลับ..."
                     onClick={() => {
                       if (draftSecretNum !== null) {
                         submitTeamAnswer(selectedTeamId, draftSecretNum);
                       }
                     }}
-                    className={`w-full py-4 rounded-2xl font-black text-lg uppercase transition-all ${
+                    className={`w-full py-4 rounded-2xl font-black text-lg uppercase transition-all flex items-center justify-center gap-2 ${
                       draftSecretNum !== null
                         ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 shadow-xl'
                         : 'bg-slate-800 text-slate-500 cursor-not-allowed'
@@ -2391,7 +2436,7 @@ export const TeamController: React.FC = () => {
                     {draftSecretNum !== null
                       ? `ผนึกเลขลับ [ ${draftSecretNum} ]`
                       : 'แตะเลือกตัวเลข 1 - 10'}
-                  </button>
+                  </SafeActionButton>
                 </>
               ) : round.modeDSubType === 'CURSED_CHALICE' ? (
                 <>
@@ -2426,18 +2471,19 @@ export const TeamController: React.FC = () => {
                       );
                     })}
                   </div>
-                  <button
+                  <SafeActionButton
                     type="button"
                     disabled={!draftChoice}
+                    loadingText="กำลังส่งคำตอบ..."
                     onClick={() => draftChoice && submitTeamAnswer(selectedTeamId, draftChoice)}
-                    className={`w-full py-4 rounded-2xl font-black text-lg uppercase ${
+                    className={`w-full py-4 rounded-2xl font-black text-lg uppercase flex items-center justify-center gap-2 ${
                       draftChoice
                         ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950'
                         : 'bg-slate-800 text-slate-500'
                     }`}
                   >
                     ยืนยันเลือกกล่อง #{draftChoice || '?'}
-                  </button>
+                  </SafeActionButton>
                 </>
               ) : (
                 <>
@@ -2509,8 +2555,9 @@ export const TeamController: React.FC = () => {
                     placeholder="ระบุจำนวนเหรียญ..."
                   />
 
-                  <button
+                  <SafeActionButton
                     type="button"
+                    loadingText="กำลังส่งเดิมพันลับ..."
                     onClick={() => {
                       const cleanWager = Math.max(
                         0,
@@ -2522,10 +2569,10 @@ export const TeamController: React.FC = () => {
                         round.modeDSubType === 'QUIXORT_BET' ? draftQuixortOutcome : undefined
                       );
                     }}
-                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 font-black text-lg uppercase shadow-xl active:scale-95"
+                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 font-black text-lg uppercase shadow-xl active:scale-95 flex items-center justify-center gap-2"
                   >
                     ยืนยันลงเดิมพันลับ ({draftWager || 0} 🪙)
-                  </button>
+                  </SafeActionButton>
                 </>
               )}
             </div>

@@ -363,4 +363,5 @@ export interface KrampusGameState {
   toyFactoryDatasets?: ToyFactoryDataset[];
   lastManPart1Questions?: LastManPart1Question[];
   lastManPart2Questions?: LastManPart2Question[];
+  processedActionIds?: string[];
 }

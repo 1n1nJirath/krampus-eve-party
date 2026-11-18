@@ -40,6 +40,7 @@ import {
   TeamSouthParkAvatar,
 } from '../components/SouthParkArt';
 import { PhaseBriefingModal, getPhaseBriefingKey } from '../components/PhaseBriefingModal';
+import { SafeActionButton } from '../components/SafeActionButton';
 import { GameStage, TeamId } from '../types/game';
 
 const STAGE_META: Record<GameStage, { badge: string; name: string; color: string }> = {
@@ -592,8 +593,10 @@ export const ProjectorDisplay: React.FC = () => {
                     : 'LOCKED';
 
                   return (
-                    <button
+                    <SafeActionButton
                       key={room.stage}
+                      type="button"
+                      showSpinner={false}
                       onClick={() => setGameStage(room.stage, true)}
                       className={`rounded-2xl p-4 border-[3px] border-[#352D45] text-center transition-all hover:scale-[1.03] flex flex-col justify-between min-h-[295px] ${
                         isCleared
@@ -651,7 +654,7 @@ export const ProjectorDisplay: React.FC = () => {
                           </div>
                         )}
                       </div>
-                    </button>
+                    </SafeActionButton>
                   );
                 })}
               </div>
@@ -733,23 +736,25 @@ export const ProjectorDisplay: React.FC = () => {
 
                 <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
                   {activePhaseKey && (
-                    <button
+                    <SafeActionButton
                       type="button"
+                      showSpinner={false}
                       onClick={() => setForceBriefing(true)}
                       className="px-6 py-3.5 rounded-2xl bg-[#D8C6B5] hover:bg-[#ccb6a1] border-[3px] border-[#352D45] shadow-[0_5px_0_#352D45] active:translate-y-1 active:shadow-none text-[#352D45] font-manor-display text-base md:text-lg font-bold flex items-center gap-2 transition-all"
                     >
                       <BookOpen className="w-5 h-5" />
                       <span>เปิดหน้าอธิบายกติกา & Demo</span>
-                    </button>
+                    </SafeActionButton>
                   )}
-                  <button
+                  <SafeActionButton
                     type="button"
+                    loadingText="กำลังเริ่มเกม..."
                     onClick={() => startTimer()}
                     className="px-8 py-4 rounded-2xl bg-[#536B59] hover:bg-[#435848] border-[3px] border-[#352D45] shadow-[0_6px_0_#352D45] active:translate-y-1 active:shadow-none text-[#EFE2D2] font-manor-display text-xl md:text-2xl font-bold flex items-center gap-3 transition-all animate-pulse"
                   >
                     <Play className="w-6 h-6 fill-current text-[#E5B86C]" />
                     <span>กดเริ่มเปิดโจทย์ & จับเวลา ({round.durationSeconds} วิ)</span>
-                  </button>
+                  </SafeActionButton>
                 </div>
               </div>
             </div>
