@@ -1,5 +1,105 @@
 import { getActiveTeamIds, getSuggestedSafeRange, TEAM_ORDER } from '../data/initialData';
-import { KrampusGameState, Team, TeamId } from '../types/game';
+import { GameState, KrampusGameState, Team, TeamId } from '../types/game';
+import { cloneGameState } from './lobbyLogic';
+
+export const BAILOUT_COST = 500;
+export const BAILOUT_SHIELDS_RESTORED = 2;
+export const FIRST_CORRECT_DOOR_REWARD = 300;
+export const SECOND_CORRECT_DOOR_REWARD = 500; // Cumulative total = +800 (300 + 500)
+export const WRONG_DOOR_SHIELD_PENALTY = 1;
+
+export interface BailoutOptions {
+  /**
+   * Whether a team is allowed to go into negative coin balance (debt) to purchase a mandatory bailout.
+   * Defaults to true per game rules (logs a warning when balance drops below 0).
+   */
+  allowDebt?: boolean;
+}
+
+/**
+ * Pure Immutable Function: Applies the Nice Shield Bailout in Game 1 (Doors of Doom).
+ * - Only valid when the target team currently has 0 shields.
+ * - Deducts 500 coins and grants +2 shields.
+ * - Rejects if team does not exist or if team.shields > 0.
+ * - If allowDebt is false and team.coins < 500, rejects; otherwise allows debt and logs a warning.
+ */
+export function applyBailout(
+  state: GameState,
+  teamId: string,
+  options: BailoutOptions = {}
+): GameState {
+  const { allowDebt = true } = options;
+
+  if (!state || !state.teams[teamId]) {
+    return state;
+  }
+
+  const team = state.teams[teamId];
+
+  // Reject bailout if the team still has active shields
+  if (team.shields > 0) {
+    return state;
+  }
+
+  // If debt is explicitly disabled, reject when coins are insufficient
+  if (!allowDebt && team.coins < BAILOUT_COST) {
+    return state;
+  }
+
+  const nextCoins = team.coins - BAILOUT_COST;
+  if (nextCoins < 0) {
+    console.warn(
+      `[DoorsLogic] Team "${team.name || teamId}" entered debt after mandatory shield bailout: ${nextCoins} ฿`
+    );
+  }
+
+  const nextState = cloneGameState(state);
+  nextState.teams[teamId] = {
+    ...team,
+    coins: nextCoins,
+    shields: team.shields + BAILOUT_SHIELDS_RESTORED,
+  };
+
+  return nextState;
+}
+
+/**
+ * Pure Immutable Function: Applies scoring for a Door Pick in Game 1 (Doors of Doom).
+ * - If `isCorrect && !isSecondCorrect`: +300 coins.
+ * - If `isCorrect && isSecondCorrect`: +500 coins (bringing 2-pick total to +800 coins).
+ * - If `!isCorrect`: -1 shield (floored at 0).
+ */
+export function applyDoorPickScore(
+  state: GameState,
+  teamId: string,
+  isCorrect: boolean,
+  isSecondCorrect: boolean = false
+): GameState {
+  if (!state || !state.teams[teamId]) {
+    return state;
+  }
+
+  const team = state.teams[teamId];
+  const nextState = cloneGameState(state);
+
+  if (isCorrect) {
+    const reward = isSecondCorrect
+      ? SECOND_CORRECT_DOOR_REWARD
+      : FIRST_CORRECT_DOOR_REWARD;
+
+    nextState.teams[teamId] = {
+      ...team,
+      coins: team.coins + reward,
+    };
+  } else {
+    nextState.teams[teamId] = {
+      ...team,
+      shields: Math.max(0, team.shields - WRONG_DOOR_SHIELD_PENALTY),
+    };
+  }
+
+  return nextState;
+}
 
 export function buildSnakeDraftOrder(
   teams: Record<TeamId, Team>,

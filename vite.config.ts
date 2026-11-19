@@ -136,17 +136,19 @@ function krampusRealtimeServerPlugin(): Plugin {
               updated.buzzerQueue = updated.buzzerQueue || [];
 
               if (action === 'SUBMIT_ANSWER') {
-                const elapsedMs = updated.round?.timerStartedAt
-                  ? Math.max(0, now - updated.round.timerStartedAt)
-                  : 0;
-                updated.submissions[teamId] = {
-                  teamId,
-                  value: payload.value,
-                  secondaryValue: payload.secondaryValue,
-                  submittedAt: now,
-                  elapsedMs,
-                  locked: true,
-                };
+                if (payload.force || updated.round?.status === 'ACTIVE') {
+                  const elapsedMs = updated.round?.timerStartedAt
+                    ? Math.max(0, now - updated.round.timerStartedAt)
+                    : 0;
+                  updated.submissions[teamId] = {
+                    teamId,
+                    value: payload.value,
+                    secondaryValue: payload.secondaryValue,
+                    submittedAt: now,
+                    elapsedMs,
+                    locked: true,
+                  };
+                }
               } else if (action === 'CLEAR_TEAM_SUBMISSION') {
                 delete updated.submissions[teamId];
               } else if (action === 'REGISTER_TEAM') {
@@ -312,7 +314,7 @@ function krampusRealtimeServerPlugin(): Plugin {
                 const tf = updated.round?.toyFactory;
                 const dsId = String(payload.datasetId || '');
                 const pair = tf?.pairings?.[tf.roundIndex - 1];
-                if (tf && tf.phase === 'TOPIC_SELECT' && pair?.sortingTeamId === teamId && !tf.usedDatasetIds?.includes(dsId)) {
+                if (updated.round?.status === 'ACTIVE' && tf && tf.phase === 'TOPIC_SELECT' && pair?.sortingTeamId === teamId && !tf.usedDatasetIds?.includes(dsId)) {
                   const ds = (updated.toyFactoryDatasets || []).find((d: any) => d.id === dsId);
                   if (ds) {
                     const roster: string[] = (updated.teams?.[pair.holdingTeamId]?.roster || []).filter((s: string) => s.trim());

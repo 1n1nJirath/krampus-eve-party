@@ -568,7 +568,13 @@ export const TeamController: React.FC = () => {
 
         {round.gameStage !== 'LOBBY' &&
           round.gameStage !== 'WORLD_MAP' &&
-          round.status === 'IDLE' && (
+          round.gameStage !== 'FINALE' &&
+          round.status === 'IDLE' &&
+          !(
+            round.gameStage === 'TRIVIA_MURDER' &&
+            round.lastMan &&
+            (round.lastMan.phase === 'KRAMPUS_TWIST' || round.lastMan.phase === 'PART2_CLUE')
+          ) && (
             <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-[#EFE2D2] text-[#352D45] border-[3px] border-[#352D45] shadow-[0_7px_0_#352D45] p-8 text-center my-2 space-y-3">
               <TeamSouthParkAvatar slotNumber={team.number} className="w-20 h-20" />
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#352D45] text-[#E5B86C] font-manor-display text-xs font-bold">
@@ -1800,6 +1806,9 @@ export const TeamController: React.FC = () => {
         ========================================================== */}
         {round.gameStage === 'TRIVIA_MURDER' &&
           round.lastMan &&
+          (round.status !== 'IDLE' ||
+            round.lastMan.phase === 'KRAMPUS_TWIST' ||
+            round.lastMan.phase === 'PART2_CLUE') &&
           (() => {
             const lms = round.lastMan;
             const myState = lms.teamStates[selectedTeamId];
@@ -1897,6 +1906,13 @@ export const TeamController: React.FC = () => {
                           ล็อกคำตอบ [{mySubmission.value}] แล้ว!
                         </div>
                         <div className="text-xs text-slate-300 mt-1">รอเฉลยพร้อมกันบนจอใหญ่...</div>
+                      </div>
+                    ) : round.status !== 'ACTIVE' ? (
+                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-red-950/40 border-2 border-red-500/60 p-6 text-center gap-2">
+                        <Lock className="w-12 h-12 text-red-400 mb-1" />
+                        <div className="text-xl font-black text-white">
+                          🔒 ปิดรับคำตอบแล้ว — รอ Host เฉลย!
+                        </div>
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 gap-2.5 my-auto">
@@ -2344,7 +2360,8 @@ export const TeamController: React.FC = () => {
                             { key: 'C', label: 'C สีเหลือง', bg: 'bg-yellow-400 hover:bg-yellow-300 text-black' },
                           ] as const
                         ).map((btn) => {
-                          const unlocked = lms.phase === 'PART2_QUESTION';
+                          const unlocked =
+                            lms.phase === 'PART2_QUESTION' && round.status === 'ACTIVE';
                           return (
                             <SafeActionButton
                               key={btn.key}

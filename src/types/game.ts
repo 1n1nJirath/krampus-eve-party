@@ -365,3 +365,26 @@ export interface KrampusGameState {
   lastManPart2Questions?: LastManPart2Question[];
   processedActionIds?: string[];
 }
+
+// ==========================================
+// Pure Functional Architecture Foundation (Lobby, Game 1 Doors, Game 2 Chrono)
+// ==========================================
+
+export type GamePhase = 'LOBBY' | 'GAME1_DOORS' | 'GAME2_CHRONO';
+
+export interface TeamState {
+  id: string;
+  name: string;
+  coins: number;        // Starts at 1,000 Holy Coins (฿)
+  shields: number;      // Starts at 3 Nice Shields (🛡️)
+  hearts: number;       // Starts at 4 Hearts (❤️)
+  isRegistered: boolean;
+  trapQuota?: number;   // Game 2 trap quota based on wealth ranking (3, 2, 1, 0)
+}
+
+export interface GameState {
+  currentPhase: GamePhase;
+  teams: Record<string, TeamState>;
+  trapQuotas?: Record<string, number>;
+}
+

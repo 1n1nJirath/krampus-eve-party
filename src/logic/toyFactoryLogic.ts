@@ -48,6 +48,7 @@ export function applyToyDatasetSelection(
   now: number
 ): boolean {
   const tf = next.round.toyFactory;
+  if (next.round.status !== 'ACTIVE') return false;
   if (!tf || tf.phase !== 'TOPIC_SELECT') return false;
   const currentPair = tf.pairings[tf.roundIndex - 1];
   if (!currentPair || currentPair.sortingTeamId !== teamId) return false;

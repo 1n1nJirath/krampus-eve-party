@@ -470,7 +470,12 @@ interface GameContextValue {
 
   // Team Controller Actions
   registerTeam: (teamId: TeamId, name: string, icon?: string, motto?: string, roster?: string[]) => void;
-  submitTeamAnswer: (teamId: TeamId, value: string | number, secondaryValue?: string) => void;
+  submitTeamAnswer: (
+    teamId: TeamId,
+    value: string | number,
+    secondaryValue?: string,
+    options?: { force?: boolean }
+  ) => void;
   clearTeamSubmission: (teamId: TeamId) => void;
   pressTeamBuzzer: (teamId: TeamId) => void;
 
@@ -524,6 +529,7 @@ interface GameContextValue {
 
   // Game 4: THE LAST MAN STANDING
   startLastManStandingGame: () => void;
+  prepareLastManPart1Round: (roundNum?: number) => void;
   startLastManPart1Trivia: (roundNum?: number) => void;
   revealLastManPart1Trivia: () => void;
   autoResolveMiseryPull: () => void;
@@ -608,8 +614,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [serverTimeOffset, setServerTimeOffset] = useState<number>(0);
 
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>(() => {
-    const envUrl = import.meta.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
-    const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
+    const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+    const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
     try {
       const saved = localStorage.getItem(SUPABASE_CONFIG_KEY);
       if (saved) {
@@ -842,6 +848,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             const now = clientNow || Date.now();
             if (action === 'SUBMIT_ANSWER') {
+              if (!data?.force && next.round.status !== 'ACTIVE') return prev;
               const elapsedMs = next.round.timerStartedAt
                 ? Math.max(0, now - next.round.timerStartedAt)
                 : 0;
@@ -1005,7 +1012,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const submitTeamAnswer = useCallback(
-    (teamId: TeamId, value: string | number, secondaryValue?: string) => {
+    (
+      teamId: TeamId,
+      value: string | number,
+      secondaryValue?: string,
+      options?: { force?: boolean }
+    ) => {
+      if (!options?.force && stateRef.current.round.status !== 'ACTIVE') return;
       if (!acquireActionLock(`${teamId}:SUBMIT_ANSWER`, 450)) return;
       soundFX.playSubmit();
       const now = getAuthoritativeNow();
@@ -1019,7 +1032,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           teamId,
           action: 'SUBMIT_ANSWER',
           actionId,
-          payload: { value, secondaryValue },
+          payload: { value, secondaryValue, force: Boolean(options?.force) },
         }),
       }).catch(() => {});
 
@@ -1027,11 +1040,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         supaChannelRef.current.send({
           type: 'broadcast',
           event: 'TEAM_ACTION',
-          payload: { teamId, action: 'SUBMIT_ANSWER', actionId, data: { value, secondaryValue }, clientNow: now },
+          payload: {
+            teamId,
+            action: 'SUBMIT_ANSWER',
+            actionId,
+            data: { value, secondaryValue, force: Boolean(options?.force) },
+            clientNow: now,
+          },
         }).catch(() => {});
       }
 
       commitState((prev) => {
+        if (!options?.force && prev.round.status !== 'ACTIVE') return prev;
         const next = structuredClone(prev);
         if (!markActionProcessed(next, actionId)) return prev;
         const elapsedMs = next.round.timerStartedAt
@@ -2341,6 +2361,19 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const now = getAuthoritativeNow();
       commitState((prev) => {
         const durationSec = customDurationSeconds ?? prev.round.durationSeconds;
+        if (prev.round.gameStage === 'QUIXORT' && prev.round.toyFactory?.phase === 'TOPIC_SELECT') {
+          return {
+            ...prev,
+            round: {
+              ...prev.round,
+              durationSeconds: durationSec,
+              timerStartedAt: null,
+              timerRemainingMs: durationSec * 1000,
+              status: 'ACTIVE',
+              briefingOpen: false,
+            },
+          };
+        }
         return {
           ...prev,
           round: {
@@ -2760,6 +2793,70 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   }, [commitState]);
 
+  const prepareLastManPart1Round = useCallback(
+    (roundNum?: number) => {
+      if (!acquireActionLock('host:prepareLastManPart1Round', 450)) return;
+      const now = getAuthoritativeNow();
+      commitState((prev) => {
+        const lms = prev.round.lastMan
+          ? structuredClone(prev.round.lastMan)
+          : createInitialLastManState(prev.teams);
+        const rNum = roundNum ?? lms.part1Round;
+        const p1List =
+          prev.lastManPart1Questions && prev.lastManPart1Questions.length >= 4
+            ? prev.lastManPart1Questions
+            : DEFAULT_LAST_MAN_PART1_QUESTIONS;
+        const q = p1List[(rNum - 1) % p1List.length];
+
+        lms.phase = 'PART1_TRIVIA';
+        lms.part1Round = rNum;
+        lms.miseryPullTeamId = null;
+        lms.miseryEndsAt = null;
+        lms.poisonedChalices = [];
+        lms.chalicePicks = {};
+        lms.splitStealPicks = {};
+        lms.dareVotes = {};
+        lms.krampusDiceRoll = null;
+        lms.teamDiceRolls = {};
+        lms.roundStock = createDefaultLastManRoundStock();
+        TEAM_ORDER.forEach((tid) => {
+          lms.teamStates[tid].mirrorShield = false;
+          lms.teamStates[tid].activeCurse = null;
+        });
+
+        return {
+          ...prev,
+          submissions: {},
+          buzzerQueue: [],
+          round: {
+            ...prev.round,
+            id: `lms-p1-r${rNum}-${now}`,
+            gameStage: 'TRIVIA_MURDER',
+            inputMode: 'MODE_A_CHOICE',
+            title: `ช่วงที่ 1 • รอบที่ ${rNum}/4: คำถามเอาชีวิตรอด`,
+            subtitle: 'เตรียมพร้อม! รอ Host กดเปิดโจทย์เพื่อเริ่มนับถอยหลัง 15 วินาที',
+            questionText: q.questionText,
+            choiceCount: 4,
+            choices: q.choices.map((c) => ({
+              key: c.key,
+              label: c.label,
+              isCorrect: c.key === q.correctKey,
+            })),
+            correctChoices: [q.correctKey],
+            durationSeconds: 15,
+            timerStartedAt: null,
+            timerRemainingMs: 15 * 1000,
+            status: 'IDLE',
+            rewardsApplied: false,
+            briefingOpen: false,
+            lastMan: lms,
+          },
+        };
+      });
+    },
+    [commitState, getAuthoritativeNow]
+  );
+
   const startLastManPart1Trivia = useCallback(
     (roundNum?: number) => {
       if (!acquireActionLock('host:startLastManPart1Trivia', 450)) return;
@@ -2816,6 +2913,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             timerRemainingMs: null,
             status: 'ACTIVE',
             rewardsApplied: false,
+            briefingOpen: false,
             lastMan: lms,
           },
         };
@@ -3234,7 +3332,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...prev.round,
           id: `lms-p1-r${nextRound}-${now}`,
           title: `ช่วงที่ 1 • รอบที่ ${nextRound}/4: คำถามเอาชีวิตรอด`,
-          subtitle: 'ตอบภายใน 15 วินาที! ตอบผิดร่วงลงลานประหาร!',
+          subtitle: 'เตรียมพร้อม! รอ Host กดเปิดโจทย์เพื่อเริ่มนับถอยหลัง 15 วินาที',
           questionText: q.questionText,
           choiceCount: 4,
           choices: q.choices.map((c) => ({
@@ -3244,10 +3342,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           })),
           correctChoices: [q.correctKey],
           durationSeconds: 15,
-          timerStartedAt: now,
-          timerRemainingMs: null,
-          status: 'ACTIVE',
+          timerStartedAt: null,
+          timerRemainingMs: 15 * 1000,
+          status: 'IDLE',
           rewardsApplied: false,
+          briefingOpen: false,
           lastMan: lms,
         },
       };
@@ -3814,6 +3913,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateToyFactoryDataset,
         finishToyFactoryGame,
         startLastManStandingGame,
+        prepareLastManPart1Round,
         startLastManPart1Trivia,
         revealLastManPart1Trivia,
         autoResolveMiseryPull,

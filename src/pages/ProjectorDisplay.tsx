@@ -108,19 +108,16 @@ export const ProjectorDisplay: React.FC = () => {
     setForceBriefing(false);
   }, [activePhaseKey]);
 
-  const showPhaseBriefing = Boolean(
-    activePhaseKey &&
-      (forceBriefing ||
-        round.briefingOpen ||
-        (round.status === 'IDLE' && !dismissedPhases[activePhaseKey]))
-  );
+  const showPhaseBriefing = Boolean(activePhaseKey && (forceBriefing || round.briefingOpen));
 
   const isSpecialGame3View =
-    round.gameStage === 'QUIXORT' && Boolean(round.toyFactory) && round.toyFactory!.phase !== 'ACTION';
+    round.gameStage === 'QUIXORT' &&
+    Boolean(round.toyFactory) &&
+    !(round.status === 'IDLE' && round.toyFactory!.phase === 'TOPIC_SELECT');
   const isSpecialGame4View =
     round.gameStage === 'TRIVIA_MURDER' &&
     Boolean(round.lastMan) &&
-    round.lastMan!.phase !== 'KRAMPUS_TWIST';
+    !(round.lastMan!.phase === 'PART1_TRIVIA' && round.status === 'IDLE');
   const isStandbyPrep =
     round.gameStage !== 'LOBBY' &&
     round.gameStage !== 'WORLD_MAP' &&
@@ -370,12 +367,10 @@ export const ProjectorDisplay: React.FC = () => {
           </div>
         </div>
 
-        {/* Center Countdown Timer (Hidden in LOBBY & WORLD_MAP) */}
-        {round.gameStage !== 'LOBBY' && round.gameStage !== 'WORLD_MAP' && (
-          <div className="flex items-center gap-6">
-            <CountdownTimer size="lg" autoLockOnZero={true} />
-          </div>
-        )}
+        {/* Center Countdown Timer */}
+        <div className="flex items-center gap-6">
+          <CountdownTimer size="lg" autoLockOnZero={true} />
+        </div>
 
         {/* Minimalist Projector Controls (Rules & Demo + Sound + Fullscreen) */}
         <div className="flex items-center gap-2.5">
