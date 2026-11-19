@@ -666,6 +666,7 @@ export function createRoundFromPreset(preset: QuestionPreset): RoundConfig {
     penaltyCoins: preset.penaltyCoins ?? 150,
     durationSeconds: preset.durationSeconds || 30,
     timerStartedAt: null,
+    timerEndAt: null,
     timerRemainingMs: (preset.durationSeconds || 30) * 1000,
     status: 'IDLE',
     rewardsApplied: false,
@@ -1089,6 +1090,8 @@ export function createInitialLastManState(teams: Record<TeamId, Team>): LastManS
 
 export const INITIAL_GAME_STATE: KrampusGameState = {
   version: 1,
+  stateVersion: 1,
+  updatedAt: Date.now(),
   serverTimestamp: Date.now(),
   roomCode: 'KRAMPUS',
   roomLocked: false,

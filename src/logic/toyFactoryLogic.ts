@@ -90,8 +90,12 @@ export function applyToyFactoryShuffle(
   if (tf.shuffleUsedThisRound || tf.shuffleUsedByTeams.includes(spectatorTeamId)) {
     return false;
   }
-  const elapsed = next.round.timerStartedAt ? Math.max(0, now - next.round.timerStartedAt) : 0;
-  const remainingMs = Math.max(0, next.round.durationSeconds * 1000 - elapsed);
+  const remainingMs =
+    next.round.timerEndAt !== null && next.round.timerEndAt !== undefined
+      ? Math.max(0, next.round.timerEndAt - now)
+      : next.round.timerStartedAt
+      ? Math.max(0, next.round.durationSeconds * 1000 - Math.max(0, now - next.round.timerStartedAt))
+      : next.round.durationSeconds * 1000;
   if (remainingMs <= 15000) return false;
 
   const datasets = next.toyFactoryDatasets || DEFAULT_TOY_FACTORY_DATASETS;
@@ -110,6 +114,7 @@ export function applyToyFactoryShuffle(
   tf.bufferEndsAt = now + 10000;
 
   next.round.timerStartedAt = null;
+  next.round.timerEndAt = null;
   next.round.timerRemainingMs = remainingMs;
   next.round.status = 'LOCKED';
   return true;

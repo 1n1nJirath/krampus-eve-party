@@ -69,6 +69,7 @@ export function applyLmsMiseryPull(
   next.round.status = 'ACTIVE';
   next.round.durationSeconds = 25;
   next.round.timerStartedAt = now;
+  next.round.timerEndAt = now + 25 * 1000;
   next.round.timerRemainingMs = null;
   pushLmsFeed(
     next,
@@ -330,6 +331,7 @@ export function applyLmsPart1TriviaReveal(next: KrampusGameState, now: number): 
 
   next.round.status = 'REVEALED';
   next.round.timerStartedAt = null;
+  next.round.timerEndAt = null;
   next.round.timerRemainingMs = 0;
   next.round.rewardsApplied = true;
   return true;
@@ -420,6 +422,7 @@ export function applyLmsStartPart2Escape(next: KrampusGameState, now: number): b
     correctChoices: [q.correctKey],
     durationSeconds: q.durationSeconds || 60,
     timerStartedAt: null,
+    timerEndAt: null,
     timerRemainingMs: null,
     status: 'IDLE',
     rewardsApplied: false,
@@ -503,6 +506,7 @@ export function applyLmsPart2Reveal(next: KrampusGameState, now: number): boolea
 
   next.round.status = 'REVEALED';
   next.round.timerStartedAt = null;
+  next.round.timerEndAt = null;
   next.round.timerRemainingMs = 0;
   return true;
 }

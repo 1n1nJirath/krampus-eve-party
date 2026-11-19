@@ -3,32 +3,31 @@ import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 import {
   ChoiceOption,
   ChronoSubRound,
+  ClientRole,
   CoinTransaction,
   EightDoorsSubRound,
   GameStage,
   InputMode,
   KrampusGameState,
-  LastManCurseId,
   LastManPart1Question,
   LastManPart2Question,
   LastManShopItemId,
   ModeDSubType,
+  PendingPlayerAction,
+  PlayerActionEvent,
+  PlayerActionType,
   QuestionPreset,
   RoundConfig,
   Team,
   TeamId,
-  ToyFactoryAssignment,
   ToyFactoryDataset,
-  ToyFactoryItem,
 } from '../types/game';
 import {
-  BLACK_MARKET_ITEMS,
   buildToyFactoryPairings,
   computeChronoRankings,
   createDefaultLastManRoundStock,
   createInitialLastManState,
   createRoundFromPreset,
-  CURSE_CATALOG,
   DEFAULT_LAST_MAN_PART1_QUESTIONS,
   DEFAULT_LAST_MAN_PART2_QUESTIONS,
   DEFAULT_PRESETS,
@@ -42,22 +41,21 @@ import {
   TEAM_ORDER,
 } from '../data/initialData';
 import { soundFX } from '../utils/sound';
-import { applyBailoutToState, applySnakePickToState, buildSnakeDraftOrder } from '../logic/doorsLogic';
-import { applyChronoClaimToState, applyChronoTrapsToState } from '../logic/chronoLogic';
+import { buildSnakeDraftOrder } from '../logic/doorsLogic';
 import {
-  applyToyDatasetSelection,
-  applyToyFactoryShuffle,
-  buildToyFactoryAssignments,
-} from '../logic/toyFactoryLogic';
-import {
-  applyLmsBuyItem,
-  applyLmsMinigameAction,
   applyLmsMiseryPull,
-  applyLmsSoulSacrifice,
-  applyLmsUseJetpack,
   pushLmsFeed,
   resolveGhostPossessions,
 } from '../logic/lastManLogic';
+import {
+  applyPlayerAction,
+  createUnhydratedClientState,
+  isPendingActionConfirmed,
+  resolveClientRole,
+  shouldAcceptIncomingState,
+  shouldCancelPendingAction,
+  stampNextState,
+} from '../logic/syncLogic';
 
 const STORAGE_KEY = 'krampus_eve_state_v2';
 const SUPABASE_CONFIG_KEY = 'krampus_supabase_config_v2';
@@ -89,9 +87,35 @@ function normalizeGameState(raw: KrampusGameState): KrampusGameState {
       };
     }
   }
+  const stateVersion =
+    typeof raw.stateVersion === 'number'
+      ? raw.stateVersion
+      : typeof raw.version === 'number'
+      ? raw.version
+      : 1;
+  const updatedAt =
+    typeof raw.updatedAt === 'number'
+      ? raw.updatedAt
+      : typeof raw.serverTimestamp === 'number'
+      ? raw.serverTimestamp
+      : Date.now();
+  const baseRound = createRoundFromPreset(DEFAULT_PRESETS[0]);
+  const rawRound = (raw.round || {}) as Partial<RoundConfig>;
+  const mergedDuration = rawRound.durationSeconds ?? baseRound.durationSeconds;
+  const derivedTimerEndAt =
+    typeof rawRound.timerEndAt === 'number'
+      ? rawRound.timerEndAt
+      : rawRound.status === 'ACTIVE' && typeof rawRound.timerStartedAt === 'number'
+      ? rawRound.timerStartedAt + mergedDuration * 1000
+      : null;
+
   return {
     ...INITIAL_GAME_STATE,
     ...raw,
+    version: stateVersion,
+    stateVersion,
+    updatedAt,
+    serverTimestamp: updatedAt,
     teams: nextTeams,
     presets: DEFAULT_PRESETS,
     toyFactoryDatasets:
@@ -99,10 +123,11 @@ function normalizeGameState(raw: KrampusGameState): KrampusGameState {
         ? raw.toyFactoryDatasets
         : DEFAULT_TOY_FACTORY_DATASETS,
     round: {
-      ...createRoundFromPreset(DEFAULT_PRESETS[0]),
-      ...(raw.round || {}),
-      eightDoorsSubRound: raw.round?.eightDoorsSubRound || 'SUB1_SURVIVAL',
-      auctionIteration: raw.round?.auctionIteration || 1,
+      ...baseRound,
+      ...rawRound,
+      timerEndAt: derivedTimerEndAt,
+      eightDoorsSubRound: rawRound.eightDoorsSubRound || 'SUB1_SURVIVAL',
+      auctionIteration: rawRound.auctionIteration || 1,
     },
   };
 }
@@ -451,6 +476,7 @@ export function computeRoundScoring(
         status: 'REVEALED',
         rewardsApplied: true,
         timerStartedAt: null,
+        timerEndAt: null,
         briefingOpen: false,
       },
       transactions: [tx, ...prev.transactions.slice(0, 49)],
@@ -460,6 +486,11 @@ export function computeRoundScoring(
 
 interface GameContextValue {
   state: KrampusGameState;
+  clientRole: ClientRole;
+  isHost: boolean;
+  pendingActions: Record<string, PendingPlayerAction>;
+  actionSyncError: string | null;
+  clearActionSyncError: () => void;
   lanIp: string;
   connectionMode: 'LOCAL_SERVER' | 'SUPABASE_CLOUD' | 'BROWSER_SYNC';
   isConnected: boolean;
@@ -592,26 +623,59 @@ interface GameContextValue {
 
 const GameContext = createContext<GameContextValue | null>(null);
 
+const PLAYER_ACTION_RETRY_MS = 2000;
+const PLAYER_ACTION_MAX_ATTEMPTS = 6;
+
 export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [clientRole, setClientRole] = useState<ClientRole>(() =>
+    typeof window !== 'undefined'
+      ? resolveClientRole(window.location.pathname, window.location.hash)
+      : 'HOME'
+  );
+  const isHost = clientRole === 'HOST';
+  const clientRoleRef = useRef<ClientRole>(clientRole);
+  clientRoleRef.current = clientRole;
+
+  useEffect(() => {
+    const onRouteChange = () => {
+      const nextRole = resolveClientRole(window.location.pathname, window.location.hash);
+      clientRoleRef.current = nextRole;
+      setClientRole(nextRole);
+    };
+    window.addEventListener('popstate', onRouteChange);
+    window.addEventListener('hashchange', onRouteChange);
+    return () => {
+      window.removeEventListener('popstate', onRouteChange);
+      window.removeEventListener('hashchange', onRouteChange);
+    };
+  }, []);
+
   const [state, setState] = useState<KrampusGameState>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.teams && parsed.round) {
-          return normalizeGameState(parsed);
+    const initialRole =
+      typeof window !== 'undefined'
+        ? resolveClientRole(window.location.pathname, window.location.hash)
+        : 'HOME';
+    if (initialRole === 'HOST') {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && parsed.teams && parsed.round) {
+            return normalizeGameState(parsed);
+          }
         }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
+      return INITIAL_GAME_STATE;
     }
-    return INITIAL_GAME_STATE;
+    return createUnhydratedClientState(INITIAL_GAME_STATE);
   });
 
   const [lanIp, setLanIp] = useState<string>('localhost');
   const [connectionMode, setConnectionMode] = useState<'LOCAL_SERVER' | 'SUPABASE_CLOUD' | 'BROWSER_SYNC'>('BROWSER_SYNC');
   const [isConnected, setIsConnected] = useState<boolean>(true);
-  const [serverTimeOffset, setServerTimeOffset] = useState<number>(0);
+  const clockOffsetRef = useRef<number>(0);
 
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>(() => {
     const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
@@ -634,6 +698,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   });
 
+  const isSupabaseCloudActive = Boolean(
+    supabaseConfig.enabled && supabaseConfig.url && supabaseConfig.anonKey
+  );
+  const isSupabaseCloudActiveRef = useRef<boolean>(isSupabaseCloudActive);
+  isSupabaseCloudActiveRef.current = isSupabaseCloudActive;
+
+  const connectionModeRef = useRef<'LOCAL_SERVER' | 'SUPABASE_CLOUD' | 'BROWSER_SYNC'>(
+    connectionMode
+  );
+  connectionModeRef.current = connectionMode;
+
   const stateRef = useRef<KrampusGameState>(state);
   stateRef.current = state;
 
@@ -641,8 +716,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const supaChannelRef = useRef<RealtimeChannel | null>(null);
 
   const getAuthoritativeNow = useCallback(() => {
-    return Date.now() + serverTimeOffset;
-  }, [serverTimeOffset]);
+    return Date.now() + clockOffsetRef.current;
+  }, []);
 
   // Synchronous action locks to drop duplicate/rapid clicks before React re-renders
   const actionLocksRef = useRef<Map<string, number>>(new Map());
@@ -665,87 +740,391 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     soundFX.enabled = state.soundEnabled;
   }, [state.soundEnabled]);
 
-  // Apply incoming state if newer or from authoritative source
-  const applyIncomingState = useCallback((incoming: KrampusGameState, serverNow?: number) => {
-    if (!incoming || !incoming.teams) return;
-    if (typeof serverNow === 'number') {
-      setServerTimeOffset(serverNow - Date.now());
+  // Pending player action queue & automatic 2-second retry mechanism (/play -> /admin)
+  const pendingActionsRef = useRef<Record<string, PendingPlayerAction>>({});
+  const retryTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [pendingActions, setPendingActions] = useState<Record<string, PendingPlayerAction>>({});
+  const [actionSyncError, setActionSyncError] = useState<string | null>(null);
+
+  const clearActionSyncError = useCallback(() => setActionSyncError(null), []);
+
+  const clearPendingAction = useCallback((actionId: string) => {
+    const timer = retryTimersRef.current[actionId];
+    if (timer) {
+      clearTimeout(timer);
+      delete retryTimersRef.current[actionId];
     }
-    const normalized = normalizeGameState(incoming);
-    setState((prev) => {
-      if (prev.round.status !== 'REVEALED' && normalized.round.status === 'REVEALED') {
-        soundFX.playReveal();
-      }
-      if (normalized.buzzerQueue.length > prev.buzzerQueue.length) {
-        soundFX.playBuzzer(normalized.buzzerQueue.length);
-      } else if (Object.keys(normalized.submissions).length > Object.keys(prev.submissions).length) {
-        soundFX.playSubmit();
-      }
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
-      } catch {
-        // ignore quota errors
-      }
-      return normalized;
-    });
+    if (pendingActionsRef.current[actionId]) {
+      delete pendingActionsRef.current[actionId];
+      setPendingActions({ ...pendingActionsRef.current });
+    }
   }, []);
 
-  // Broadcast full state change from GM/Admin
-  const commitState = useCallback((updater: (prev: KrampusGameState) => KrampusGameState) => {
-    setState((prev) => {
-      const next = updater(prev);
-      const stamped: KrampusGameState = {
-        ...next,
-        version: (prev.version || 1) + 1,
-        serverTimestamp: Date.now() + serverTimeOffset,
-      };
+  useEffect(() => {
+    return () => {
+      Object.values(retryTimersRef.current).forEach((t) => clearTimeout(t));
+      retryTimersRef.current = {};
+    };
+  }, []);
+
+  // Host-only state broadcast helper (never called from /play or /display)
+  const broadcastAuthoritativeState = useCallback((stamped: KrampusGameState) => {
+    if (clientRoleRef.current !== 'HOST') return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(stamped));
+    } catch {
+      // ignore quota errors
+    }
+
+    if (isSupabaseCloudActiveRef.current) {
+      if (supaChannelRef.current) {
+        supaChannelRef.current
+          .send({
+            type: 'broadcast',
+            event: 'STATE_SYNC',
+            payload: {
+              state: stamped,
+              serverNow: Date.now(),
+              stateVersion: stamped.stateVersion,
+              updatedAt: stamped.updatedAt,
+            },
+          })
+          .catch(() => {});
+      }
+      return;
+    }
+
+    if (bcRef.current) {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(stamped));
+        bcRef.current.postMessage({
+          type: 'STATE_SYNC',
+          state: stamped,
+          serverNow: Date.now(),
+        });
       } catch {
         // ignore
       }
-      if (bcRef.current) {
-        try {
-          bcRef.current.postMessage({ type: 'STATE_SYNC', state: stamped });
-        } catch {
-          // ignore
-        }
-      }
+    }
+
+    if (connectionModeRef.current === 'LOCAL_SERVER') {
       fetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'FULL_STATE', state: stamped }),
       }).catch(() => {});
+    }
+  }, []);
 
-      if (supaChannelRef.current) {
-        supaChannelRef.current.send({
-          type: 'broadcast',
-          event: 'STATE_SYNC',
-          payload: { state: stamped, serverNow: Date.now() },
-        }).catch(() => {});
+  // Apply incoming STATE_SYNC on non-host clients with strict monotonic stateVersion guard
+  const applyIncomingState = useCallback(
+    (
+      incoming: KrampusGameState,
+      serverNow?: number,
+      options?: { allowHostFromLocalServer?: boolean }
+    ) => {
+      if (clientRoleRef.current === 'HOST' && !options?.allowHostFromLocalServer) return;
+      if (!incoming || !incoming.teams) return;
+
+      const normalized = normalizeGameState(incoming);
+      const prev = stateRef.current;
+
+      if (!shouldAcceptIncomingState(prev, normalized)) {
+        return;
       }
 
-      return stamped;
-    });
-  }, [serverTimeOffset]);
+      if (typeof serverNow === 'number') {
+        const diff = serverNow - Date.now();
+        clockOffsetRef.current = Math.abs(diff) > 1500 ? diff : 0;
+      }
 
-  // 1. Setup BroadcastChannel + storage event listener
+      if (prev.round.status !== 'REVEALED' && normalized.round.status === 'REVEALED') {
+        soundFX.playReveal();
+      }
+      if (normalized.buzzerQueue.length > prev.buzzerQueue.length) {
+        soundFX.playBuzzer(normalized.buzzerQueue.length);
+      } else if (
+        Object.keys(normalized.submissions).length > Object.keys(prev.submissions).length
+      ) {
+        soundFX.playSubmit();
+      }
+
+      let pendingChanged = false;
+      for (const [actionId, pending] of Object.entries(pendingActionsRef.current)) {
+        if (
+          isPendingActionConfirmed(pending, normalized) ||
+          shouldCancelPendingAction(pending, normalized)
+        ) {
+          const timer = retryTimersRef.current[actionId];
+          if (timer) {
+            clearTimeout(timer);
+            delete retryTimersRef.current[actionId];
+          }
+          delete pendingActionsRef.current[actionId];
+          pendingChanged = true;
+        }
+      }
+
+      stateRef.current = normalized;
+      setState(normalized);
+      if (pendingChanged) {
+        setPendingActions({ ...pendingActionsRef.current });
+      }
+    },
+    []
+  );
+
+  // Authoritative state commit (HOST only)
+  const commitState = useCallback(
+    (updater: (prev: KrampusGameState) => KrampusGameState | null) => {
+      if (clientRoleRef.current !== 'HOST') return;
+      const prev = stateRef.current;
+      const next = updater(prev);
+      if (!next || next === prev) return;
+      const stamped = stampNextState(prev, next, Date.now());
+      stateRef.current = stamped;
+      setState(stamped);
+      broadcastAuthoritativeState(stamped);
+    },
+    [broadcastAuthoritativeState]
+  );
+
+  const sendPlayerActionOverTransport = useCallback((event: PlayerActionEvent) => {
+    if (isSupabaseCloudActiveRef.current) {
+      if (supaChannelRef.current) {
+        supaChannelRef.current
+          .send({
+            type: 'broadcast',
+            event: 'PLAYER_ACTION',
+            payload: event,
+          })
+          .catch(() => {});
+      }
+      return;
+    }
+
+    if (connectionModeRef.current === 'LOCAL_SERVER') {
+      fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'TEAM_ACTION',
+          teamId: event.teamId,
+          action: event.type,
+          actionId: event.actionId,
+          payload: event.payload,
+        }),
+      }).catch(() => {});
+      return;
+    }
+
+    if (bcRef.current) {
+      try {
+        bcRef.current.postMessage({ type: 'PLAYER_ACTION', payload: event });
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
+
+  const scheduleRetry = useCallback(
+    (actionId: string) => {
+      const existingTimer = retryTimersRef.current[actionId];
+      if (existingTimer) clearTimeout(existingTimer);
+
+      retryTimersRef.current[actionId] = setTimeout(() => {
+        const current = pendingActionsRef.current[actionId];
+        if (!current) return;
+
+        if (shouldCancelPendingAction(current, stateRef.current)) {
+          clearPendingAction(actionId);
+          return;
+        }
+
+        if (current.attempts >= PLAYER_ACTION_MAX_ATTEMPTS) {
+          clearPendingAction(actionId);
+          setActionSyncError(
+            'ไม่สามารถส่งคำตอบถึง Host ได้ภายในเวลาที่กำหนด กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง'
+          );
+          return;
+        }
+
+        const retried: PendingPlayerAction = {
+          ...current,
+          attempts: current.attempts + 1,
+          lastSentAt: Date.now(),
+        };
+        pendingActionsRef.current[actionId] = retried;
+        setPendingActions({ ...pendingActionsRef.current });
+
+        sendPlayerActionOverTransport({
+          type: retried.type,
+          teamId: retried.teamId,
+          payload: retried.payload,
+          clientTimestamp: retried.clientTimestamp,
+          actionId: retried.actionId,
+          roundId: retried.roundId,
+        });
+        scheduleRetry(actionId);
+      }, PLAYER_ACTION_RETRY_MS);
+    },
+    [clearPendingAction, sendPlayerActionOverTransport]
+  );
+
+  const dispatchPlayerAction = useCallback(
+    (type: PlayerActionType, teamId: TeamId, payload: Record<string, unknown> = {}) => {
+      const now = getAuthoritativeNow();
+
+      if (clientRoleRef.current === 'HOST') {
+        const actionId = createActionId(teamId, type, now);
+        const event: PlayerActionEvent = {
+          type,
+          teamId,
+          payload,
+          clientTimestamp: now,
+          actionId,
+          roundId: stateRef.current.round.id,
+        };
+        commitState((prev) => {
+          const res = applyPlayerAction(prev, event, now);
+          return res.status === 'APPLIED' ? res.nextState : prev;
+        });
+        return;
+      }
+
+      const alreadyPending = Object.values(pendingActionsRef.current).some(
+        (p) => p.teamId === teamId && p.type === type
+      );
+      if (alreadyPending) return;
+
+      setActionSyncError(null);
+      const actionId = createActionId(teamId, type, now);
+      const event: PlayerActionEvent = {
+        type,
+        teamId,
+        payload,
+        clientTimestamp: now,
+        actionId,
+        roundId: stateRef.current.round.id,
+      };
+
+      const pending: PendingPlayerAction = {
+        ...event,
+        attempts: 1,
+        createdAt: Date.now(),
+        lastSentAt: Date.now(),
+      };
+      pendingActionsRef.current[actionId] = pending;
+      setPendingActions({ ...pendingActionsRef.current });
+
+      sendPlayerActionOverTransport(event);
+      scheduleRetry(actionId);
+    },
+    [commitState, createActionId, getAuthoritativeNow, scheduleRetry, sendPlayerActionOverTransport]
+  );
+
+  const emitActionRejected = useCallback((actionId: string, teamId: TeamId, reason?: string) => {
+    const payload = { actionId, teamId, reason };
+    if (isSupabaseCloudActiveRef.current) {
+      supaChannelRef.current
+        ?.send({ type: 'broadcast', event: 'ACTION_REJECTED', payload })
+        .catch(() => {});
+      return;
+    }
+    if (bcRef.current) {
+      try {
+        bcRef.current.postMessage({ type: 'ACTION_REJECTED', payload });
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
+
+  const handleIncomingPlayerAction = useCallback(
+    (event: PlayerActionEvent) => {
+      if (clientRoleRef.current !== 'HOST') return;
+      const hostNow = Date.now();
+      const prev = stateRef.current;
+      const res = applyPlayerAction(prev, event, hostNow);
+
+      if (res.status === 'APPLIED') {
+        if (event.type === 'PRESS_BUZZER') {
+          soundFX.playBuzzer(res.nextState.buzzerQueue.length);
+        } else {
+          soundFX.playSubmit();
+        }
+        commitState(() => res.nextState);
+      } else if (res.status === 'DUPLICATE') {
+        broadcastAuthoritativeState(stateRef.current);
+      } else {
+        emitActionRejected(event.actionId, event.teamId, res.reason);
+        broadcastAuthoritativeState(stateRef.current);
+      }
+    },
+    [broadcastAuthoritativeState, commitState, emitActionRejected]
+  );
+
+  const handleActionRejected = useCallback(
+    (payload?: { actionId?: string; teamId?: TeamId; reason?: string }) => {
+      if (clientRoleRef.current === 'HOST') return;
+      if (!payload?.actionId) return;
+      clearPendingAction(payload.actionId);
+    },
+    [clearPendingAction]
+  );
+
+  const applyIncomingStateRef = useRef(applyIncomingState);
+  applyIncomingStateRef.current = applyIncomingState;
+  const handleIncomingPlayerActionRef = useRef(handleIncomingPlayerAction);
+  handleIncomingPlayerActionRef.current = handleIncomingPlayerAction;
+  const handleActionRejectedRef = useRef(handleActionRejected);
+  handleActionRejectedRef.current = handleActionRejected;
+
+  // 1. Setup BroadcastChannel + storage event listener (ONLY when Supabase Cloud Sync is OFF)
   useEffect(() => {
+    if (isSupabaseCloudActive) {
+      if (bcRef.current) {
+        bcRef.current.close();
+        bcRef.current = null;
+      }
+      return;
+    }
+
     if (typeof BroadcastChannel !== 'undefined') {
       const bc = new BroadcastChannel('krampus_eve_sync');
       bc.onmessage = (ev) => {
-        if (ev.data?.type === 'STATE_SYNC' && ev.data.state) {
-          applyIncomingState(ev.data.state);
+        const msg = ev.data;
+        if (!msg) return;
+        if (msg.type === 'STATE_SYNC' && msg.state) {
+          applyIncomingStateRef.current(msg.state, msg.serverNow);
+        } else if (msg.type === 'REQUEST_STATE') {
+          if (clientRoleRef.current === 'HOST') {
+            bc.postMessage({
+              type: 'STATE_SYNC',
+              state: stateRef.current,
+              serverNow: Date.now(),
+            });
+          }
+        } else if (msg.type === 'PLAYER_ACTION' && msg.payload) {
+          if (clientRoleRef.current === 'HOST') {
+            handleIncomingPlayerActionRef.current(msg.payload);
+          }
+        } else if (msg.type === 'ACTION_REJECTED' && msg.payload) {
+          handleActionRejectedRef.current(msg.payload);
         }
       };
       bcRef.current = bc;
+      if (clientRoleRef.current !== 'HOST') {
+        bc.postMessage({ type: 'REQUEST_STATE' });
+      }
     }
 
     const onStorage = (e: StorageEvent) => {
+      if (isSupabaseCloudActiveRef.current) return;
+      if (clientRoleRef.current === 'HOST') return;
       if (e.key === STORAGE_KEY && e.newValue) {
         try {
           const parsed = JSON.parse(e.newValue);
-          applyIncomingState(parsed);
+          applyIncomingStateRef.current(parsed);
         } catch {
           // ignore
         }
@@ -754,12 +1133,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     window.addEventListener('storage', onStorage);
     return () => {
       bcRef.current?.close();
+      bcRef.current = null;
       window.removeEventListener('storage', onStorage);
     };
-  }, [applyIncomingState]);
+  }, [isSupabaseCloudActive]);
 
-  // 2. Setup Local Server SSE (/api/events)
+  // 2. Setup Local Server SSE (/api/events) ONLY when Supabase Cloud Sync is OFF
   useEffect(() => {
+    if (isSupabaseCloudActive) {
+      return;
+    }
+
     let es: EventSource | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -768,9 +1152,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         es = new EventSource('/api/events');
         es.onopen = () => {
           setIsConnected(true);
-          setConnectionMode((prev) => (prev === 'SUPABASE_CLOUD' ? 'SUPABASE_CLOUD' : 'LOCAL_SERVER'));
+          if (!isSupabaseCloudActiveRef.current) {
+            setConnectionMode('LOCAL_SERVER');
+          }
         };
         es.onmessage = (event) => {
+          if (isSupabaseCloudActiveRef.current) return;
           try {
             const data = JSON.parse(event.data);
             if (data.lanIp) {
@@ -778,8 +1165,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             if (data.type === 'CONNECTED') {
               if (data.state && data.state.teams) {
-                applyIncomingState(data.state, data.serverNow);
-              } else {
+                applyIncomingStateRef.current(data.state, data.serverNow, {
+                  allowHostFromLocalServer: true,
+                });
+              } else if (clientRoleRef.current === 'HOST') {
                 fetch('/api/sync', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -787,7 +1176,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }).catch(() => {});
               }
             } else if (data.type === 'STATE_SYNC' && data.state) {
-              applyIncomingState(data.state, data.serverNow);
+              applyIncomingStateRef.current(data.state, data.serverNow, {
+                allowHostFromLocalServer: true,
+              });
             }
           } catch {
             // ignore
@@ -798,7 +1189,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           retryTimer = setTimeout(connectSSE, 3000);
         };
       } catch {
-        // Fallback to Browser/Supabase
+        // Fallback to Browser Sync
       }
     };
 
@@ -807,14 +1198,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       es?.close();
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [applyIncomingState]);
+  }, [isSupabaseCloudActive]);
 
-  // 3. Setup Optional Supabase Realtime Broadcast
+  // 3. Setup Supabase Realtime Broadcast (Host-Authoritative Single Source of Truth)
   useEffect(() => {
     if (!supabaseConfig.enabled || !supabaseConfig.url || !supabaseConfig.anonKey) {
       supaChannelRef.current = null;
       return;
     }
+
+    let unmounted = false;
+    let hydratePollTimer: ReturnType<typeof setInterval> | null = null;
 
     try {
       const supabase = createClient(supabaseConfig.url, supabaseConfig.anonKey);
@@ -825,123 +1219,105 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       channel
         .on('broadcast', { event: 'STATE_SYNC' }, ({ payload }) => {
           if (payload?.state) {
-            applyIncomingState(payload.state, payload.serverNow);
+            applyIncomingStateRef.current(payload.state, payload.serverNow);
           }
         })
         .on('broadcast', { event: 'REQUEST_STATE' }, () => {
-          const path = window.location.pathname.toLowerCase();
-          if (path.startsWith('/admin') || path.startsWith('/host') || path.startsWith('/display')) {
-            channel.send({
+          if (clientRoleRef.current !== 'HOST') return;
+          const current = stateRef.current;
+          channel
+            .send({
               type: 'broadcast',
               event: 'STATE_SYNC',
-              payload: { state: stateRef.current, serverNow: Date.now() },
-            }).catch(() => {});
-          }
+              payload: {
+                state: current,
+                serverNow: Date.now(),
+                stateVersion: current.stateVersion,
+                updatedAt: current.updatedAt,
+              },
+            })
+            .catch(() => {});
+        })
+        .on('broadcast', { event: 'PLAYER_ACTION' }, ({ payload }) => {
+          if (clientRoleRef.current !== 'HOST' || !payload) return;
+          handleIncomingPlayerActionRef.current(payload as PlayerActionEvent);
         })
         .on('broadcast', { event: 'TEAM_ACTION' }, ({ payload }) => {
-          if (!payload) return;
-          const { teamId, action, data, clientNow, actionId } = payload;
-          commitState((prev) => {
-            const next = structuredClone(prev);
-            if (!markActionProcessed(next, actionId)) {
-              return prev;
-            }
-            const now = clientNow || Date.now();
-            if (action === 'SUBMIT_ANSWER') {
-              if (!data?.force && next.round.status !== 'ACTIVE') return prev;
-              const elapsedMs = next.round.timerStartedAt
-                ? Math.max(0, now - next.round.timerStartedAt)
-                : 0;
-              next.submissions[teamId as TeamId] = {
-                teamId,
-                value: data.value,
-                secondaryValue: data.secondaryValue,
-                submittedAt: now,
-                elapsedMs,
-                locked: true,
-              };
-            } else if (action === 'CLEAR_TEAM_SUBMISSION') {
-              delete next.submissions[teamId as TeamId];
-            } else if (action === 'REGISTER_TEAM') {
-              const tid = teamId as TeamId;
-              if (next.teams && next.teams[tid]) {
-                next.teams[tid] = {
-                  ...next.teams[tid],
-                  name: data?.name || next.teams[tid].name,
-                  icon: data?.icon || next.teams[tid].icon,
-                  motto: data?.motto ?? next.teams[tid].motto,
-                  roster: Array.isArray(data?.roster) ? data.roster : next.teams[tid].roster,
-                  isRegistered: true,
-                };
-              }
-            } else if (action === 'PRESS_BUZZER') {
-              const exists = next.buzzerQueue.some((b) => b.teamId === teamId);
-              if (!exists && next.round.status === 'ACTIVE') {
-                const firstTime = next.buzzerQueue.length > 0 ? next.buzzerQueue[0].pressedAt : now;
-                const elapsedFromStartMs = next.round.timerStartedAt
-                  ? Math.max(0, now - next.round.timerStartedAt)
-                  : 0;
-                next.buzzerQueue.push({
-                  teamId,
-                  pressedAt: now,
-                  deltaMs: Math.max(0, now - firstTime),
-                  elapsedFromStartMs,
-                  rank: next.buzzerQueue.length + 1,
-                });
-              }
-            } else if (action === 'BAILOUT_SHIELD') {
-              applyBailoutToState(next, teamId as TeamId, now);
-            } else if (action === 'SNAKE_PICK') {
-              applySnakePickToState(next, teamId as TeamId, String(data?.doorKey || ''), now);
-            } else if (action === 'PLACE_CHRONO_TRAPS') {
-              applyChronoTrapsToState(next, teamId as TeamId, data?.allocations || {}, now);
-            } else if (action === 'CLAIM_CHRONO_YEAR') {
-              applyChronoClaimToState(next, teamId as TeamId, Number(data?.year), now);
-            } else if (action === 'SELECT_TOY_DATASET') {
-              applyToyDatasetSelection(next, teamId as TeamId, String(data?.datasetId || ''), now);
-            } else if (action === 'TOY_SHUFFLE') {
-              applyToyFactoryShuffle(next, teamId as TeamId, now);
-            } else if (action === 'LMS_SOUL_SACRIFICE') {
-              applyLmsSoulSacrifice(next, teamId as TeamId, now);
-            } else if (action === 'LMS_MISERY_PULL') {
-              applyLmsMiseryPull(next, teamId as TeamId, data?.targetTeamId as TeamId, now);
-            } else if (action === 'LMS_BUY_ITEM') {
-              applyLmsBuyItem(
-                next,
-                teamId as TeamId,
-                data?.itemId as LastManShopItemId,
-                data?.targetTeamId as TeamId | undefined,
-                now
-              );
-            } else if (action === 'LMS_MINIGAME_ACTION') {
-              applyLmsMinigameAction(next, teamId as TeamId, data || {});
-            } else if (action === 'LMS_USE_JETPACK') {
-              applyLmsUseJetpack(next, teamId as TeamId, now);
-            }
-            return next;
-          });
+          if (clientRoleRef.current !== 'HOST' || !payload) return;
+          const legacyEvent: PlayerActionEvent = {
+            type: payload.action as PlayerActionType,
+            teamId: payload.teamId as TeamId,
+            payload: (payload.data || payload.payload || {}) as Record<string, unknown>,
+            clientTimestamp: Number(payload.clientNow || Date.now()),
+            actionId: String(
+              payload.actionId || `${payload.teamId}-${payload.action}-${Date.now()}`
+            ),
+          };
+          handleIncomingPlayerActionRef.current(legacyEvent);
+        })
+        .on('broadcast', { event: 'ACTION_REJECTED' }, ({ payload }) => {
+          if (clientRoleRef.current === 'HOST') return;
+          handleActionRejectedRef.current(payload);
         })
         .subscribe((status) => {
+          if (unmounted) return;
           if (status === 'SUBSCRIBED') {
             setConnectionMode('SUPABASE_CLOUD');
             setIsConnected(true);
-            channel.send({
-              type: 'broadcast',
-              event: 'REQUEST_STATE',
-              payload: { requestedAt: Date.now() },
-            }).catch(() => {});
+
+            if (clientRoleRef.current === 'HOST') {
+              const current = stateRef.current;
+              channel
+                .send({
+                  type: 'broadcast',
+                  event: 'STATE_SYNC',
+                  payload: {
+                    state: current,
+                    serverNow: Date.now(),
+                    stateVersion: current.stateVersion,
+                    updatedAt: current.updatedAt,
+                  },
+                })
+                .catch(() => {});
+            } else {
+              const sendRequest = () => {
+                channel
+                  .send({
+                    type: 'broadcast',
+                    event: 'REQUEST_STATE',
+                    payload: { requestedAt: Date.now() },
+                  })
+                  .catch(() => {});
+              };
+              sendRequest();
+
+              if (stateRef.current.stateVersion === 0) {
+                hydratePollTimer = setInterval(() => {
+                  if (stateRef.current.stateVersion > 0) {
+                    if (hydratePollTimer) {
+                      clearInterval(hydratePollTimer);
+                      hydratePollTimer = null;
+                    }
+                    return;
+                  }
+                  sendRequest();
+                }, 2500);
+              }
+            }
           }
         });
 
       supaChannelRef.current = channel;
       return () => {
+        unmounted = true;
+        if (hydratePollTimer) clearInterval(hydratePollTimer);
         supabase.removeChannel(channel);
         supaChannelRef.current = null;
       };
     } catch {
       // ignore invalid supabase url
     }
-  }, [supabaseConfig, applyIncomingState, commitState]);
+  }, [supabaseConfig.enabled, supabaseConfig.url, supabaseConfig.anonKey]);
 
   const saveSupabaseConfig = useCallback((cfg: SupabaseConfig) => {
     setSupabaseConfig(cfg);
@@ -953,62 +1329,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   // ==============================================================
-  // TEAM CONTROLLER ACTIONS (Atomic & < 50ms latency)
+  // TEAM CONTROLLER ACTIONS (Host-Authoritative Lightweight Events + 2s Retry)
   // ==============================================================
 
   const registerTeam = useCallback(
     (teamId: TeamId, name: string, icon?: string, motto?: string, roster?: string[]) => {
-      if (!acquireActionLock(`${teamId}:REGISTER_TEAM`, 500)) return;
       soundFX.playSubmit();
-      const trimmedName = name.trim();
-      const now = getAuthoritativeNow();
-      const actionId = createActionId(teamId, 'REGISTER_TEAM', now);
-
-      fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'TEAM_ACTION',
-          teamId,
-          action: 'REGISTER_TEAM',
-          actionId,
-          payload: { name: trimmedName, icon, motto, roster },
-        }),
-      }).catch(() => {});
-
-      if (supaChannelRef.current) {
-        supaChannelRef.current
-          .send({
-            type: 'broadcast',
-            event: 'TEAM_ACTION',
-            payload: {
-              teamId,
-              action: 'REGISTER_TEAM',
-              actionId,
-              data: { name: trimmedName, icon, motto, roster },
-              clientNow: now,
-            },
-          })
-          .catch(() => {});
-      }
-
-      commitState((prev) => {
-        const current = prev.teams[teamId];
-        if (!current) return prev;
-        const next = structuredClone(prev);
-        if (!markActionProcessed(next, actionId)) return prev;
-        next.teams[teamId] = {
-          ...current,
-          name: trimmedName || current.name,
-          icon: icon || current.icon,
-          motto: motto !== undefined ? motto : current.motto,
-          roster: roster !== undefined ? roster : current.roster,
-          isRegistered: true,
-        };
-        return next;
+      dispatchPlayerAction('REGISTER_TEAM', teamId, {
+        name: name.trim(),
+        icon,
+        motto,
+        roster,
       });
     },
-    [acquireActionLock, commitState, createActionId, getAuthoritativeNow]
+    [dispatchPlayerAction]
   );
 
   const submitTeamAnswer = useCallback(
@@ -1019,70 +1353,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       options?: { force?: boolean }
     ) => {
       if (!options?.force && stateRef.current.round.status !== 'ACTIVE') return;
-      if (!acquireActionLock(`${teamId}:SUBMIT_ANSWER`, 450)) return;
       soundFX.playSubmit();
-      const now = getAuthoritativeNow();
-      const actionId = createActionId(teamId, 'SUBMIT_ANSWER', now);
-
-      fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'TEAM_ACTION',
-          teamId,
-          action: 'SUBMIT_ANSWER',
-          actionId,
-          payload: { value, secondaryValue, force: Boolean(options?.force) },
-        }),
-      }).catch(() => {});
-
-      if (supaChannelRef.current) {
-        supaChannelRef.current.send({
-          type: 'broadcast',
-          event: 'TEAM_ACTION',
-          payload: {
-            teamId,
-            action: 'SUBMIT_ANSWER',
-            actionId,
-            data: { value, secondaryValue, force: Boolean(options?.force) },
-            clientNow: now,
-          },
-        }).catch(() => {});
-      }
-
-      commitState((prev) => {
-        if (!options?.force && prev.round.status !== 'ACTIVE') return prev;
-        const next = structuredClone(prev);
-        if (!markActionProcessed(next, actionId)) return prev;
-        const elapsedMs = next.round.timerStartedAt
-          ? Math.max(0, now - next.round.timerStartedAt)
-          : 0;
-        next.submissions[teamId] = {
-          teamId,
-          value,
-          secondaryValue,
-          submittedAt: now,
-          elapsedMs,
-          locked: true,
-        };
-        return next;
+      dispatchPlayerAction('SUBMIT_ANSWER', teamId, {
+        value,
+        secondaryValue,
+        force: Boolean(options?.force),
       });
     },
-    [acquireActionLock, commitState, createActionId, getAuthoritativeNow]
+    [dispatchPlayerAction]
   );
 
   const clearTeamSubmission = useCallback(
     (teamId: TeamId) => {
-      fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'TEAM_ACTION',
-          teamId,
-          action: 'CLEAR_TEAM_SUBMISSION',
-        }),
-      }).catch(() => {});
-
       commitState((prev) => {
         const nextSubs = { ...prev.submissions };
         delete nextSubs[teamId];
@@ -1097,51 +1379,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const pressTeamBuzzer = useCallback(
     (teamId: TeamId) => {
-      if (!acquireActionLock(`${teamId}:PRESS_BUZZER`, 450)) return;
-      const now = getAuthoritativeNow();
-      const actionId = createActionId(teamId, 'PRESS_BUZZER', now);
-
-      fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'TEAM_ACTION',
-          teamId,
-          action: 'PRESS_BUZZER',
-          actionId,
-        }),
-      }).catch(() => {});
-
-      if (supaChannelRef.current) {
-        supaChannelRef.current.send({
-          type: 'broadcast',
-          event: 'TEAM_ACTION',
-          payload: { teamId, action: 'PRESS_BUZZER', actionId, data: {}, clientNow: now },
-        }).catch(() => {});
-      }
-
-      commitState((prev) => {
-        if (prev.round.status !== 'ACTIVE') return prev;
-        if (prev.buzzerQueue.some((b) => b.teamId === teamId)) return prev;
-        const next = structuredClone(prev);
-        if (!markActionProcessed(next, actionId)) return prev;
-        const firstTime = next.buzzerQueue.length > 0 ? next.buzzerQueue[0].pressedAt : now;
-        const elapsedFromStartMs = next.round.timerStartedAt
-          ? Math.max(0, now - next.round.timerStartedAt)
-          : 0;
-        const rank = next.buzzerQueue.length + 1;
-        soundFX.playBuzzer(rank);
-        next.buzzerQueue.push({
-          teamId,
-          pressedAt: now,
-          deltaMs: Math.max(0, now - firstTime),
-          elapsedFromStartMs,
-          rank,
-        });
-        return next;
-      });
+      if (stateRef.current.round.status !== 'ACTIVE') return;
+      if (stateRef.current.buzzerQueue.some((b) => b.teamId === teamId)) return;
+      soundFX.playSubmit();
+      dispatchPlayerAction('PRESS_BUZZER', teamId, {});
     },
-    [acquireActionLock, commitState, createActionId, getAuthoritativeNow]
+    [dispatchPlayerAction]
   );
 
   // ==============================================================
@@ -1166,6 +1409,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             prev.round.chronoSubRound !== round.chronoSubRound);
         round.status = 'IDLE';
         round.timerStartedAt = null;
+        round.timerEndAt = null;
         round.briefingOpen = phaseChanged;
         return {
           ...prev,
@@ -1304,6 +1548,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           penaltyCoins: 150,
           durationSeconds: duration,
           timerStartedAt: null,
+          timerEndAt: null,
           timerRemainingMs: duration * 1000,
           status: 'IDLE',
           rewardsApplied: false,
@@ -1454,78 +1699,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const bailoutNiceShield = useCallback(
     (teamId: TeamId) => {
-      if (!acquireActionLock(`${teamId}:BAILOUT_SHIELD`, 500)) return;
-      const now = getAuthoritativeNow();
-      const actionId = createActionId(teamId, 'BAILOUT_SHIELD', now);
-      fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'TEAM_ACTION',
-          teamId,
-          action: 'BAILOUT_SHIELD',
-          actionId,
-          payload: {},
-        }),
-      }).catch(() => {});
-
-      if (supaChannelRef.current) {
-        supaChannelRef.current
-          .send({
-            type: 'broadcast',
-            event: 'TEAM_ACTION',
-            payload: { teamId, action: 'BAILOUT_SHIELD', actionId, data: {}, clientNow: now },
-          })
-          .catch(() => {});
-      }
-
-      commitState((prev) => {
-        const next = structuredClone(prev);
-        if (!markActionProcessed(next, actionId)) return prev;
-        if (!applyBailoutToState(next, teamId, now)) return prev;
-        return next;
-      });
-      soundFX.playReveal();
+      soundFX.playSubmit();
+      dispatchPlayerAction('BAILOUT_SHIELD', teamId, {});
     },
-    [acquireActionLock, commitState, createActionId, getAuthoritativeNow]
+    [dispatchPlayerAction]
   );
 
   const submitSnakeDraftPick = useCallback(
     (teamId: TeamId, doorKey: string) => {
-      if (!acquireActionLock(`${teamId}:SNAKE_PICK`, 500)) return;
-      const now = getAuthoritativeNow();
-      const actionId = createActionId(teamId, 'SNAKE_PICK', now);
-      fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'TEAM_ACTION',
-          teamId,
-          action: 'SNAKE_PICK',
-          actionId,
-          payload: { doorKey },
-        }),
-      }).catch(() => {});
-
-      if (supaChannelRef.current) {
-        supaChannelRef.current
-          .send({
-            type: 'broadcast',
-            event: 'TEAM_ACTION',
-            payload: { teamId, action: 'SNAKE_PICK', actionId, data: { doorKey }, clientNow: now },
-          })
-          .catch(() => {});
-      }
-
-      commitState((prev) => {
-        const next = structuredClone(prev);
-        if (!markActionProcessed(next, actionId)) return prev;
-        if (!applySnakePickToState(next, teamId, doorKey, now)) return prev;
-        return next;
-      });
-      soundFX.playReveal();
+      soundFX.playSubmit();
+      dispatchPlayerAction('SNAKE_PICK', teamId, { doorKey });
     },
-    [acquireActionLock, commitState, createActionId, getAuthoritativeNow]
+    [dispatchPlayerAction]
   );
 
   const finishEightDoorsGame = useCallback(() => {
@@ -1539,6 +1724,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         gameStage: 'WORLD_MAP',
         status: 'IDLE',
         timerStartedAt: null,
+        timerEndAt: null,
         timerRemainingMs: 0,
       },
     }));
@@ -1603,6 +1789,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             chronoFastFingerClaims: {},
             durationSeconds: duration,
             timerStartedAt: null,
+            timerEndAt: null,
             timerRemainingMs: duration * 1000,
             status: 'IDLE',
             rewardsApplied: false,
@@ -1626,6 +1813,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         chronoPhase: 'YEAR_GUESS',
         durationSeconds: 35,
         timerStartedAt: now,
+        timerEndAt: now + 35 * 1000,
         timerRemainingMs: 35 * 1000,
         status: 'ACTIVE',
         rewardsApplied: false,
@@ -1636,78 +1824,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const placeChronoTraps = useCallback(
     (teamId: TeamId, allocations: Partial<Record<TeamId, number>>) => {
-      if (!acquireActionLock(`${teamId}:PLACE_CHRONO_TRAPS`, 500)) return;
-      const now = getAuthoritativeNow();
-      const actionId = createActionId(teamId, 'PLACE_CHRONO_TRAPS', now);
-      fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'TEAM_ACTION',
-          teamId,
-          action: 'PLACE_CHRONO_TRAPS',
-          actionId,
-          payload: { allocations },
-        }),
-      }).catch(() => {});
-
-      if (supaChannelRef.current) {
-        supaChannelRef.current
-          .send({
-            type: 'broadcast',
-            event: 'TEAM_ACTION',
-            payload: { teamId, action: 'PLACE_CHRONO_TRAPS', actionId, data: { allocations }, clientNow: now },
-          })
-          .catch(() => {});
-      }
-
-      commitState((prev) => {
-        const next = structuredClone(prev);
-        if (!markActionProcessed(next, actionId)) return prev;
-        if (!applyChronoTrapsToState(next, teamId, allocations, now)) return prev;
-        return next;
-      });
-      soundFX.playReveal();
+      soundFX.playSubmit();
+      dispatchPlayerAction('PLACE_CHRONO_TRAPS', teamId, { allocations });
     },
-    [acquireActionLock, commitState, createActionId, getAuthoritativeNow]
+    [dispatchPlayerAction]
   );
 
   const claimChronoYear = useCallback(
     (teamId: TeamId, year: number) => {
-      if (!acquireActionLock(`${teamId}:CLAIM_CHRONO_YEAR`, 500)) return;
-      const now = getAuthoritativeNow();
-      const actionId = createActionId(teamId, 'CLAIM_CHRONO_YEAR', now);
-      fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'TEAM_ACTION',
-          teamId,
-          action: 'CLAIM_CHRONO_YEAR',
-          actionId,
-          payload: { year },
-        }),
-      }).catch(() => {});
-
-      if (supaChannelRef.current) {
-        supaChannelRef.current
-          .send({
-            type: 'broadcast',
-            event: 'TEAM_ACTION',
-            payload: { teamId, action: 'CLAIM_CHRONO_YEAR', actionId, data: { year }, clientNow: now },
-          })
-          .catch(() => {});
-      }
-
-      commitState((prev) => {
-        const next = structuredClone(prev);
-        if (!markActionProcessed(next, actionId)) return prev;
-        if (!applyChronoClaimToState(next, teamId, year, now)) return prev;
-        return next;
-      });
-      soundFX.playBuzzer(1);
+      soundFX.playSubmit();
+      dispatchPlayerAction('CLAIM_CHRONO_YEAR', teamId, { year });
     },
-    [acquireActionLock, commitState, createActionId, getAuthoritativeNow]
+    [dispatchPlayerAction]
   );
 
   const finishChronoGame = useCallback(() => {
@@ -1721,6 +1849,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         gameStage: 'WORLD_MAP',
         status: 'IDLE',
         timerStartedAt: null,
+        timerEndAt: null,
         timerRemainingMs: 0,
       },
     }));
@@ -1753,6 +1882,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           questionText: 'สายพานคัดแยกของเล่นผีสิง — วิ่งล่าข้อมูล & ยืนเรียงหน้ากระดาน!',
           durationSeconds: durSec,
           timerStartedAt: null,
+          timerEndAt: null,
           timerRemainingMs: durSec * 1000,
           status: 'IDLE',
           rewardsApplied: false,
@@ -1778,40 +1908,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const selectToyFactoryDataset = useCallback(
     (teamId: TeamId, datasetId: string) => {
-      if (!acquireActionLock(`${teamId}:SELECT_TOY_DATASET`, 500)) return;
-      const now = getAuthoritativeNow();
-      const actionId = createActionId(teamId, 'SELECT_TOY_DATASET', now);
-      fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'TEAM_ACTION',
-          teamId,
-          action: 'SELECT_TOY_DATASET',
-          actionId,
-          payload: { datasetId },
-        }),
-      }).catch(() => {});
-
-      if (supaChannelRef.current) {
-        supaChannelRef.current
-          .send({
-            type: 'broadcast',
-            event: 'TEAM_ACTION',
-            payload: { teamId, action: 'SELECT_TOY_DATASET', actionId, data: { datasetId }, clientNow: now },
-          })
-          .catch(() => {});
-      }
-
-      commitState((prev) => {
-        const next = structuredClone(prev);
-        if (!markActionProcessed(next, actionId)) return prev;
-        if (!applyToyDatasetSelection(next, teamId, datasetId, now)) return prev;
-        return next;
-      });
       soundFX.playSubmit();
+      dispatchPlayerAction('SELECT_TOY_DATASET', teamId, { datasetId });
     },
-    [acquireActionLock, commitState, createActionId, getAuthoritativeNow]
+    [dispatchPlayerAction]
   );
 
   const startToyFactoryActionPhase = useCallback(() => {
@@ -1826,6 +1926,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...prev.round,
           status: 'ACTIVE',
           timerStartedAt: now,
+          timerEndAt: now + dur * 1000,
           timerRemainingMs: dur * 1000,
           toyFactory: {
             ...tf,
@@ -1840,40 +1941,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const triggerToyFactoryShuffle = useCallback(
     (spectatorTeamId: TeamId) => {
-      if (!acquireActionLock(`${spectatorTeamId}:TOY_SHUFFLE`, 600)) return;
-      const now = getAuthoritativeNow();
-      const actionId = createActionId(spectatorTeamId, 'TOY_SHUFFLE', now);
-      fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'TEAM_ACTION',
-          teamId: spectatorTeamId,
-          action: 'TOY_SHUFFLE',
-          actionId,
-          payload: {},
-        }),
-      }).catch(() => {});
-
-      if (supaChannelRef.current) {
-        supaChannelRef.current
-          .send({
-            type: 'broadcast',
-            event: 'TEAM_ACTION',
-            payload: { teamId: spectatorTeamId, action: 'TOY_SHUFFLE', actionId, data: {}, clientNow: now },
-          })
-          .catch(() => {});
-      }
-
-      commitState((prev) => {
-        const next = structuredClone(prev);
-        if (!markActionProcessed(next, actionId)) return prev;
-        if (!applyToyFactoryShuffle(next, spectatorTeamId, now)) return prev;
-        return next;
-      });
       soundFX.playBuzzer(1);
+      dispatchPlayerAction('TOY_SHUFFLE', spectatorTeamId, {});
     },
-    [acquireActionLock, commitState, createActionId, getAuthoritativeNow]
+    [dispatchPlayerAction]
   );
 
   const resumeToyFactoryFromBuffer = useCallback(() => {
@@ -1890,6 +1961,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...prev.round,
           status: 'ACTIVE',
           timerStartedAt: syntheticStart,
+          timerEndAt: now + rem,
           toyFactory: {
             ...tf,
             phase: 'ACTION',
@@ -1924,6 +1996,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...prev.round,
           status: 'LOCKED',
           timerStartedAt: null,
+          timerEndAt: null,
           toyFactory: {
             ...tf,
             phase: 'REVEAL_JUDGE',
@@ -2051,6 +2124,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             gameStage: 'WORLD_MAP',
             status: 'IDLE',
             timerStartedAt: null,
+            timerEndAt: null,
             timerRemainingMs: 0,
           },
         };
@@ -2068,6 +2142,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           subtitle: 'เลือกชุดข้อมูลที่เหลือเพื่อเริ่มรอบถัดไป!',
           questionText: 'สายพานคัดแยกของเล่นผีสิง — วิ่งล่าข้อมูล & ยืนเรียงหน้ากระดาน!',
           timerStartedAt: null,
+          timerEndAt: null,
           timerRemainingMs: durSec * 1000,
           status: 'IDLE',
           rewardsApplied: false,
@@ -2115,6 +2190,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         gameStage: 'WORLD_MAP',
         status: 'IDLE',
         timerStartedAt: null,
+        timerEndAt: null,
         timerRemainingMs: 0,
       },
     }));
@@ -2225,6 +2301,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             choices: nextChoices,
             durationSeconds: duration,
             timerStartedAt: null,
+            timerEndAt: null,
             timerRemainingMs: duration * 1000,
             status: 'IDLE',
             rewardsApplied: false,
@@ -2342,6 +2419,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               : `ด่านย่อยที่ 2.${iter} (เลือกประตู & แทงข้าง): ${nextTeams[bestTeam].name} เลือกเปิดประตู 1 บาน • ทีมอื่นแทงว่ารอดหรือพัง!`,
             durationSeconds: 35,
             timerStartedAt: now,
+            timerEndAt: now + 35 * 1000,
             timerRemainingMs: 35 * 1000,
             status: 'ACTIVE',
             rewardsApplied: false,
@@ -2368,6 +2446,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               ...prev.round,
               durationSeconds: durationSec,
               timerStartedAt: null,
+              timerEndAt: null,
               timerRemainingMs: durationSec * 1000,
               status: 'ACTIVE',
               briefingOpen: false,
@@ -2380,6 +2459,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ...prev.round,
             durationSeconds: durationSec,
             timerStartedAt: now,
+            timerEndAt: now + durationSec * 1000,
             timerRemainingMs: durationSec * 1000,
             status: 'ACTIVE',
             briefingOpen: false,
@@ -2393,14 +2473,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const pauseTimer = useCallback(() => {
     const now = getAuthoritativeNow();
     commitState((prev) => {
-      if (!prev.round.timerStartedAt) return prev;
-      const elapsed = Math.max(0, now - prev.round.timerStartedAt);
-      const remaining = Math.max(0, prev.round.durationSeconds * 1000 - elapsed);
+      if (!prev.round.timerStartedAt && !prev.round.timerEndAt) return prev;
+      const remaining =
+        prev.round.timerEndAt !== null && prev.round.timerEndAt !== undefined
+          ? Math.max(0, prev.round.timerEndAt - now)
+          : Math.max(0, prev.round.durationSeconds * 1000 - Math.max(0, now - (prev.round.timerStartedAt || now)));
       return {
         ...prev,
         round: {
           ...prev.round,
           timerStartedAt: null,
+          timerEndAt: null,
           timerRemainingMs: remaining,
           status: 'LOCKED',
         },
@@ -2414,6 +2497,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       round: {
         ...prev.round,
         timerStartedAt: null,
+        timerEndAt: null,
         timerRemainingMs: prev.round.durationSeconds * 1000,
         status: 'IDLE',
       },
@@ -2422,15 +2506,25 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const lockRound = useCallback(() => {
     soundFX.playTimeUp();
-    commitState((prev) => ({
-      ...prev,
-      round: {
-        ...prev.round,
-        timerStartedAt: null,
-        timerRemainingMs: 0,
-        status: 'LOCKED',
-      },
-    }));
+    commitState((prev) => {
+      if (
+        prev.round.status === 'LOCKED' &&
+        prev.round.timerRemainingMs === 0 &&
+        prev.round.timerEndAt === null
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        round: {
+          ...prev.round,
+          timerStartedAt: null,
+          timerEndAt: null,
+          timerRemainingMs: 0,
+          status: 'LOCKED',
+        },
+      };
+    });
   }, [commitState]);
 
   const revealRound = useCallback(() => {
@@ -2515,6 +2609,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           choices: nextChoices,
           lastOpenedDoorKey,
           timerStartedAt: null,
+          timerEndAt: null,
           status: 'REVEALED',
           briefingOpen: false,
         },
@@ -2535,6 +2630,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       round: {
         ...prev.round,
         timerStartedAt: null,
+        timerEndAt: null,
         timerRemainingMs: prev.round.durationSeconds * 1000,
         status: 'IDLE',
         rewardsApplied: false,
@@ -2784,6 +2880,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           questionText: 'ประกาศจากครามปุส: เตรียมตัวเข้าสู่ลานประหาร!',
           status: 'IDLE',
           timerStartedAt: null,
+          timerEndAt: null,
           timerRemainingMs: null,
           rewardsApplied: false,
           briefingOpen: true,
@@ -2845,6 +2942,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             correctChoices: [q.correctKey],
             durationSeconds: 15,
             timerStartedAt: null,
+            timerEndAt: null,
             timerRemainingMs: 15 * 1000,
             status: 'IDLE',
             rewardsApplied: false,
@@ -2910,6 +3008,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             correctChoices: [q.correctKey],
             durationSeconds: 15,
             timerStartedAt: now,
+            timerEndAt: now + 15 * 1000,
             timerRemainingMs: null,
             status: 'ACTIVE',
             rewardsApplied: false,
@@ -2984,6 +3083,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...prev.round,
           status: 'REVEALED',
           timerStartedAt: null,
+          timerEndAt: null,
           timerRemainingMs: 0,
           rewardsApplied: true,
           lastMan: lms,
@@ -3009,6 +3109,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           subtitle: '25 วินาที! ซื้อปุ๊บ ออกฤทธิ์ปั๊บตามลำดับเวลา!',
           durationSeconds: 25,
           timerStartedAt: now,
+          timerEndAt: now + 25 * 1000,
           timerRemainingMs: null,
           status: 'ACTIVE',
           lastMan: lms,
@@ -3041,6 +3142,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...prev.round,
           durationSeconds: 25,
           timerStartedAt: now,
+          timerEndAt: now + 25 * 1000,
           timerRemainingMs: null,
           status: 'ACTIVE',
           lastMan: lms,
@@ -3062,6 +3164,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       lms.dareVotes = {};
       lms.krampusDiceRoll = null;
       lms.teamDiceRolls = {};
+      const durSec = lms.part1Round === 3 ? 15 : 30;
       const mgNames = [
         '',
         'มินิเกม 1: ถ้วยยาพิษ (Poison Chalice)',
@@ -3075,8 +3178,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...prev.round,
           title: `ลานประหาร • ${mgNames[lms.part1Round] || 'มินิเกม'}`,
           subtitle: 'ผู้ที่รอดจากลานประหารโดยไม่เสียหัวใจ รับเงินปลอบใจ +150 ฿!',
-          durationSeconds: lms.part1Round === 3 ? 15 : 30,
+          durationSeconds: durSec,
           timerStartedAt: now,
+          timerEndAt: now + durSec * 1000,
           timerRemainingMs: null,
           status: 'ACTIVE',
           lastMan: lms,
@@ -3201,6 +3305,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       nLms.phase = 'PART1_MINIGAME_REVEAL';
       next.round.status = 'REVEALED';
       next.round.timerStartedAt = null;
+      next.round.timerEndAt = null;
       next.round.timerRemainingMs = 0;
       return next;
     });
@@ -3268,6 +3373,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         correctChoices: [q.correctKey],
         durationSeconds: q.durationSeconds || 60,
         timerStartedAt: null,
+        timerEndAt: null,
         timerRemainingMs: null,
         status: 'IDLE',
         rewardsApplied: false,
@@ -3343,6 +3449,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           correctChoices: [q.correctKey],
           durationSeconds: 15,
           timerStartedAt: null,
+          timerEndAt: null,
           timerRemainingMs: 15 * 1000,
           status: 'IDLE',
           rewardsApplied: false,
@@ -3396,13 +3503,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const q = p2List[lms.part2QuestionIndex % p2List.length];
       lms.phase = 'PART2_QUESTION';
       next.submissions = {};
+      const durSec = q.durationSeconds || 60;
       next.round = {
         ...next.round,
         title: `ช่วงที่ 2 • ข้อที่ ${lms.part2QuestionIndex + 1}: บันไดหนีตาย 25 ขั้น`,
         subtitle: 'กดปุ่มสี A / B / C ให้ไวที่สุด!',
         questionText: q.questionText,
-        durationSeconds: q.durationSeconds || 60,
+        durationSeconds: durSec,
         timerStartedAt: now,
+        timerEndAt: now + durSec * 1000,
         timerRemainingMs: null,
         status: 'ACTIVE',
         rewardsApplied: false,
@@ -3494,6 +3603,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       next.round.status = 'REVEALED';
       next.round.timerStartedAt = null;
+      next.round.timerEndAt = null;
       next.round.timerRemainingMs = 0;
       return next;
     });
@@ -3527,6 +3637,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         correctChoices: [q.correctKey],
         durationSeconds: q.durationSeconds || 60,
         timerStartedAt: null,
+        timerEndAt: null,
         timerRemainingMs: null,
         status: 'IDLE',
         rewardsApplied: false,
@@ -3563,107 +3674,26 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const lmsSoulSacrifice = useCallback(
     (teamId: TeamId) => {
-      if (!acquireActionLock(`${teamId}:LMS_SOUL_SACRIFICE`, 500)) return;
-      const now = getAuthoritativeNow();
-      const actionId = createActionId(teamId, 'LMS_SOUL_SACRIFICE', now);
       soundFX.playCoinChange(true);
-      if (connectionMode === 'LOCAL_SERVER') {
-        fetch('/api/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'TEAM_ACTION', action: 'LMS_SOUL_SACRIFICE', actionId, teamId, payload: {} }),
-        }).catch(() => {});
-        return;
-      }
-      if (supaChannelRef.current) {
-        supaChannelRef.current.send({
-          type: 'broadcast',
-          event: 'TEAM_ACTION',
-          payload: { action: 'LMS_SOUL_SACRIFICE', actionId, teamId, data: {}, clientNow: now },
-        });
-      }
-      commitState((prev) => {
-        const next = structuredClone(prev);
-        if (!markActionProcessed(next, actionId)) return prev;
-        applyLmsSoulSacrifice(next, teamId, now);
-        return next;
-      });
+      dispatchPlayerAction('LMS_SOUL_SACRIFICE', teamId, {});
     },
-    [acquireActionLock, commitState, connectionMode, createActionId, getAuthoritativeNow]
+    [dispatchPlayerAction]
   );
 
   const lmsMiseryPull = useCallback(
     (teamId: TeamId, targetTeamId: TeamId) => {
-      if (!acquireActionLock(`${teamId}:LMS_MISERY_PULL`, 500)) return;
-      const now = getAuthoritativeNow();
-      const actionId = createActionId(teamId, 'LMS_MISERY_PULL', now);
       soundFX.playSubmit();
-      if (connectionMode === 'LOCAL_SERVER') {
-        fetch('/api/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'TEAM_ACTION',
-            action: 'LMS_MISERY_PULL',
-            actionId,
-            teamId,
-            payload: { targetTeamId },
-          }),
-        }).catch(() => {});
-        return;
-      }
-      if (supaChannelRef.current) {
-        supaChannelRef.current.send({
-          type: 'broadcast',
-          event: 'TEAM_ACTION',
-          payload: { action: 'LMS_MISERY_PULL', actionId, teamId, data: { targetTeamId }, clientNow: now },
-        });
-      }
-      commitState((prev) => {
-        const next = structuredClone(prev);
-        if (!markActionProcessed(next, actionId)) return prev;
-        applyLmsMiseryPull(next, teamId, targetTeamId, now);
-        return next;
-      });
+      dispatchPlayerAction('LMS_MISERY_PULL', teamId, { targetTeamId });
     },
-    [acquireActionLock, commitState, connectionMode, createActionId, getAuthoritativeNow]
+    [dispatchPlayerAction]
   );
 
   const lmsBuyItem = useCallback(
     (teamId: TeamId, itemId: LastManShopItemId, targetTeamId?: TeamId) => {
-      if (!acquireActionLock(`${teamId}:LMS_BUY_${itemId}`, 500)) return;
-      const now = getAuthoritativeNow();
-      const actionId = createActionId(teamId, `LMS_BUY_${itemId}`, now);
       soundFX.playCoinChange(false);
-      if (connectionMode === 'LOCAL_SERVER') {
-        fetch('/api/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'TEAM_ACTION',
-            action: 'LMS_BUY_ITEM',
-            actionId,
-            teamId,
-            payload: { itemId, targetTeamId },
-          }),
-        }).catch(() => {});
-        return;
-      }
-      if (supaChannelRef.current) {
-        supaChannelRef.current.send({
-          type: 'broadcast',
-          event: 'TEAM_ACTION',
-          payload: { action: 'LMS_BUY_ITEM', actionId, teamId, data: { itemId, targetTeamId }, clientNow: now },
-        });
-      }
-      commitState((prev) => {
-        const next = structuredClone(prev);
-        if (!markActionProcessed(next, actionId)) return prev;
-        applyLmsBuyItem(next, teamId, itemId, targetTeamId, now);
-        return next;
-      });
+      dispatchPlayerAction('LMS_BUY_ITEM', teamId, { itemId, targetTeamId });
     },
-    [acquireActionLock, commitState, connectionMode, createActionId, getAuthoritativeNow]
+    [dispatchPlayerAction]
   );
 
   const lmsMinigameAction = useCallback(
@@ -3677,70 +3707,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         vote?: 'SPARE' | 'EXECUTE';
       }
     ) => {
-      if (!acquireActionLock(`${teamId}:LMS_MG_${payload.subType}`, 450)) return;
-      const now = getAuthoritativeNow();
-      const actionId = createActionId(teamId, `LMS_MG_${payload.subType}`, now);
       soundFX.playSubmit();
-      if (connectionMode === 'LOCAL_SERVER') {
-        fetch('/api/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'TEAM_ACTION',
-            action: 'LMS_MINIGAME_ACTION',
-            actionId,
-            teamId,
-            payload,
-          }),
-        }).catch(() => {});
-        return;
-      }
-      if (supaChannelRef.current) {
-        supaChannelRef.current.send({
-          type: 'broadcast',
-          event: 'TEAM_ACTION',
-          payload: { action: 'LMS_MINIGAME_ACTION', actionId, teamId, data: payload, clientNow: now },
-        });
-      }
-      commitState((prev) => {
-        const next = structuredClone(prev);
-        if (!markActionProcessed(next, actionId)) return prev;
-        applyLmsMinigameAction(next, teamId, payload);
-        return next;
-      });
+      dispatchPlayerAction('LMS_MINIGAME_ACTION', teamId, payload as Record<string, unknown>);
     },
-    [acquireActionLock, commitState, connectionMode, createActionId, getAuthoritativeNow]
+    [dispatchPlayerAction]
   );
 
   const lmsUseJetpack = useCallback(
     (teamId: TeamId) => {
-      if (!acquireActionLock(`${teamId}:LMS_USE_JETPACK`, 500)) return;
-      const now = getAuthoritativeNow();
-      const actionId = createActionId(teamId, 'LMS_USE_JETPACK', now);
       soundFX.playReveal();
-      if (connectionMode === 'LOCAL_SERVER') {
-        fetch('/api/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'TEAM_ACTION', action: 'LMS_USE_JETPACK', actionId, teamId, payload: {} }),
-        }).catch(() => {});
-        return;
-      }
-      if (supaChannelRef.current) {
-        supaChannelRef.current.send({
-          type: 'broadcast',
-          event: 'TEAM_ACTION',
-          payload: { action: 'LMS_USE_JETPACK', actionId, teamId, data: {}, clientNow: now },
-        });
-      }
-      commitState((prev) => {
-        const next = structuredClone(prev);
-        if (!markActionProcessed(next, actionId)) return prev;
-        applyLmsUseJetpack(next, teamId, now);
-        return next;
-      });
+      dispatchPlayerAction('LMS_USE_JETPACK', teamId, {});
     },
-    [acquireActionLock, commitState, connectionMode, createActionId, getAuthoritativeNow]
+    [dispatchPlayerAction]
   );
 
   const finishLastManStandingGame = useCallback(
@@ -3753,6 +3731,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ...prev.round,
           gameStage: toFinale ? 'FINALE' : 'WORLD_MAP',
           status: 'IDLE',
+          timerStartedAt: null,
+          timerEndAt: null,
           title: toFinale
             ? 'คำพิพากษาแห่งครามปุส (Nice vs Naughty List)'
             : 'คฤหาสน์ครามปุส (Mansion World Map)',
@@ -3775,6 +3755,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               ...prev.round,
               gameStage: 'LOBBY',
               status: 'IDLE',
+              timerStartedAt: null,
+              timerEndAt: null,
               title: 'THE KRAMPUS EVE - มหากาพย์การเอาชีวิตรอดในคืนคริสต์มาสอีฟ',
               subtitle: 'รอ Sub-GM ประจำกลุ่มลงทะเบียนเข้าสู่คฤหาสน์ครามปุส...',
             },
@@ -3790,6 +3772,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               ...prev.round,
               gameStage: 'WORLD_MAP',
               status: 'IDLE',
+              timerStartedAt: null,
+              timerEndAt: null,
               title: 'คฤหาสน์ครามปุส (Mansion World Map)',
               subtitle: 'เลือกด่านบททดสอบทั้ง 4 ห้องแห่งคฤหาสน์ครามปุส',
             },
@@ -3802,6 +3786,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             round: {
               ...prev.round,
               gameStage: 'FINALE',
+              timerStartedAt: null,
+              timerEndAt: null,
               title: 'คำพิพากษาแห่งครามปุส (Nice vs Naughty List)',
             },
           };
@@ -3815,6 +3801,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const nextRound = createRoundFromPreset(stagePreset);
           nextRound.status = 'IDLE';
           nextRound.timerStartedAt = null;
+          nextRound.timerEndAt = null;
           nextRound.briefingOpen = true;
           return {
             ...prev,
@@ -3834,6 +3821,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             gameStage: stage,
             status: 'IDLE',
             timerStartedAt: null,
+            timerEndAt: null,
             briefingOpen: true,
           },
         };
@@ -3872,10 +3860,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <GameContext.Provider
       value={{
         state,
+        clientRole,
+        isHost,
+        pendingActions,
+        actionSyncError,
+        clearActionSyncError,
         lanIp,
         connectionMode,
         isConnected,
-        serverTimeOffset,
+        serverTimeOffset: 0,
         getAuthoritativeNow,
         supabaseConfig,
         saveSupabaseConfig,

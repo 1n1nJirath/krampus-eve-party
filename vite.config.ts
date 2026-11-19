@@ -41,12 +41,15 @@ function krampusRealtimeServerPlugin(): Plugin {
 
   const saveAndBroadcast = (newState: any) => {
     version += 1;
+    const now = Date.now();
     gameState = {
       ...newState,
       version,
-      serverTimestamp: Date.now(),
+      stateVersion: version,
+      updatedAt: now,
+      serverTimestamp: now,
     };
-    const payload = `data: ${JSON.stringify({ type: 'STATE_SYNC', state: gameState, serverNow: Date.now() })}\n\n`;
+    const payload = `data: ${JSON.stringify({ type: 'STATE_SYNC', state: gameState, serverNow: now })}\n\n`;
     for (const res of clients) {
       try {
         res.write(payload);
@@ -129,11 +132,21 @@ function krampusRealtimeServerPlugin(): Plugin {
               const now = Date.now();
               const teamId = data.teamId as string;
               const action = data.action as string;
+              const actionId = data.actionId as string | undefined;
               const payload = data.payload || {};
+
+              if (actionId && (gameState.processedActionIds || []).includes(actionId)) {
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ ok: true, duplicate: true, state: gameState, serverNow: now }));
+                return;
+              }
 
               const updated = structuredClone(gameState);
               updated.submissions = updated.submissions || {};
               updated.buzzerQueue = updated.buzzerQueue || [];
+              if (actionId) {
+                updated.processedActionIds = [actionId, ...(updated.processedActionIds || [])].slice(0, 100);
+              }
 
               if (action === 'SUBMIT_ANSWER') {
                 if (payload.force || updated.round?.status === 'ACTIVE') {
@@ -240,6 +253,7 @@ function krampusRealtimeServerPlugin(): Plugin {
                         r.status = 'REVEALED';
                         r.rewardsApplied = true;
                         r.timerStartedAt = null;
+                        r.timerEndAt = null;
                         r.timerRemainingMs = 0;
                         if (allTurnsUsed && !allSafeOpened) {
                           for (const tid of ['team1', 'team2', 'team3', 'team4']) {
@@ -384,6 +398,7 @@ function krampusRealtimeServerPlugin(): Plugin {
                       tf.phase = 'SHUFFLE_BUFFER_10S';
                       tf.bufferEndsAt = now + 10000;
                       r.timerStartedAt = null;
+                      r.timerEndAt = null;
                       r.timerRemainingMs = rem;
                       r.status = 'LOCKED';
                     }
@@ -435,6 +450,7 @@ function krampusRealtimeServerPlugin(): Plugin {
                   updated.round.status = 'ACTIVE';
                   updated.round.durationSeconds = 25;
                   updated.round.timerStartedAt = now;
+                  updated.round.timerEndAt = now + 25 * 1000;
                   updated.round.timerRemainingMs = null;
                   lms.killFeed = [
                     {

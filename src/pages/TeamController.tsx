@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
   Delete,
@@ -12,6 +12,8 @@ import {
   Shield,
   Skull,
   Loader2,
+  AlertTriangle,
+  X,
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import {
@@ -32,6 +34,9 @@ import { SafeActionButton, useSafeClick } from '../components/SafeActionButton';
 export const TeamController: React.FC = () => {
   const {
     state,
+    pendingActions,
+    actionSyncError,
+    clearActionSyncError,
     registerTeam,
     submitTeamAnswer,
     pressTeamBuzzer,
@@ -164,10 +169,64 @@ export const TeamController: React.FC = () => {
     return sorted.findIndex((t) => t.id === selectedTeamId) + 1;
   }, [teams, selectedTeamId]);
 
+  // Derive pending actions & submission lock state for reliable optimistic UI + 2s ACK/Retry
+  const allPendingActions = useMemo(() => Object.values(pendingActions), [pendingActions]);
+  const pendingRegistration = useMemo(
+    () =>
+      allPendingActions.find(
+        (p) =>
+          p.type === 'REGISTER_TEAM' &&
+          (p.teamId === regSlotId || p.teamId === selectedTeamId)
+      ) || null,
+    [allPendingActions, regSlotId, selectedTeamId]
+  );
+  const teamPendingActions = useMemo(
+    () => (selectedTeamId ? allPendingActions.filter((p) => p.teamId === selectedTeamId) : []),
+    [allPendingActions, selectedTeamId]
+  );
+  const pendingSubmission = useMemo(
+    () =>
+      teamPendingActions.find(
+        (p) =>
+          p.type === 'SUBMIT_ANSWER' ||
+          p.type === 'PLACE_CHRONO_TRAPS' ||
+          p.type === 'CLAIM_CHRONO_YEAR'
+      ) || null,
+    [teamPendingActions]
+  );
+  const pendingBuzzer = useMemo(
+    () => teamPendingActions.find((p) => p.type === 'PRESS_BUZZER') || null,
+    [teamPendingActions]
+  );
+  const activeOtherPending = useMemo(
+    () =>
+      teamPendingActions.find(
+        (p) =>
+          p.type !== 'REGISTER_TEAM' &&
+          p.type !== 'SUBMIT_ANSWER' &&
+          p.type !== 'PLACE_CHRONO_TRAPS' &&
+          p.type !== 'CLAIM_CHRONO_YEAR' &&
+          p.type !== 'PRESS_BUZZER'
+      ) || null,
+    [teamPendingActions]
+  );
+  const isAnyActionPending = teamPendingActions.length > 0;
+  const pendingEditConfirmRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (pendingEditConfirmRef.current && !pendingRegistration) {
+      pendingEditConfirmRef.current = false;
+      if (!actionSyncError) {
+        setIsEditingRegistration(false);
+      }
+    }
+  }, [pendingRegistration, actionSyncError]);
+
   // Guarded registration submit handler (prevents Enter-key or double-click multi-fire)
   const [safeSubmitRegistration, isSubmittingReg] = useSafeClick(
     (e: React.FormEvent) => {
       e.preventDefault();
+      if (pendingRegistration) return;
       const activeSlotTeam = teams[regSlotId];
       const finalName =
         regTeamName.trim() || `Team ${activeSlotTeam.number} (${activeSlotTeam.name.split(' ')[0]})`;
@@ -176,6 +235,7 @@ export const TeamController: React.FC = () => {
         .map((s) => s.trim())
         .filter(Boolean)
         .slice(0, 10);
+      const wasAlreadyRegistered = Boolean(activeSlotTeam.isRegistered);
       registerTeam(
         regSlotId,
         finalName,
@@ -184,7 +244,11 @@ export const TeamController: React.FC = () => {
         parsedRoster
       );
       handleSelectTeam(regSlotId);
-      setIsEditingRegistration(false);
+      if (wasAlreadyRegistered) {
+        pendingEditConfirmRef.current = true;
+      } else {
+        setIsEditingRegistration(false);
+      }
     },
     { cooldownMs: 500, preventDefault: true, stopPropagation: true }
   );
@@ -230,6 +294,21 @@ export const TeamController: React.FC = () => {
           }}
         />
         <div className="relative z-10 max-w-md w-full mx-auto my-auto space-y-4">
+          {actionSyncError && (
+            <div className="rounded-2xl bg-red-950/95 border-2 border-red-400 p-3 text-xs text-red-100 flex items-center justify-between gap-2 shadow-lg">
+              <div className="flex items-center gap-2 font-bold">
+                <AlertTriangle className="w-4 h-4 text-red-300 shrink-0" />
+                <span>{actionSyncError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={clearActionSyncError}
+                className="p-1 rounded-lg hover:bg-red-900 text-red-200 shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
           {/* Header Banner (The Christmas Manor UI Kit) */}
           <div className="rounded-3xl bg-[#B94B50] border-[3px] border-[#352D45] shadow-[0_7px_0_#352D45] p-4 text-center">
             <div className="inline-block px-3 py-0.5 rounded-full bg-[#E5B86C] text-[#352D45] border-2 border-[#352D45] font-manor-display text-xs font-extrabold uppercase mb-1">
@@ -419,17 +498,23 @@ export const TeamController: React.FC = () => {
 
             <button
               type="submit"
-              disabled={isSubmittingReg}
+              disabled={isSubmittingReg || Boolean(pendingRegistration)}
               onClick={(e) => e.stopPropagation()}
               className="w-full py-4 rounded-2xl bg-[#536B59] hover:bg-[#435848] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed text-[#EFE2D2] font-manor-display font-bold text-lg border-[3px] border-[#352D45] shadow-[0_5px_0_#352D45] flex items-center justify-center gap-2 transition"
             >
-              {isSubmittingReg ? (
+              {isSubmittingReg || pendingRegistration ? (
                 <Loader2 className="w-6 h-6 animate-spin text-[#E5B86C]" />
               ) : (
                 <CheckCircle2 className="w-6 h-6 stroke-[3] text-[#E5B86C]" />
               )}
               <span>
-                {isSubmittingReg ? 'กำลังส่งชื่อทีม...' : 'Submit ส่งชื่อทีมขึ้นจอใหญ่!'}
+                {pendingRegistration
+                  ? pendingRegistration.attempts >= 2
+                    ? `กำลังส่งชื่อทีม (ลองซ้ำครั้งที่ ${pendingRegistration.attempts})...`
+                    : 'กำลังส่งชื่อทีม...'
+                  : isSubmittingReg
+                  ? 'กำลังส่งชื่อทีม...'
+                  : 'Submit ส่งชื่อทีมขึ้นจอใหญ่!'}
               </span>
             </button>
           </form>
@@ -510,6 +595,36 @@ export const TeamController: React.FC = () => {
           MAIN CONTROLLER BODY
       ============================================================ */}
       <main className="relative z-10 flex-1 max-w-lg w-full mx-auto px-4 pt-3 flex flex-col justify-between gap-4">
+        {actionSyncError && (
+          <div className="rounded-2xl bg-red-950/95 border-2 border-red-400 p-3 text-xs text-red-100 flex items-center justify-between gap-2 shadow-lg">
+            <div className="flex items-center gap-2 font-bold">
+              <AlertTriangle className="w-4 h-4 text-red-300 shrink-0" />
+              <span>{actionSyncError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={clearActionSyncError}
+              className="p-1 rounded-lg hover:bg-red-900 text-red-200 shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {activeOtherPending && (
+          <div className="rounded-2xl bg-amber-950/90 border-2 border-amber-400 px-3.5 py-2.5 text-xs text-amber-200 flex items-center justify-between gap-2 shadow-lg">
+            <div className="flex items-center gap-2 font-bold">
+              <Loader2 className="w-4 h-4 animate-spin text-amber-300 shrink-0" />
+              <span>
+                กำลังส่งคำสั่งถึง Host...
+                {activeOtherPending.attempts >= 2
+                  ? ` (ลองซ้ำครั้งที่ ${activeOtherPending.attempts})`
+                  : ''}
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Compact Question & Timer Card (Hidden question text while Standby IDLE!) */}
         <div className="rounded-2xl bg-[#EFE2D2] text-[#352D45] border-[3px] border-[#352D45] shadow-[0_5px_0_#352D45] p-3.5">
           <div className="flex items-center justify-between gap-2 mb-1.5">
@@ -595,6 +710,7 @@ export const TeamController: React.FC = () => {
         ========================================================== */}
         {round.status !== 'IDLE' &&
           round.inputMode !== 'MODE_C_BUZZER' &&
+          !(round.gameStage === 'TRIVIA_MURDER' && round.lastMan) &&
           mySubmission && (
             <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-gradient-to-b from-emerald-950/80 to-slate-950 border-2 border-emerald-400 p-6 text-center shadow-[0_0_30px_rgba(16,185,129,0.25)] my-2">
               <CheckCircle2 className="w-16 h-16 text-emerald-400 mb-3" />
@@ -641,6 +757,48 @@ export const TeamController: React.FC = () => {
           )}
 
         {/* ==========================================================
+            OPTIMISTIC PENDING SUBMISSION CARD (2s Auto-Retry until Host ACK)
+        ========================================================== */}
+        {round.status !== 'IDLE' &&
+          round.inputMode !== 'MODE_C_BUZZER' &&
+          !(round.gameStage === 'TRIVIA_MURDER' && round.lastMan) &&
+          !mySubmission &&
+          Boolean(pendingSubmission) && (
+            <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-gradient-to-b from-amber-950/85 to-slate-950 border-2 border-amber-400 p-6 text-center shadow-[0_0_30px_rgba(245,158,11,0.25)] my-2">
+              <Loader2 className="w-16 h-16 text-amber-400 mb-3 animate-spin" />
+              <div className="text-xs font-mono uppercase tracking-widest text-amber-300 font-bold">
+                SYNCING WITH HOST • กำลังส่งคำตอบ
+              </div>
+              <h2 className="text-2xl font-black text-white mt-1">
+                กำลังส่งคำตอบ...
+              </h2>
+              <div className="my-4 px-6 py-4 rounded-2xl bg-black/60 border border-amber-400/30 w-full">
+                <div className="text-xs text-slate-300 mb-1">คำตอบที่กำลังส่ง:</div>
+                <div className="text-2xl md:text-3xl font-mono font-black text-amber-300">
+                  {round.inputMode === 'MODE_D_SECRET' ||
+                  (isEightDoorsGame && subRound === 'SUB2_AUCTION')
+                    ? '🔒 กำลังผนึกข้อมูลลับ...'
+                    : pendingSubmission?.type === 'PLACE_CHRONO_TRAPS'
+                    ? '💣 กำลังวางกับดักเวลา...'
+                    : String(
+                        pendingSubmission?.payload?.value ??
+                          pendingSubmission?.payload?.year ??
+                          '...'
+                      )}
+                </div>
+                {pendingSubmission && pendingSubmission.attempts >= 2 && (
+                  <div className="text-xs font-bold text-amber-200 mt-2 animate-pulse">
+                    🔄 กำลังเชื่อมต่อและส่งซ้ำอัตโนมัติ (ครั้งที่ {pendingSubmission.attempts})...
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-slate-300">
+                กรุณารอ Host ยืนยันการบันทึกสักครู่ (ปุ่มถูกล็อกป้องกันการส่งซ้ำ)
+              </p>
+            </div>
+          )}
+
+        {/* ==========================================================
             GAME 1: THE DOORS OF DOOM (3 SUB-ROUNDS ON MOBILE + NAUGHTY LIST BAILOUT)
         ========================================================== */}
         {round.status !== 'IDLE' && isEightDoorsGame && team.shields <= 0 && (
@@ -664,16 +822,17 @@ export const TeamController: React.FC = () => {
             </div>
             <SafeActionButton
               type="button"
+              disabled={isAnyActionPending}
               loadingText="กำลังไถ่เกราะเด็กดี..."
               onClick={() => bailoutNiceShield(selectedTeamId)}
-              className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-black text-lg shadow-xl active:scale-95 transition flex items-center justify-center gap-2"
+              className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-black text-lg shadow-xl active:scale-95 transition flex items-center justify-center gap-2 disabled:opacity-60"
             >
               🛡️ ไถ่เกราะเด็กดี +2 ดวง (ราคา 500 ฿)
             </SafeActionButton>
           </div>
         )}
 
-        {round.status !== 'IDLE' && isEightDoorsGame && team.shields > 0 && !mySubmission && (() => {
+        {round.status !== 'IDLE' && isEightDoorsGame && team.shields > 0 && !mySubmission && !pendingSubmission && (() => {
           const suggested = getSuggestedSafeRange(round.choiceCount, subRound);
           const safeMin = round.safeRankMin ?? suggested.min;
           const safeMax = round.safeRankMax ?? suggested.max;
@@ -750,7 +909,7 @@ export const TeamController: React.FC = () => {
 
                 <SafeActionButton
                   type="button"
-                  disabled={!draftChoice}
+                  disabled={!draftChoice || isAnyActionPending}
                   loadingText="กำลังเปิดประตู..."
                   onClick={() => {
                     if (draftChoice) {
@@ -1134,7 +1293,8 @@ export const TeamController: React.FC = () => {
           round.inputMode === 'MODE_A_CHOICE' &&
           !isEightDoorsGame &&
           !(round.gameStage === 'TRIVIA_MURDER' && round.lastMan) &&
-          !mySubmission && (
+          !mySubmission &&
+          !pendingSubmission && (
             <div className="flex-1 flex flex-col justify-between gap-3">
               {!isRoundActive ? (
                 <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-red-950/40 border-2 border-red-600/60 p-6 text-center">
@@ -1210,7 +1370,8 @@ export const TeamController: React.FC = () => {
         ========================================================== */}
         {round.status !== 'IDLE' &&
           round.inputMode === 'MODE_B_YEAR' &&
-          !mySubmission && (() => {
+          !mySubmission &&
+          !pendingSubmission && (() => {
             const chronoSub = round.chronoSubRound || 'CHRONO_SUB1_CLASSIC';
             const chronoPhase = round.chronoPhase || 'YEAR_GUESS';
             const unitLabel = round.yearUnit === 'BE' ? 'พ.ศ.' : 'ค.ศ.';
@@ -1328,9 +1489,10 @@ export const TeamController: React.FC = () => {
 
                   <SafeActionButton
                     type="button"
+                    disabled={isAnyActionPending}
                     loadingText="กำลังวางกับดัก..."
                     onClick={() => placeChronoTraps(selectedTeamId, draftTrapAllocations)}
-                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-black text-lg shadow-xl active:scale-95 flex items-center justify-center gap-2"
+                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 font-black text-lg shadow-xl active:scale-95 flex items-center justify-center gap-2 disabled:opacity-60"
                   >
                     💣 ยืนยันวางกับดัก ({usedQuota}/{myQuota} ลูก)
                   </SafeActionButton>
@@ -1349,7 +1511,7 @@ export const TeamController: React.FC = () => {
                         <SafeActionButton
                           key={yr}
                           type="button"
-                          disabled={Boolean(claimTid)}
+                          disabled={Boolean(claimTid) || isAnyActionPending}
                           loadingText="กำลังแย่งล็อก..."
                           onClick={() => claimChronoYear(selectedTeamId, yr)}
                           className={`p-3 rounded-2xl border-2 text-center transition-all flex flex-col items-center justify-center ${
@@ -1500,6 +1662,18 @@ export const TeamController: React.FC = () => {
                     ` (+${(myBuzzerEntry.deltaMs / 1000).toFixed(3)}s จากอันดับ 1)`}
                 </div>
               </div>
+            ) : pendingBuzzer ? (
+              <div className="w-full rounded-3xl bg-amber-950/90 border-2 border-amber-400 p-8 text-center shadow-[0_0_30px_rgba(245,158,11,0.35)] flex flex-col items-center justify-center gap-3">
+                <Loader2 className="w-16 h-16 text-amber-300 animate-spin" />
+                <div className="text-xl font-black text-white">
+                  กำลังส่งสัญญาณกระดิ่ง...
+                </div>
+                {pendingBuzzer.attempts >= 2 && (
+                  <div className="text-xs font-bold text-amber-200 animate-pulse">
+                    🔄 กำลังลองส่งซ้ำอัตโนมัติ (ครั้งที่ {pendingBuzzer.attempts})...
+                  </div>
+                )}
+              </div>
             ) : !isRoundActive ? (
               <div className="text-center p-6 rounded-3xl bg-slate-900 border border-slate-700 w-full">
                 <Lock className="w-12 h-12 text-red-400 mx-auto mb-2" />
@@ -1548,7 +1722,11 @@ export const TeamController: React.FC = () => {
               ? Math.max(0, Math.ceil((tf.bufferEndsAt - toyNowMs) / 1000))
               : 0;
             const actionRemainingSec =
-              round.timerStartedAt !== null
+              round.status === 'ACTIVE' &&
+              round.timerEndAt !== null &&
+              round.timerEndAt !== undefined
+                ? Math.max(0, Math.ceil((round.timerEndAt - toyNowMs) / 1000))
+                : round.timerStartedAt !== null
                 ? Math.max(
                     0,
                     Math.ceil(
@@ -1567,7 +1745,8 @@ export const TeamController: React.FC = () => {
               isSpectator &&
               !alreadyUsedShuffleQuota &&
               !roundShuffleTaken &&
-              !isLast15Sec;
+              !isLast15Sec &&
+              !isAnyActionPending;
 
             return (
               <div className="flex-1 flex flex-col gap-3">
@@ -1626,7 +1805,7 @@ export const TeamController: React.FC = () => {
                               <SafeActionButton
                                 key={ds.id}
                                 type="button"
-                                disabled={used}
+                                disabled={used || isAnyActionPending}
                                 loadingText="กำลังเลือกโจทย์..."
                                 onClick={() => selectToyFactoryDataset(selectedTeamId, ds.id)}
                                 className={`p-3.5 rounded-2xl border-2 text-left transition-all ${
@@ -1817,7 +1996,7 @@ export const TeamController: React.FC = () => {
             const isPart1 = lms.phase.startsWith('PART1_');
 
             const handleBuyWithDebounce = (itemId: LastManShopItemId, targetId?: TeamId) => {
-              if (lmsShopBusy) return;
+              if (lmsShopBusy || isAnyActionPending) return;
               setLmsShopBusy(true);
               lmsBuyItem(selectedTeamId, itemId, targetId);
               setLmsPendingTargetItem(null);
@@ -1865,6 +2044,7 @@ export const TeamController: React.FC = () => {
                   {isPart1 && !myState.isGhost && myState.hearts > 1 && (
                     <SafeActionButton
                       type="button"
+                      disabled={isAnyActionPending}
                       loadingText="กำลังขายวิญญาณ..."
                       onClick={() => lmsSoulSacrifice(selectedTeamId)}
                       className="w-full py-2 rounded-xl bg-rose-950 hover:bg-rose-900 border border-rose-500 text-rose-200 font-black text-xs flex items-center justify-center gap-1.5"
@@ -1903,9 +2083,21 @@ export const TeamController: React.FC = () => {
                       <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-emerald-950/50 border-2 border-emerald-400 p-6 text-center">
                         <CheckCircle2 className="w-12 h-12 text-emerald-400 mb-2" />
                         <div className="text-xl font-black text-white">
-                          ล็อกคำตอบ [{mySubmission.value}] แล้ว!
+                          LOCKED IN • ล็อกคำตอบ [{mySubmission.value}] แล้ว!
                         </div>
                         <div className="text-xs text-slate-300 mt-1">รอเฉลยพร้อมกันบนจอใหญ่...</div>
+                      </div>
+                    ) : pendingSubmission ? (
+                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-amber-950/80 border-2 border-amber-400 p-6 text-center gap-2">
+                        <Loader2 className="w-12 h-12 text-amber-400 animate-spin" />
+                        <div className="text-xl font-black text-white">
+                          กำลังส่งคำตอบ [{String(pendingSubmission.payload?.value ?? '...')}]...
+                        </div>
+                        {pendingSubmission.attempts >= 2 && (
+                          <div className="text-xs font-bold text-amber-200 animate-pulse">
+                            🔄 กำลังส่งซ้ำอัตโนมัติ (ครั้งที่ {pendingSubmission.attempts})...
+                          </div>
+                        )}
                       </div>
                     ) : round.status !== 'ACTIVE' ? (
                       <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-red-950/40 border-2 border-red-500/60 p-6 text-center gap-2">
@@ -1965,6 +2157,7 @@ export const TeamController: React.FC = () => {
                               <SafeActionButton
                                 key={tid}
                                 type="button"
+                                disabled={isAnyActionPending}
                                 loadingText="กำลังลากทีม..."
                                 onClick={() => lmsMiseryPull(selectedTeamId, tid)}
                                 className="py-3 px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black text-sm border-2 border-black flex items-center justify-center gap-1.5"
@@ -2028,7 +2221,7 @@ export const TeamController: React.FC = () => {
                                   <SafeActionButton
                                     key={tid}
                                     type="button"
-                                    disabled={lmsShopBusy}
+                                    disabled={lmsShopBusy || isAnyActionPending}
                                     loadingText="กำลังซื้อ..."
                                     onClick={() => handleBuyWithDebounce(lmsPendingTargetItem, tid)}
                                     className="py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs text-left flex items-center gap-1.5"
@@ -2062,7 +2255,12 @@ export const TeamController: React.FC = () => {
                                 ? active.some((tid) => tid !== selectedTeamId && !lms.teamStates[tid].isGhost)
                                 : true;
                             const disabled =
-                              lmsShopBusy || stockLeft <= 0 || cantAfford || notEligible || !hasTargets;
+                              lmsShopBusy ||
+                              isAnyActionPending ||
+                              stockLeft <= 0 ||
+                              cantAfford ||
+                              notEligible ||
+                              !hasTargets;
 
                             return (
                               <SafeActionButton
@@ -2121,6 +2319,7 @@ export const TeamController: React.FC = () => {
                               <SafeActionButton
                                 key={num}
                                 type="button"
+                                disabled={isAnyActionPending}
                                 cooldownMs={350}
                                 showSpinner={false}
                                 onClick={() => {
@@ -2161,6 +2360,7 @@ export const TeamController: React.FC = () => {
                               <SafeActionButton
                                 key={num}
                                 type="button"
+                                disabled={isAnyActionPending}
                                 showSpinner={false}
                                 onClick={() =>
                                   lmsMinigameAction(selectedTeamId, {
@@ -2190,6 +2390,7 @@ export const TeamController: React.FC = () => {
                         <div className="grid grid-cols-1 gap-3">
                           <SafeActionButton
                             type="button"
+                            disabled={isAnyActionPending}
                             loadingText="กำลังส่งคำตอบ..."
                             onClick={() =>
                               lmsMinigameAction(selectedTeamId, {
@@ -2197,7 +2398,7 @@ export const TeamController: React.FC = () => {
                                 choice: 'SPLIT',
                               })
                             }
-                            className={`py-4 rounded-2xl border-2 font-black text-base flex items-center justify-center gap-2 ${
+                            className={`py-4 rounded-2xl border-2 font-black text-base flex items-center justify-center gap-2 disabled:opacity-60 ${
                               lms.splitStealPicks[selectedTeamId] === 'SPLIT'
                                 ? 'bg-emerald-500 text-black border-white'
                                 : 'bg-emerald-950 text-emerald-200 border-emerald-500'
@@ -2207,6 +2408,7 @@ export const TeamController: React.FC = () => {
                           </SafeActionButton>
                           <SafeActionButton
                             type="button"
+                            disabled={isAnyActionPending}
                             loadingText="กำลังส่งคำตอบ..."
                             onClick={() =>
                               lmsMinigameAction(selectedTeamId, {
@@ -2214,7 +2416,7 @@ export const TeamController: React.FC = () => {
                                 choice: 'STEAL',
                               })
                             }
-                            className={`py-4 rounded-2xl border-2 font-black text-base flex items-center justify-center gap-2 ${
+                            className={`py-4 rounded-2xl border-2 font-black text-base flex items-center justify-center gap-2 disabled:opacity-60 ${
                               lms.splitStealPicks[selectedTeamId] === 'STEAL'
                                 ? 'bg-red-600 text-white border-yellow-300'
                                 : 'bg-red-950 text-red-200 border-red-500'
@@ -2234,6 +2436,7 @@ export const TeamController: React.FC = () => {
                         <div className="grid grid-cols-2 gap-3">
                           <SafeActionButton
                             type="button"
+                            disabled={isAnyActionPending}
                             showSpinner={false}
                             onClick={() =>
                               lmsMinigameAction(selectedTeamId, {
@@ -2241,7 +2444,7 @@ export const TeamController: React.FC = () => {
                                 vote: 'SPARE',
                               })
                             }
-                            className={`py-4 rounded-2xl border-2 font-black ${
+                            className={`py-4 rounded-2xl border-2 font-black disabled:opacity-60 ${
                               lms.dareVotes[selectedTeamId] === 'SPARE'
                                 ? 'bg-emerald-500 text-black border-white'
                                 : 'bg-emerald-950 text-emerald-200 border-emerald-500'
@@ -2251,6 +2454,7 @@ export const TeamController: React.FC = () => {
                           </SafeActionButton>
                           <SafeActionButton
                             type="button"
+                            disabled={isAnyActionPending}
                             showSpinner={false}
                             onClick={() =>
                               lmsMinigameAction(selectedTeamId, {
@@ -2258,7 +2462,7 @@ export const TeamController: React.FC = () => {
                                 vote: 'EXECUTE',
                               })
                             }
-                            className={`py-4 rounded-2xl border-2 font-black ${
+                            className={`py-4 rounded-2xl border-2 font-black disabled:opacity-60 ${
                               lms.dareVotes[selectedTeamId] === 'EXECUTE'
                                 ? 'bg-red-600 text-white border-yellow-300'
                                 : 'bg-red-950 text-red-200 border-red-500'
@@ -2282,11 +2486,12 @@ export const TeamController: React.FC = () => {
                         ) : (
                           <SafeActionButton
                             type="button"
+                            disabled={isAnyActionPending}
                             loadingText="กำลังทอยเต๋า..."
                             onClick={() =>
                               lmsMinigameAction(selectedTeamId, { subType: 'DEATH_DICE' })
                             }
-                            className="w-full py-5 rounded-2xl bg-orange-500 hover:bg-orange-400 text-black font-black text-xl border-4 border-black flex items-center justify-center gap-2"
+                            className="w-full py-5 rounded-2xl bg-orange-500 hover:bg-orange-400 text-black font-black text-xl border-4 border-black flex items-center justify-center gap-2 disabled:opacity-60"
                           >
                             🎲 กดทอยลูกเต๋า!
                           </SafeActionButton>
@@ -2327,9 +2532,10 @@ export const TeamController: React.FC = () => {
                     {!myState.isGhost && myState.jetpacks > 0 && lms.phase !== 'CHAMPION' && (
                       <SafeActionButton
                         type="button"
+                        disabled={isAnyActionPending}
                         loadingText="กำลังจุดพลุไอพ่น..."
                         onClick={() => lmsUseJetpack(selectedTeamId)}
-                        className="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-400 to-orange-500 text-black font-black text-base border-4 border-black shadow-[4px_4px_0px_#000] active:scale-95 flex items-center justify-center gap-2"
+                        className="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-400 to-orange-500 text-black font-black text-base border-4 border-black shadow-[4px_4px_0px_#000] active:scale-95 flex items-center justify-center gap-2 disabled:opacity-60"
                       >
                         🚀 จุดพลุไอพ่นหนีตาย (+3 ขั้นทันที! เหลือ {myState.jetpacks})
                       </SafeActionButton>
@@ -2347,9 +2553,21 @@ export const TeamController: React.FC = () => {
                       <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-emerald-950/60 border-2 border-emerald-400 p-6 text-center">
                         <CheckCircle2 className="w-12 h-12 text-emerald-400 mb-2" />
                         <div className="text-2xl font-black text-white">
-                          กดสี [{mySubmission.value}] แล้ว!
+                          LOCKED IN • กดสี [{mySubmission.value}] แล้ว!
                         </div>
                         <div className="text-xs text-slate-300 mt-1">รอเฉลยบนจอใหญ่...</div>
+                      </div>
+                    ) : pendingSubmission && lms.phase === 'PART2_QUESTION' ? (
+                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-amber-950/80 border-2 border-amber-400 p-6 text-center gap-2">
+                        <Loader2 className="w-12 h-12 text-amber-400 animate-spin" />
+                        <div className="text-2xl font-black text-white">
+                          กำลังส่งคำตอบ [{String(pendingSubmission.payload?.value ?? '...')}]...
+                        </div>
+                        {pendingSubmission.attempts >= 2 && (
+                          <div className="text-xs font-bold text-amber-200 animate-pulse">
+                            🔄 กำลังส่งซ้ำอัตโนมัติ (ครั้งที่ {pendingSubmission.attempts})...
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="flex-1 grid grid-cols-1 gap-3">
@@ -2393,7 +2611,8 @@ export const TeamController: React.FC = () => {
         {round.status !== 'IDLE' &&
           round.inputMode === 'MODE_D_SECRET' &&
           !(round.gameStage === 'QUIXORT' && round.toyFactory) &&
-          !mySubmission && (
+          !mySubmission &&
+          !pendingSubmission && (
             <div className="flex-1 flex flex-col justify-between gap-3">
               {!isRoundActive ? (
                 <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-red-950/40 border-2 border-red-600/60 p-6 text-center">

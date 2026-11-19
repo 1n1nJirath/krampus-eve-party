@@ -280,6 +280,7 @@ export interface RoundConfig {
   penaltyCoins: number;       // Default penalty for wrong choice
   durationSeconds: number;
   timerStartedAt: number | null;
+  timerEndAt: number | null;
   timerRemainingMs: number | null; // Used when paused or locked
   status: RoundStatus;
   rewardsApplied: boolean;
@@ -346,6 +347,8 @@ export interface QuestionPreset {
 
 export interface KrampusGameState {
   version: number;
+  stateVersion: number;
+  updatedAt: number;
   serverTimestamp: number;
   roomCode: string;
   roomLocked?: boolean;
@@ -386,5 +389,45 @@ export interface GameState {
   currentPhase: GamePhase;
   teams: Record<string, TeamState>;
   trapQuotas?: Record<string, number>;
+  stateVersion?: number;
+  updatedAt?: number;
+}
+
+// ==========================================
+// Host-Authoritative Realtime Sync Protocol
+// ==========================================
+
+export type ClientRole = 'HOST' | 'DISPLAY' | 'PLAYER' | 'HOME';
+
+export type PlayerActionType =
+  | 'REGISTER_TEAM'
+  | 'SUBMIT_ANSWER'
+  | 'CLEAR_TEAM_SUBMISSION'
+  | 'PRESS_BUZZER'
+  | 'BAILOUT_SHIELD'
+  | 'SNAKE_PICK'
+  | 'PLACE_CHRONO_TRAPS'
+  | 'CLAIM_CHRONO_YEAR'
+  | 'SELECT_TOY_DATASET'
+  | 'TOY_SHUFFLE'
+  | 'LMS_SOUL_SACRIFICE'
+  | 'LMS_MISERY_PULL'
+  | 'LMS_BUY_ITEM'
+  | 'LMS_MINIGAME_ACTION'
+  | 'LMS_USE_JETPACK';
+
+export interface PlayerActionEvent {
+  type: PlayerActionType;
+  teamId: TeamId;
+  payload: Record<string, unknown>;
+  clientTimestamp: number;
+  actionId: string;
+  roundId?: string;
+}
+
+export interface PendingPlayerAction extends PlayerActionEvent {
+  attempts: number;
+  createdAt: number;
+  lastSentAt: number;
 }
 

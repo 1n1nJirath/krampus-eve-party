@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Timer, AlertTriangle, Lock } from 'lucide-react';
 import { useGame } from '../context/GameContext';
+import { computeSecondsLeft } from '../logic/syncLogic';
 import { soundFX } from '../utils/sound';
 
 interface CountdownTimerProps {
@@ -12,63 +13,94 @@ export const CountdownTimer: React.FC<CountdownTimerProps> = ({
   size = 'lg',
   autoLockOnZero = false,
 }) => {
-  const { state, getAuthoritativeNow, lockRound } = useGame();
+  const { state, isHost, getAuthoritativeNow, lockRound } = useGame();
   const { round } = state;
-  const [remainingMs, setRemainingMs] = useState<number>(round.durationSeconds * 1000);
+
+  const effectiveEndAt =
+    round.status === 'ACTIVE'
+      ? round.timerEndAt ??
+        (round.timerStartedAt !== null
+          ? round.timerStartedAt + round.durationSeconds * 1000
+          : null)
+      : null;
+
+  const getStaticSeconds = () =>
+    round.status === 'IDLE'
+      ? round.durationSeconds
+      : Math.max(0, Math.ceil((round.timerRemainingMs ?? 0) / 1000));
+
+  const [secondsLeft, setSecondsLeft] = useState<number>(() =>
+    effectiveEndAt !== null
+      ? computeSecondsLeft(effectiveEndAt, getAuthoritativeNow())
+      : getStaticSeconds()
+  );
+
   const lastSecRef = useRef<number>(-1);
+  const autoLockedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (round.status !== 'ACTIVE' || !round.timerStartedAt) {
-      const staticMs =
+    if (round.status !== 'ACTIVE' || effectiveEndAt === null) {
+      const staticSecs =
         round.status === 'IDLE'
-          ? round.durationSeconds * 1000
-          : round.timerRemainingMs ?? 0;
-      setRemainingMs(staticMs);
+          ? round.durationSeconds
+          : Math.max(0, Math.ceil((round.timerRemainingMs ?? 0) / 1000));
+      setSecondsLeft(staticSecs);
       lastSecRef.current = -1;
       return;
     }
 
-    const interval = setInterval(() => {
-      const now = getAuthoritativeNow();
-      const elapsed = Math.max(0, now - round.timerStartedAt!);
-      const rem = Math.max(0, round.durationSeconds * 1000 - elapsed);
-      setRemainingMs(rem);
+    const lockKey = `${round.id}:${effectiveEndAt}`;
 
-      const wholeSec = Math.ceil(rem / 1000);
-      if (wholeSec !== lastSecRef.current && wholeSec > 0 && wholeSec <= round.durationSeconds) {
-        lastSecRef.current = wholeSec;
-        if (wholeSec <= 10) {
-          soundFX.playTick(wholeSec <= 5);
+    const tick = () => {
+      const secsLeft = computeSecondsLeft(effectiveEndAt, getAuthoritativeNow());
+      setSecondsLeft(secsLeft);
+
+      if (
+        secsLeft !== lastSecRef.current &&
+        secsLeft > 0 &&
+        secsLeft <= round.durationSeconds
+      ) {
+        lastSecRef.current = secsLeft;
+        if (secsLeft <= 10) {
+          soundFX.playTick(secsLeft <= 5);
         }
       }
 
-      if (rem <= 0) {
-        clearInterval(interval);
-        if (autoLockOnZero && round.status === 'ACTIVE') {
-          lockRound();
-        }
+      if (
+        secsLeft <= 0 &&
+        autoLockOnZero &&
+        isHost &&
+        round.status === 'ACTIVE' &&
+        autoLockedKeyRef.current !== lockKey
+      ) {
+        autoLockedKeyRef.current = lockKey;
+        lockRound();
       }
-    }, 50);
+    };
 
+    tick();
+    const interval = setInterval(tick, 200);
     return () => clearInterval(interval);
   }, [
+    round.id,
     round.status,
-    round.timerStartedAt,
     round.durationSeconds,
     round.timerRemainingMs,
+    effectiveEndAt,
     getAuthoritativeNow,
     autoLockOnZero,
+    isHost,
     lockRound,
   ]);
 
-  const totalMs = Math.max(1000, round.durationSeconds * 1000);
-  const progressPct = Math.min(100, Math.max(0, (remainingMs / totalMs) * 100));
-  const totalSeconds = Math.ceil(remainingMs / 1000);
-  const mins = Math.floor(totalSeconds / 60);
-  const secs = totalSeconds % 60;
-  const tenths = Math.floor((remainingMs % 1000) / 100);
-  const isUrgent = round.status === 'ACTIVE' && totalSeconds < 10 && remainingMs > 0;
-  const isTimeUp = round.status === 'LOCKED' && remainingMs === 0;
+  const totalSec = Math.max(1, round.durationSeconds);
+  const progressPct = Math.min(100, Math.max(0, (secondsLeft / totalSec) * 100));
+  const mins = Math.floor(secondsLeft / 60);
+  const secs = secondsLeft % 60;
+  const isUrgent = round.status === 'ACTIVE' && secondsLeft > 0 && secondsLeft < 10;
+  const isTimeUp =
+    (round.status === 'LOCKED' && secondsLeft === 0) ||
+    (round.status === 'ACTIVE' && effectiveEndAt !== null && secondsLeft === 0);
 
   const sizeClasses = {
     sm: 'text-xl px-3 py-1',
@@ -92,7 +124,7 @@ export const CountdownTimer: React.FC<CountdownTimerProps> = ({
       >
         {isUrgent ? (
           <AlertTriangle className="w-7 h-7 text-red-400 animate-bounce shrink-0" />
-        ) : round.status === 'LOCKED' ? (
+        ) : round.status === 'LOCKED' || isTimeUp ? (
           <Lock className="w-6 h-6 text-amber-400 shrink-0" />
         ) : (
           <Timer className="w-6 h-6 text-amber-400 shrink-0" />
@@ -100,9 +132,6 @@ export const CountdownTimer: React.FC<CountdownTimerProps> = ({
 
         <span>
           {String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}
-          {totalSeconds < 10 && remainingMs > 0 && (
-            <span className="text-amber-500/80 text-[0.65em]">.{tenths}</span>
-          )}
         </span>
 
         {isTimeUp && (
@@ -115,7 +144,7 @@ export const CountdownTimer: React.FC<CountdownTimerProps> = ({
       {/* Progress bar */}
       <div className="w-full h-2 bg-slate-800/90 rounded-full overflow-hidden mt-1.5 border border-slate-700/60">
         <div
-          className={`h-full transition-all duration-100 ${
+          className={`h-full transition-all duration-200 ${
             isUrgent
               ? 'bg-gradient-to-r from-red-600 to-amber-500'
               : 'bg-gradient-to-r from-emerald-600 via-amber-500 to-amber-300'

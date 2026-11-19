@@ -233,6 +233,7 @@ export function applySnakePickToState(
     r.status = 'REVEALED';
     r.rewardsApplied = true;
     r.timerStartedAt = null;
+    r.timerEndAt = null;
     r.timerRemainingMs = 0;
 
     if (allTurnsUsed && !allSafeOpened) {

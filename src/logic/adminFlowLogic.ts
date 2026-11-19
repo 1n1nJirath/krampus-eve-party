@@ -158,7 +158,9 @@ export function canRevealCurrentRound(
   }
 
   const isTimerExpired =
-    r.timerStartedAt !== null && nowMs - r.timerStartedAt >= r.durationSeconds * 1000;
+    r.timerEndAt !== null && r.timerEndAt !== undefined
+      ? nowMs >= r.timerEndAt
+      : r.timerStartedAt !== null && nowMs - r.timerStartedAt >= r.durationSeconds * 1000;
 
   if (
     r.gameStage === 'POLL_MINE' &&

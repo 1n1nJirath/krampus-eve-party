@@ -17,9 +17,9 @@ import {
   Shield,
   Gavel,
   BookOpen,
-  Play,
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
+import { soundFX } from '../utils/sound';
 import {
   BLACK_MARKET_ITEMS,
   CURSE_CATALOG,
@@ -82,14 +82,7 @@ const STAGE_META: Record<GameStage, { badge: string; name: string; color: string
 };
 
 export const ProjectorDisplay: React.FC = () => {
-  const {
-    state,
-    toggleSound,
-    setShowLeaderboardOverlay,
-    setGameStage,
-    startTimer,
-    updateRoundConfig,
-  } = useGame();
+  const { state } = useGame();
   const {
     round,
     teams,
@@ -99,7 +92,14 @@ export const ProjectorDisplay: React.FC = () => {
     krampusAlertMessage,
   } = state;
 
-  // Phase Rules & Demo Briefing Screen state (auto-shows on entering each phase; paused until Host starts)
+  // Read-only local projector mute (does not mutate or broadcast Host state)
+  const [localMuted, setLocalMuted] = useState(false);
+  const effectiveSound = state.soundEnabled && !localMuted;
+  useEffect(() => {
+    soundFX.enabled = effectiveSound;
+  }, [effectiveSound]);
+
+  // Phase Rules & Demo Briefing Screen state (local dismissal only; paused until Host starts)
   const activePhaseKey = getPhaseBriefingKey(round);
   const [dismissedPhases, setDismissedPhases] = useState<Record<string, boolean>>({});
   const [forceBriefing, setForceBriefing] = useState(false);
@@ -108,7 +108,15 @@ export const ProjectorDisplay: React.FC = () => {
     setForceBriefing(false);
   }, [activePhaseKey]);
 
-  const showPhaseBriefing = Boolean(activePhaseKey && (forceBriefing || round.briefingOpen));
+  useEffect(() => {
+    if (round.briefingOpen && activePhaseKey) {
+      setDismissedPhases((prev) => ({ ...prev, [activePhaseKey]: false }));
+    }
+  }, [round.briefingOpen, activePhaseKey]);
+
+  const showPhaseBriefing = Boolean(
+    activePhaseKey && (forceBriefing || (round.briefingOpen && !dismissedPhases[activePhaseKey]))
+  );
 
   const isSpecialGame3View =
     round.gameStage === 'QUIXORT' &&
@@ -290,7 +298,6 @@ export const ProjectorDisplay: React.FC = () => {
           onStartGame={() => {
             setDismissedPhases((prev) => ({ ...prev, [activePhaseKey]: true }));
             setForceBriefing(false);
-            updateRoundConfig({ briefingOpen: false });
           }}
         />
       )}
@@ -314,11 +321,11 @@ export const ProjectorDisplay: React.FC = () => {
       {round.gameStage === 'LOBBY' || round.gameStage === 'WORLD_MAP' ? (
         <div className="fixed top-3 right-4 z-30 flex items-center gap-2">
           <button
-            onClick={toggleSound}
+            onClick={() => setLocalMuted((m) => !m)}
             className="p-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-slate-200 border-2 border-black shadow-[3px_3px_0px_#000] transition"
-            title={state.soundEnabled ? 'ปิดเสียงเอฟเฟกต์' : 'เปิดเสียงเอฟเฟกต์'}
+            title={effectiveSound ? 'ปิดเสียงหน้าจอนี้' : 'เปิดเสียงหน้าจอนี้'}
           >
-            {state.soundEnabled ? (
+            {effectiveSound ? (
               <Volume2 className="w-5 h-5 text-emerald-400" />
             ) : (
               <VolumeX className="w-5 h-5 text-red-400" />
@@ -369,7 +376,7 @@ export const ProjectorDisplay: React.FC = () => {
 
         {/* Center Countdown Timer */}
         <div className="flex items-center gap-6">
-          <CountdownTimer size="lg" autoLockOnZero={true} />
+          <CountdownTimer size="lg" />
         </div>
 
         {/* Minimalist Projector Controls (Rules & Demo + Sound + Fullscreen) */}
@@ -385,11 +392,11 @@ export const ProjectorDisplay: React.FC = () => {
             </button>
           )}
           <button
-            onClick={toggleSound}
+            onClick={() => setLocalMuted((m) => !m)}
             className="p-2.5 rounded-xl bg-[#241e30] hover:bg-[#443a59] text-[#EFE2D2] border border-[#D8C6B5]/30 transition"
-            title={state.soundEnabled ? 'ปิดเสียงเอฟเฟกต์' : 'เปิดเสียงเอฟเฟกต์'}
+            title={effectiveSound ? 'ปิดเสียงหน้าจอนี้' : 'เปิดเสียงหน้าจอนี้'}
           >
-            {state.soundEnabled ? (
+            {effectiveSound ? (
               <Volume2 className="w-5 h-5 text-emerald-400" />
             ) : (
               <VolumeX className="w-5 h-5 text-red-400" />
@@ -588,12 +595,9 @@ export const ProjectorDisplay: React.FC = () => {
                     : 'LOCKED';
 
                   return (
-                    <SafeActionButton
+                    <div
                       key={room.stage}
-                      type="button"
-                      showSpinner={false}
-                      onClick={() => setGameStage(room.stage, true)}
-                      className={`rounded-2xl p-4 border-[3px] border-[#352D45] text-center transition-all hover:scale-[1.03] flex flex-col justify-between min-h-[295px] ${
+                      className={`rounded-2xl p-4 border-[3px] border-[#352D45] text-center flex flex-col justify-between min-h-[295px] ${
                         isCleared
                           ? 'bg-[#536B59] shadow-[0_7px_0_#352D45]'
                           : isPlaying
@@ -649,7 +653,7 @@ export const ProjectorDisplay: React.FC = () => {
                           </div>
                         )}
                       </div>
-                    </SafeActionButton>
+                    </div>
                   );
                 })}
               </div>
@@ -741,15 +745,10 @@ export const ProjectorDisplay: React.FC = () => {
                       <span>เปิดหน้าอธิบายกติกา & Demo</span>
                     </SafeActionButton>
                   )}
-                  <SafeActionButton
-                    type="button"
-                    loadingText="กำลังเริ่มเกม..."
-                    onClick={() => startTimer()}
-                    className="px-8 py-4 rounded-2xl bg-[#536B59] hover:bg-[#435848] border-[3px] border-[#352D45] shadow-[0_6px_0_#352D45] active:translate-y-1 active:shadow-none text-[#EFE2D2] font-manor-display text-xl md:text-2xl font-bold flex items-center gap-3 transition-all animate-pulse"
-                  >
-                    <Play className="w-6 h-6 fill-current text-[#E5B86C]" />
-                    <span>กดเริ่มเปิดโจทย์ & จับเวลา ({round.durationSeconds} วิ)</span>
-                  </SafeActionButton>
+                  <div className="px-7 py-3.5 rounded-2xl bg-[#352D45]/95 border-[3px] border-[#E5B86C] shadow-[0_6px_0_#1e1828] text-[#EFE2D2] font-manor-display text-lg md:text-xl font-bold flex items-center gap-3">
+                    <Clock className="w-6 h-6 text-[#E5B86C] animate-pulse" />
+                    <span>⏳ รอ Host กดเริ่มเปิดโจทย์ &amp; จับเวลาจากหน้า /admin...</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2815,14 +2814,6 @@ export const ProjectorDisplay: React.FC = () => {
                   ตารางอันดับเหรียญศักดิ์สิทธิ์ & เกราะเด็กดี (Nice vs Naughty List)
                 </h2>
               </div>
-              {showLeaderboardOverlay && (
-                <button
-                  onClick={() => setShowLeaderboardOverlay(false)}
-                  className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-sm border border-slate-600"
-                >
-                  กลับสู่หน้าเกม
-                </button>
-              )}
             </div>
 
             <div className="space-y-4">

@@ -100,7 +100,7 @@ export const MonitorSidebar: React.FC = () => {
               ส่งแล้ว: {submittedCount}/4 ทีม
             </div>
           </div>
-          <CountdownTimer size="sm" />
+          <CountdownTimer size="sm" autoLockOnZero={true} />
         </div>
       </div>
 
