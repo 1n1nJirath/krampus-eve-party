@@ -3,6 +3,7 @@ import { Timer, AlertTriangle, Lock } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import { computeSecondsLeft } from '../logic/syncLogic';
 import { soundFX } from '../utils/sound';
+import { triggerHaptic } from '../utils/haptics';
 
 interface CountdownTimerProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
@@ -63,6 +64,9 @@ export const CountdownTimer: React.FC<CountdownTimerProps> = ({
         lastSecRef.current = secsLeft;
         if (secsLeft <= 10) {
           soundFX.playTick(secsLeft <= 5);
+          if (secsLeft <= 5) {
+            triggerHaptic('PANIC');
+          }
         }
       }
 

@@ -17,9 +17,11 @@ import {
   Shield,
   Gavel,
   BookOpen,
+  Music,
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import { soundFX } from '../utils/sound';
+import { bgmEngine, BgmTrack } from '../utils/bgm';
 import {
   BLACK_MARKET_ITEMS,
   CURSE_CATALOG,
@@ -98,6 +100,29 @@ export const ProjectorDisplay: React.FC = () => {
   useEffect(() => {
     soundFX.enabled = effectiveSound;
   }, [effectiveSound]);
+
+  // BGM Engine UI state & Synchronization
+  const [showBgmMenu, setShowBgmMenu] = useState(false);
+  const [bgmInfo, setBgmInfo] = useState(() => ({
+    currentTrack: bgmEngine.getCurrentTrack(),
+    isPlaying: bgmEngine.getCurrentTrack() !== 'OFF' && !bgmEngine.isMuted(),
+    volume: bgmEngine.getVolume(),
+    autoMode: bgmEngine.getAutoMode(),
+    isUsingFallback: false,
+  }));
+
+  useEffect(() => {
+    return bgmEngine.subscribe(setBgmInfo);
+  }, []);
+
+  useEffect(() => {
+    if (!effectiveSound) {
+      bgmEngine.stop();
+      return;
+    }
+    const isBriefing = Boolean(forceBriefing || (activePhaseKey && !dismissedPhases[activePhaseKey]));
+    bgmEngine.syncWithGameState(round.gameStage, round.status, null, isBriefing);
+  }, [effectiveSound, round.gameStage, round.status, forceBriefing, activePhaseKey, dismissedPhases]);
 
   // Phase Rules & Demo Briefing Screen state (local dismissal only; paused until Host starts)
   const activePhaseKey = getPhaseBriefingKey(round);
@@ -394,7 +419,7 @@ export const ProjectorDisplay: React.FC = () => {
           <button
             onClick={() => setLocalMuted((m) => !m)}
             className="p-2.5 rounded-xl bg-[#241e30] hover:bg-[#443a59] text-[#EFE2D2] border border-[#D8C6B5]/30 transition"
-            title={effectiveSound ? 'ปิดเสียงหน้าจอนี้' : 'เปิดเสียงหน้าจอนี้'}
+            title={effectiveSound ? 'ปิดเสียงเอฟเฟกต์หน้าจอนี้' : 'เปิดเสียงเอฟเฟกต์หน้าจอนี้'}
           >
             {effectiveSound ? (
               <Volume2 className="w-5 h-5 text-emerald-400" />
@@ -402,6 +427,119 @@ export const ProjectorDisplay: React.FC = () => {
               <VolumeX className="w-5 h-5 text-red-400" />
             )}
           </button>
+
+          {/* BGM Music Control Button */}
+          <div className="relative">
+            <button
+              onClick={() => setShowBgmMenu((v) => !v)}
+              className={`p-2 rounded-xl border transition flex items-center gap-1.5 ${
+                bgmInfo.isPlaying
+                  ? 'bg-amber-950/80 border-amber-500 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.25)]'
+                  : 'bg-[#241e30] border-[#D8C6B5]/30 text-slate-400'
+              }`}
+              title="ระบบเพลงประกอบ BGM"
+            >
+              <Music className={`w-5 h-5 ${bgmInfo.isPlaying ? 'animate-pulse text-amber-300' : ''}`} />
+              <span className="text-[11px] font-mono font-bold hidden md:inline">
+                {bgmInfo.currentTrack !== 'OFF' ? bgmInfo.currentTrack : 'BGM'}
+              </span>
+            </button>
+
+            {showBgmMenu && (
+              <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl bg-slate-950/95 border-2 border-amber-400/60 p-4 shadow-2xl backdrop-blur-md z-50 space-y-3 text-slate-100">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <div className="flex items-center gap-1.5 text-xs font-black text-amber-300">
+                    <Music className="w-4 h-4" />
+                    <span>เพลงประกอบ (BGM)</span>
+                  </div>
+                  <span
+                    className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
+                      bgmInfo.isUsingFallback
+                        ? 'bg-purple-950 text-purple-300 border border-purple-600'
+                        : 'bg-emerald-950 text-emerald-300 border border-emerald-600'
+                    }`}
+                  >
+                    {bgmInfo.isUsingFallback ? 'Ambient Synth' : 'MP3 Audio'}
+                  </span>
+                </div>
+
+                {/* Track Switcher */}
+                <div className="space-y-1.5">
+                  <div className="text-[11px] text-slate-400 font-semibold">เลือกเพลง:</div>
+                  <div className="grid grid-cols-2 gap-1.5 text-xs font-bold">
+                    {(['LOUNGE', 'SUSPENSE', 'PANIC', 'VICTORY'] as BgmTrack[]).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => {
+                          bgmEngine.setAutoMode(false);
+                          bgmEngine.playTrack(t);
+                        }}
+                        className={`p-2 rounded-xl border text-center transition ${
+                          bgmInfo.currentTrack === t
+                            ? 'bg-amber-400 text-slate-950 border-white font-black'
+                            : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
+                        }`}
+                      >
+                        {t === 'LOUNGE' && '☕ คฤหาสน์ (Lobby)'}
+                        {t === 'SUSPENSE' && '⏳ กดดัน (Live)'}
+                        {t === 'PANIC' && '🚨 เร่งด่วน (Panic)'}
+                        {t === 'VICTORY' && '🏆 ชัยชนะ (Finale)'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Volume Slider */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[11px] text-slate-400 font-semibold">
+                    <span>ระดับเสียง BGM</span>
+                    <span className="font-mono text-amber-300">
+                      {Math.round(bgmInfo.volume * 100)}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={bgmInfo.volume}
+                    onChange={(e) => bgmEngine.setVolume(parseFloat(e.target.value))}
+                    className="w-full accent-amber-400 h-2 bg-slate-800 rounded-lg cursor-pointer"
+                  />
+                </div>
+
+                {/* Toggles */}
+                <div className="flex items-center justify-between pt-1 border-t border-slate-800 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !bgmInfo.autoMode;
+                      bgmEngine.setAutoMode(next);
+                      if (next) {
+                        bgmEngine.syncWithGameState(round.gameStage, round.status, null, false);
+                      }
+                    }}
+                    className={`px-2.5 py-1 rounded-lg border font-bold ${
+                      bgmInfo.autoMode
+                        ? 'bg-emerald-950 text-emerald-300 border-emerald-500'
+                        : 'bg-slate-900 text-slate-400 border-slate-700'
+                    }`}
+                  >
+                    {bgmInfo.autoMode ? '✓ เปลี่ยนตามเกมอัตโนมัติ' : '○ คุมเพลงเอง'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => bgmEngine.stop()}
+                    className="px-2.5 py-1 rounded-lg bg-red-950 hover:bg-red-900 text-red-300 border border-red-700 font-bold"
+                  >
+                    ปิดเพลง
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
           <button
             onClick={toggleFullscreen}

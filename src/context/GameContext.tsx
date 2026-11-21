@@ -56,6 +56,7 @@ import {
   shouldCancelPendingAction,
   stampNextState,
 } from '../logic/syncLogic';
+import { triggerHaptic } from '../utils/haptics';
 
 const STORAGE_KEY = 'krampus_eve_state_v2';
 const SUPABASE_CONFIG_KEY = 'krampus_supabase_config_v2';
@@ -608,6 +609,7 @@ interface GameContextValue {
   adjustCoins: (teamId: TeamId | 'ALL', delta: number, reason?: string) => void;
   setExactCoins: (teamId: TeamId, amount: number, reason?: string) => void;
   adjustShields: (teamId: TeamId, delta: number) => void;
+  adjustLmsHearts: (teamId: TeamId, delta: number) => void;
   adjustCandles: (teamId: TeamId, delta: number) => void;
   toggleKillingFloor: (teamId: TeamId) => void;
   updateTeamProfile: (teamId: TeamId, patch: Partial<Team>) => void;
@@ -850,10 +852,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       let pendingChanged = false;
       for (const [actionId, pending] of Object.entries(pendingActionsRef.current)) {
-        if (
-          isPendingActionConfirmed(pending, normalized) ||
-          shouldCancelPendingAction(pending, normalized)
-        ) {
+        const confirmed = isPendingActionConfirmed(pending, normalized);
+        const cancelled = shouldCancelPendingAction(pending, normalized);
+        if (confirmed || cancelled) {
+          if (confirmed) {
+            triggerHaptic('CONFIRM');
+          }
           const timer = retryTimersRef.current[actionId];
           if (timer) {
             clearTimeout(timer);
@@ -945,6 +949,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setActionSyncError(
             'ไม่สามารถส่งคำตอบถึง Host ได้ภายในเวลาที่กำหนด กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง'
           );
+          triggerHaptic('ERROR');
           return;
         }
 
@@ -1016,6 +1021,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       pendingActionsRef.current[actionId] = pending;
       setPendingActions({ ...pendingActionsRef.current });
 
+      triggerHaptic(type === 'PRESS_BUZZER' ? 'BUZZER' : 'SUBMIT');
       sendPlayerActionOverTransport(event);
       scheduleRetry(actionId);
     },
@@ -2736,6 +2742,36 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const adjustCandles = adjustShields;
 
+  const adjustLmsHearts = useCallback(
+    (teamId: TeamId, delta: number) => {
+      commitState((prev) => {
+        const lms = prev.round.lastMan;
+        if (!lms || !lms.teamStates[teamId]) return prev;
+        const currentTs = lms.teamStates[teamId];
+        const nextHearts = Math.max(0, Math.min(4, currentTs.hearts + delta));
+        const nextTs = {
+          ...currentTs,
+          hearts: nextHearts,
+          isGhost: nextHearts <= 0,
+        };
+        return {
+          ...prev,
+          round: {
+            ...prev.round,
+            lastMan: {
+              ...lms,
+              teamStates: {
+                ...lms.teamStates,
+                [teamId]: nextTs,
+              },
+            },
+          },
+        };
+      });
+    },
+    [commitState]
+  );
+
   const toggleKillingFloor = useCallback(
     (teamId: TeamId) => {
       commitState((prev) => ({
@@ -3940,6 +3976,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setExactCoins,
         adjustShields,
         adjustCandles,
+        adjustLmsHearts,
         toggleKillingFloor,
         updateTeamProfile,
         undoLastTransaction,

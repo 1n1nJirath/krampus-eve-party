@@ -27,6 +27,7 @@ export const MonitorSidebar: React.FC = () => {
     state,
     adjustCoins,
     adjustShields,
+    adjustLmsHearts,
     toggleKillingFloor,
     undoLastTransaction,
     submitTeamAnswer,
@@ -143,13 +144,19 @@ export const MonitorSidebar: React.FC = () => {
                         T{t.number} {t.name}
                       </div>
                       <div className="flex items-center gap-1.5 text-[11px] font-mono">
-                        <span className="text-amber-300 font-bold">
-                          {t.coins.toLocaleString()} ฿
-                        </span>
+                        {t.coins < 0 ? (
+                          <span className="px-1.5 py-0.2 rounded bg-red-950 text-red-300 border border-red-500 font-black animate-pulse">
+                            ⛓️ หนี้ {t.coins.toLocaleString()} ฿
+                          </span>
+                        ) : (
+                          <span className="text-amber-300 font-bold">
+                            {t.coins.toLocaleString()} ฿
+                          </span>
+                        )}
                         <span className="text-slate-600">•</span>
                         {lmsState ? (
                           <span className="text-rose-300 font-bold">
-                            {lmsState.isGhost ? '👻' : `❤️${lmsState.hearts}/4`}
+                            {lmsState.isGhost ? '👻 ผี' : `❤️${lmsState.hearts}/4`}
                           </span>
                         ) : (
                           <span className={t.shields <= 0 ? 'text-red-400 font-bold' : 'text-sky-300'}>
@@ -243,6 +250,29 @@ export const MonitorSidebar: React.FC = () => {
                         </button>
                       </div>
 
+                      {lmsState && (
+                        <div className="flex items-center gap-1">
+                          <span className="text-slate-400">❤️ LMS:</span>
+                          <button
+                            type="button"
+                            onClick={() => adjustLmsHearts(tid, -1)}
+                            className="px-1.5 py-0.5 rounded bg-slate-800 text-red-300 font-bold"
+                          >
+                            -
+                          </button>
+                          <span className="font-mono font-bold text-rose-300">
+                            {lmsState.isGhost ? '💀 ผี' : lmsState.hearts}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => adjustLmsHearts(tid, 1)}
+                            className="px-1.5 py-0.5 rounded bg-slate-800 text-emerald-300 font-bold"
+                          >
+                            +
+                          </button>
+                        </div>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => toggleKillingFloor(tid)}
@@ -265,6 +295,16 @@ export const MonitorSidebar: React.FC = () => {
                         </button>
                       )}
                     </div>
+
+                    {t.coins < 0 && (
+                      <button
+                        type="button"
+                        onClick={() => adjustCoins(tid, Math.abs(t.coins), 'GM ล้างหนี้บาป')}
+                        className="w-full py-1 rounded bg-amber-950/80 hover:bg-amber-900 border border-amber-500/80 text-amber-200 font-bold flex items-center justify-center gap-1 transition"
+                      >
+                        <span>✨ ล้างหนี้บาป (ปลดหนี้ {t.coins.toLocaleString()} ฿ เป็น 0)</span>
+                      </button>
+                    )}
 
                     {round.inputMode === 'MODE_A_CHOICE' && (
                       <div className="flex flex-wrap items-center gap-1">

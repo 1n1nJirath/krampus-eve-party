@@ -1,5 +1,5 @@
-import React from 'react';
-import { Crown, Map, RotateCcw, Trophy } from 'lucide-react';
+import React, { useState } from 'react';
+import { Crown, Map, RotateCcw, Trophy, Clipboard, Download, Check } from 'lucide-react';
 import { useGame } from '../../context/GameContext';
 import { TEAM_ORDER } from '../../data/initialData';
 import { SafeActionButton } from '../SafeActionButton';
@@ -20,6 +20,60 @@ export const FinaleWorkspace: React.FC = () => {
     if (b === championId) return 1;
     return teams[b].coins - teams[a].coins;
   });
+
+  const [copied, setCopied] = useState(false);
+
+  const handleCopySummary = () => {
+    const lines = [
+      '🎄🏆 สรุปผลการแข่งขัน "THE KRAMPUS EVE" 👹🏆',
+      '==========================================',
+    ];
+    rankedTeams.forEach((tid, idx) => {
+      const t = teams[tid];
+      const isWinner = tid === championId || (idx === 0 && !championId);
+      const medal =
+        idx === 0 ? '👑 แชมป์เปี้ยน' : idx === 1 ? '🥈 รองชนะเลิศ' : idx === 2 ? '🥉 อันดับ 3' : '💀 อันดับ 4';
+      lines.push(
+        `${medal}: ${t.icon} ${t.name} — ${t.coins.toLocaleString()} ฿ ${
+          isWinner ? '⭐ (รอดชีวิตคนสุดท้าย!)' : ''
+        }`
+      );
+    });
+    lines.push('==========================================');
+    lines.push('ขอบคุณผู้กล้าทุกคนที่ร่วมเอาชีวิตรอดในคืนคริสต์มาสอีฟ!');
+
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(lines.join('\n'));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    }
+  };
+
+  const handleDownloadJson = () => {
+    const data = {
+      event: 'THE KRAMPUS EVE',
+      timestamp: new Date().toISOString(),
+      championId,
+      championName: championId ? teams[championId]?.name : null,
+      leaderboard: rankedTeams.map((tid, idx) => ({
+        rank: idx + 1,
+        teamId: tid,
+        name: teams[tid].name,
+        coins: teams[tid].coins,
+        shields: teams[tid].shields,
+        hearts: teams[tid].hearts,
+        roster: teams[tid].roster,
+      })),
+      transactions: state.transactions,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `krampus-eve-results-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="space-y-4">
@@ -68,6 +122,28 @@ export const FinaleWorkspace: React.FC = () => {
               <Map className="w-3.5 h-3.5" />
               <span>กลับ World Map</span>
             </SafeActionButton>
+
+            <button
+              type="button"
+              onClick={handleCopySummary}
+              className={`px-3.5 py-2 rounded-xl font-bold text-xs border flex items-center gap-1.5 transition ${
+                copied
+                  ? 'bg-emerald-600 text-white border-emerald-400'
+                  : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-amber-500/50'
+              }`}
+            >
+              {copied ? <Check className="w-3.5 h-3.5" /> : <Clipboard className="w-3.5 h-3.5" />}
+              <span>{copied ? 'คัดลอกลงคลิปบอร์ดแล้ว!' : '📋 สรุปผลลง LINE/Discord'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDownloadJson}
+              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/50 font-bold text-xs flex items-center gap-1.5 transition"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>💾 ดาวน์โหลด JSON</span>
+            </button>
           </div>
         </div>
 
