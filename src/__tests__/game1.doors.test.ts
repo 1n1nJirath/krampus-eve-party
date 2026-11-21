@@ -5,9 +5,11 @@ import {
   INITIAL_GAME_STATE,
 } from '../data/initialData';
 import {
+  applyAdminSnakePickOverride,
   applyBailoutToState,
   applySnakePickToState,
   buildSnakeDraftOrder,
+  undoLastTeamSnakePick,
 } from '../logic/doorsLogic';
 import { KrampusGameState } from '../types/game';
 
@@ -100,5 +102,18 @@ describe('Suite 2: Game 1 — THE DOORS OF DOOM (Updated Rules)', () => {
     const rank8 = state.round.choices.find((c) => c.rank === 8);
     expect(rank1?.key).toBe('A');
     expect(rank8?.key).toBe('H');
+  });
+
+  it('Admin Override allows out-of-turn Snake Draft pick and undoLastTeamSnakePick reverts coin/shield changes', () => {
+    const state = makeDoorsState('SUB1_SURVIVAL');
+    // Turn 0 is team1, but Admin picks door A (#1 safe) for team3 directly
+    expect(applyAdminSnakePickOverride(state, 'team3', 'A', 1000)).toBe(true);
+    expect(state.teams.team3.coins).toBe(1300);
+    expect(state.round.choices[0].isOpened).toBe(true);
+
+    // Undo team3's pick -> closes door A and reverts +300 coins
+    expect(undoLastTeamSnakePick(state, 'team3')).toBe(true);
+    expect(state.teams.team3.coins).toBe(1000);
+    expect(state.round.choices[0].isOpened).toBe(false);
   });
 });

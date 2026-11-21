@@ -7,7 +7,11 @@ import {
   TeamId,
 } from '../types/game';
 import { applyChronoClaimToState, applyChronoTrapsToState } from './chronoLogic';
-import { applyBailoutToState, applySnakePickToState } from './doorsLogic';
+import {
+  applyAdminSnakePickOverride,
+  applyBailoutToState,
+  applySnakePickToState,
+} from './doorsLogic';
 import {
   applyLmsBuyItem,
   applyLmsMinigameAction,
@@ -184,6 +188,21 @@ export function applyPlayerAction(
 
     case 'CLEAR_TEAM_SUBMISSION': {
       delete next.submissions[teamId];
+      next.buzzerQueue = (next.buzzerQueue || [])
+        .filter((b) => b.teamId !== teamId)
+        .map((b, idx) => ({ ...b, rank: idx + 1 }));
+      if (next.round.chronoFastFingerClaims) {
+        const claims = { ...next.round.chronoFastFingerClaims };
+        for (const [y, owner] of Object.entries(claims)) {
+          if (owner === teamId) delete claims[y];
+        }
+        next.round.chronoFastFingerClaims = claims;
+      }
+      if (next.round.chronoTrapsPlaced && next.round.chronoTrapsPlaced[teamId]) {
+        const traps = { ...next.round.chronoTrapsPlaced };
+        delete traps[teamId];
+        next.round.chronoTrapsPlaced = traps;
+      }
       ok = true;
       break;
     }
@@ -211,7 +230,8 @@ export function applyPlayerAction(
     }
 
     case 'PRESS_BUZZER': {
-      if (next.round.status !== 'ACTIVE') {
+      const force = Boolean(payload.force);
+      if (!force && next.round.status !== 'ACTIVE') {
         rejectReason = 'ROUND_NOT_ACTIVE';
         break;
       }
@@ -240,7 +260,10 @@ export function applyPlayerAction(
     }
 
     case 'SNAKE_PICK': {
-      ok = applySnakePickToState(next, teamId, String(payload.doorKey || ''), hostNow);
+      const doorKey = String(payload.doorKey || '');
+      ok = payload.force
+        ? applyAdminSnakePickOverride(next, teamId, doorKey, hostNow)
+        : applySnakePickToState(next, teamId, doorKey, hostNow);
       break;
     }
 
@@ -249,23 +272,36 @@ export function applyPlayerAction(
         next,
         teamId,
         (payload.allocations as Partial<Record<TeamId, number>>) || {},
-        hostNow
+        hostNow,
+        Boolean(payload.force)
       );
       break;
     }
 
     case 'CLAIM_CHRONO_YEAR': {
-      ok = applyChronoClaimToState(next, teamId, Number(payload.year), hostNow);
+      ok = applyChronoClaimToState(
+        next,
+        teamId,
+        Number(payload.year),
+        hostNow,
+        Boolean(payload.force)
+      );
       break;
     }
 
     case 'SELECT_TOY_DATASET': {
-      ok = applyToyDatasetSelection(next, teamId, String(payload.datasetId || ''), hostNow);
+      ok = applyToyDatasetSelection(
+        next,
+        teamId,
+        String(payload.datasetId || ''),
+        hostNow,
+        Boolean(payload.force)
+      );
       break;
     }
 
     case 'TOY_SHUFFLE': {
-      ok = applyToyFactoryShuffle(next, teamId, hostNow);
+      ok = applyToyFactoryShuffle(next, teamId, hostNow, Boolean(payload.force));
       break;
     }
 

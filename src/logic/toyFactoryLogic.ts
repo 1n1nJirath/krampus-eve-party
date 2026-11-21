@@ -45,14 +45,15 @@ export function applyToyDatasetSelection(
   next: KrampusGameState,
   teamId: TeamId,
   datasetId: string,
-  now: number
+  now: number,
+  force: boolean = false
 ): boolean {
   const tf = next.round.toyFactory;
-  if (next.round.status !== 'ACTIVE') return false;
-  if (!tf || tf.phase !== 'TOPIC_SELECT') return false;
+  if (!force && next.round.status !== 'ACTIVE') return false;
+  if (!tf || (!force && tf.phase !== 'TOPIC_SELECT')) return false;
   const currentPair = tf.pairings[tf.roundIndex - 1];
-  if (!currentPair || currentPair.sortingTeamId !== teamId) return false;
-  if (tf.usedDatasetIds.includes(datasetId)) return false;
+  if (!currentPair || (!force && currentPair.sortingTeamId !== teamId)) return false;
+  if (!force && tf.usedDatasetIds.includes(datasetId)) return false;
 
   const datasets = next.toyFactoryDatasets || DEFAULT_TOY_FACTORY_DATASETS;
   const ds = datasets.find((d) => d.id === datasetId);
@@ -62,10 +63,14 @@ export function applyToyDatasetSelection(
   const assignments = buildToyFactoryAssignments(holdingTeam?.roster || [], ds.items);
 
   tf.selectedDatasetId = datasetId;
-  tf.usedDatasetIds = [...tf.usedDatasetIds, datasetId];
+  if (!tf.usedDatasetIds.includes(datasetId)) {
+    tf.usedDatasetIds = [...tf.usedDatasetIds, datasetId];
+  }
   tf.phase = 'PREP_10S';
   tf.prepEndsAt = now + 10000;
   tf.assignments = assignments;
+  next.round.status = 'ACTIVE';
+  next.round.briefingOpen = false;
   next.round.title = `THE TOY FACTORY CHAOS • รอบที่ ${tf.roundIndex}/${tf.pairings.length}`;
   next.round.subtitle = `${ds.title} (${ds.direction})`;
   next.round.questionText = `${ds.title} — ${ds.direction}`;
@@ -75,19 +80,22 @@ export function applyToyDatasetSelection(
 export function applyToyFactoryShuffle(
   next: KrampusGameState,
   spectatorTeamId: TeamId,
-  now: number
+  now: number,
+  force: boolean = false
 ): boolean {
   const tf = next.round.toyFactory;
-  if (!tf || tf.phase !== 'ACTION' || next.round.status !== 'ACTIVE') return false;
+  if (!tf) return false;
+  if (!force && (tf.phase !== 'ACTION' || next.round.status !== 'ACTIVE')) return false;
   const currentPair = tf.pairings[tf.roundIndex - 1];
   if (!currentPair) return false;
   if (
-    spectatorTeamId === currentPair.sortingTeamId ||
-    spectatorTeamId === currentPair.holdingTeamId
+    !force &&
+    (spectatorTeamId === currentPair.sortingTeamId ||
+      spectatorTeamId === currentPair.holdingTeamId)
   ) {
     return false;
   }
-  if (tf.shuffleUsedThisRound || tf.shuffleUsedByTeams.includes(spectatorTeamId)) {
+  if (!force && (tf.shuffleUsedThisRound || tf.shuffleUsedByTeams.includes(spectatorTeamId))) {
     return false;
   }
   const remainingMs =
@@ -96,7 +104,7 @@ export function applyToyFactoryShuffle(
       : next.round.timerStartedAt
       ? Math.max(0, next.round.durationSeconds * 1000 - Math.max(0, now - next.round.timerStartedAt))
       : next.round.durationSeconds * 1000;
-  if (remainingMs <= 15000) return false;
+  if (!force && remainingMs <= 15000) return false;
 
   const datasets = next.toyFactoryDatasets || DEFAULT_TOY_FACTORY_DATASETS;
   const ds = datasets.find((d) => d.id === tf.selectedDatasetId);

@@ -257,3 +257,147 @@ export function applySnakePickToState(
   }
   return true;
 }
+
+/**
+ * Host/Admin Override for Game 1 Snake Draft:
+ * - If it's currently `tid`'s turn (or `tid` has an upcoming turn), executes the pick immediately (auto-starting if IDLE).
+ * - If `tid` has already used their turns, edits/replaces `tid`'s most recent door pick with `doorKey` and recalculates coins/shields.
+ */
+export function applyAdminSnakePickOverride(
+  next: KrampusGameState,
+  tid: TeamId,
+  doorKey: string,
+  now: number
+): boolean {
+  const r = next.round;
+  const isSnakeSub =
+    r.eightDoorsSubRound === 'SUB1_SURVIVAL' || r.eightDoorsSubRound === 'SUB2_SNAKE_DRAFT';
+  if (r.gameStage !== 'POLL_MINE' || !isSnakeSub) return false;
+
+  const doorIdx = r.choices.slice(0, r.choiceCount).findIndex((c) => c.key === doorKey);
+  if (doorIdx === -1 || r.choices[doorIdx].isOpened) return false;
+
+  const reverseStart = r.eightDoorsSubRound === 'SUB2_SNAKE_DRAFT';
+  const order =
+    r.snakeDraftOrder && r.snakeDraftOrder.length > 0
+      ? [...r.snakeDraftOrder]
+      : buildSnakeDraftOrder(next.teams, reverseStart);
+  r.snakeDraftOrder = order;
+  const idx = r.snakeDraftIndex ?? 0;
+
+  if (r.status === 'IDLE') {
+    r.status = 'ACTIVE';
+    r.briefingOpen = false;
+    r.timerStartedAt = now;
+    r.timerEndAt = now + (r.durationSeconds || 45) * 1000;
+  }
+
+  // Case 1: Team still has an available turn in the queue -> swap to current turn & pick
+  if (r.status === 'ACTIVE' && idx < order.length) {
+    if (order[idx] === tid) {
+      return applySnakePickToState(next, tid, doorKey, now);
+    }
+    const futureIdx = order.findIndex((t, i) => i > idx && t === tid);
+    if (futureIdx !== -1) {
+      const temp = order[idx];
+      order[idx] = order[futureIdx];
+      order[futureIdx] = temp;
+      r.snakeDraftOrder = order;
+      return applySnakePickToState(next, tid, doorKey, now);
+    }
+  }
+
+  // Case 2: Team already used their turns -> edit/replace their last picked door
+  const picks = [...(r.snakeDraftPicks || [])];
+  let lastPickIdx = -1;
+  for (let i = picks.length - 1; i >= 0; i--) {
+    if (picks[i].teamId === tid) {
+      lastPickIdx = i;
+      break;
+    }
+  }
+  if (lastPickIdx === -1) return false;
+
+  const oldPick = picks[lastPickIdx];
+  const oldDoorIdx = r.choices.findIndex((c) => c.key === oldPick.doorKey);
+  if (oldDoorIdx !== -1) {
+    r.choices[oldDoorIdx] = { ...r.choices[oldDoorIdx], isOpened: false };
+  }
+
+  const team = next.teams[tid];
+  if (oldPick.isSafe) {
+    team.coins -= 300;
+  } else {
+    team.shields = Math.min(5, team.shields + 1);
+    team.candles = team.shields;
+  }
+
+  const newDoor = r.choices[doorIdx];
+  const newRank = newDoor.rank ?? doorIdx + 1;
+  const suggested = getSuggestedSafeRange(r.choiceCount, r.eightDoorsSubRound);
+  const safeMin = r.safeRankMin ?? suggested.min;
+  const safeMax = r.safeRankMax ?? suggested.max;
+  const newIsSafe = newRank >= safeMin && newRank <= safeMax;
+
+  r.choices[doorIdx] = { ...newDoor, isOpened: true };
+  r.lastOpenedDoorKey = doorKey;
+  picks[lastPickIdx] = { teamId: tid, doorKey, rank: newRank, isSafe: newIsSafe };
+  r.snakeDraftPicks = picks;
+
+  if (newIsSafe) {
+    team.coins += 300;
+  } else {
+    team.shields = Math.max(0, team.shields - 1);
+    team.candles = team.shields;
+  }
+
+  return true;
+}
+
+export function undoLastTeamSnakePick(next: KrampusGameState, tid: TeamId): boolean {
+  const r = next.round;
+  const picks = [...(r.snakeDraftPicks || [])];
+  let lastPickIdx = -1;
+  for (let i = picks.length - 1; i >= 0; i--) {
+    if (picks[i].teamId === tid) {
+      lastPickIdx = i;
+      break;
+    }
+  }
+  if (lastPickIdx === -1) return false;
+
+  const removed = picks[lastPickIdx];
+  picks.splice(lastPickIdx, 1);
+  r.snakeDraftPicks = picks;
+
+  const doorIdx = r.choices.findIndex((c) => c.key === removed.doorKey);
+  if (doorIdx !== -1) {
+    r.choices[doorIdx] = { ...r.choices[doorIdx], isOpened: false };
+  }
+
+  const team = next.teams[tid];
+  if (removed.isSafe) {
+    team.coins -= 300;
+  } else {
+    team.shields = Math.min(5, team.shields + 1);
+    team.candles = team.shields;
+  }
+
+  const reverseStart = r.eightDoorsSubRound === 'SUB2_SNAKE_DRAFT';
+  const order =
+    r.snakeDraftOrder && r.snakeDraftOrder.length > 0
+      ? [...r.snakeDraftOrder]
+      : buildSnakeDraftOrder(next.teams, reverseStart);
+  const curIdx = Math.max(0, (r.snakeDraftIndex ?? picks.length + 1) - 1);
+  order.splice(curIdx, 0, tid);
+  // Remove one duplicate of tid from earlier if length exceeded
+  const dupIdx = order.findIndex((t, i) => i < curIdx && t === tid);
+  if (dupIdx !== -1 && order.length > 8) {
+    order.splice(dupIdx, 1);
+  }
+  r.snakeDraftOrder = order;
+  r.snakeDraftIndex = picks.length;
+  r.status = 'ACTIVE';
+  r.rewardsApplied = false;
+  return true;
+}

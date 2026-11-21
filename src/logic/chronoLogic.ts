@@ -97,14 +97,15 @@ export function applyChronoTrapsToState(
   next: KrampusGameState,
   fromTid: TeamId,
   allocations: Partial<Record<TeamId, number>>,
-  now: number
+  now: number,
+  force: boolean = false
 ): boolean {
   const r = next.round;
   if (
     r.gameStage !== 'TIMEJINX' ||
     r.chronoSubRound !== 'CHRONO_SUB2_TRAP' ||
     r.chronoPhase !== 'TRAP_PLACEMENT' ||
-    r.status !== 'ACTIVE'
+    (!force && r.status !== 'ACTIVE')
   ) {
     return false;
   }
@@ -119,7 +120,7 @@ export function applyChronoTrapsToState(
       sum += count;
     }
   }
-  if (sum > quota) return false;
+  if (!force && sum > quota) return false;
 
   r.chronoTrapsPlaced = {
     ...(r.chronoTrapsPlaced || {}),
@@ -141,24 +142,40 @@ export function applyChronoClaimToState(
   next: KrampusGameState,
   tid: TeamId,
   year: number,
-  now: number
+  now: number,
+  force: boolean = false
 ): boolean {
   const r = next.round;
   if (
     r.gameStage !== 'TIMEJINX' ||
     r.chronoSubRound !== 'CHRONO_SUB3_FAST_FINGER' ||
-    r.status !== 'ACTIVE'
+    (!force && r.status !== 'ACTIVE')
   ) {
     return false;
   }
-  if (next.submissions[tid]) return false;
+  if (!force && next.submissions[tid]) return false;
   const minY = r.yearMin ?? 2012;
   const maxY = r.yearMax ?? 2021;
-  if (year < minY || year > maxY) return false;
+  if (!force && (year < minY || year > maxY)) return false;
 
   const claims = { ...(r.chronoFastFingerClaims || {}) };
   const key = String(year);
-  if (claims[key]) return false;
+
+  if (force) {
+    // Remove previous claim by this team
+    for (const [claimedYear, ownerTid] of Object.entries(claims)) {
+      if (ownerTid === tid) {
+        delete claims[claimedYear];
+      }
+    }
+    // If another team held this year, clear their submission so claims stay 1-to-1
+    const prevHolder = claims[key];
+    if (prevHolder && prevHolder !== tid) {
+      delete next.submissions[prevHolder];
+    }
+  } else if (claims[key]) {
+    return false;
+  }
 
   claims[key] = tid;
   r.chronoFastFingerClaims = claims;

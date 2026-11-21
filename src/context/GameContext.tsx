@@ -41,7 +41,7 @@ import {
   TEAM_ORDER,
 } from '../data/initialData';
 import { soundFX } from '../utils/sound';
-import { buildSnakeDraftOrder } from '../logic/doorsLogic';
+import { buildSnakeDraftOrder, undoLastTeamSnakePick } from '../logic/doorsLogic';
 import {
   applyLmsMiseryPull,
   pushLmsFeed,
@@ -531,6 +531,7 @@ interface GameContextValue {
   shuffleDoors: () => void;
   bailoutNiceShield: (teamId: TeamId) => void;
   submitSnakeDraftPick: (teamId: TeamId, doorKey: string) => void;
+  undoTeamSnakePick: (teamId: TeamId) => void;
   finishEightDoorsGame: () => void;
   switchEightDoorsSubRound: (
     subRound: EightDoorsSubRound,
@@ -610,6 +611,7 @@ interface GameContextValue {
   setExactCoins: (teamId: TeamId, amount: number, reason?: string) => void;
   adjustShields: (teamId: TeamId, delta: number) => void;
   adjustLmsHearts: (teamId: TeamId, delta: number) => void;
+  adjustLmsStep: (teamId: TeamId, delta: number) => void;
   adjustCandles: (teamId: TeamId, delta: number) => void;
   toggleKillingFloor: (teamId: TeamId) => void;
   updateTeamProfile: (teamId: TeamId, patch: Partial<Team>) => void;
@@ -1374,9 +1376,32 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       commitState((prev) => {
         const nextSubs = { ...prev.submissions };
         delete nextSubs[teamId];
+        const nextBuzzer = (prev.buzzerQueue || [])
+          .filter((b) => b.teamId !== teamId)
+          .map((b, idx) => ({ ...b, rank: idx + 1 }));
+        const nextClaims = prev.round.chronoFastFingerClaims
+          ? { ...prev.round.chronoFastFingerClaims }
+          : undefined;
+        if (nextClaims) {
+          for (const [y, owner] of Object.entries(nextClaims)) {
+            if (owner === teamId) delete nextClaims[y];
+          }
+        }
+        const nextTraps = prev.round.chronoTrapsPlaced
+          ? { ...prev.round.chronoTrapsPlaced }
+          : undefined;
+        if (nextTraps && nextTraps[teamId]) {
+          delete nextTraps[teamId];
+        }
         return {
           ...prev,
           submissions: nextSubs,
+          buzzerQueue: nextBuzzer,
+          round: {
+            ...prev.round,
+            ...(nextClaims ? { chronoFastFingerClaims: nextClaims } : {}),
+            ...(nextTraps ? { chronoTrapsPlaced: nextTraps } : {}),
+          },
         };
       });
     },
@@ -1385,10 +1410,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const pressTeamBuzzer = useCallback(
     (teamId: TeamId) => {
-      if (stateRef.current.round.status !== 'ACTIVE') return;
+      const isHostCall = clientRoleRef.current === 'HOST';
+      if (!isHostCall && stateRef.current.round.status !== 'ACTIVE') return;
       if (stateRef.current.buzzerQueue.some((b) => b.teamId === teamId)) return;
       soundFX.playSubmit();
-      dispatchPlayerAction('PRESS_BUZZER', teamId, {});
+      dispatchPlayerAction('PRESS_BUZZER', teamId, { force: isHostCall });
     },
     [dispatchPlayerAction]
   );
@@ -1714,9 +1740,23 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const submitSnakeDraftPick = useCallback(
     (teamId: TeamId, doorKey: string) => {
       soundFX.playSubmit();
-      dispatchPlayerAction('SNAKE_PICK', teamId, { doorKey });
+      dispatchPlayerAction('SNAKE_PICK', teamId, {
+        doorKey,
+        force: clientRoleRef.current === 'HOST',
+      });
     },
     [dispatchPlayerAction]
+  );
+
+  const undoTeamSnakePick = useCallback(
+    (teamId: TeamId) => {
+      commitState((prev) => {
+        const next = structuredClone(prev);
+        const ok = undoLastTeamSnakePick(next, teamId);
+        return ok ? next : prev;
+      });
+    },
+    [commitState]
   );
 
   const finishEightDoorsGame = useCallback(() => {
@@ -1831,7 +1871,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const placeChronoTraps = useCallback(
     (teamId: TeamId, allocations: Partial<Record<TeamId, number>>) => {
       soundFX.playSubmit();
-      dispatchPlayerAction('PLACE_CHRONO_TRAPS', teamId, { allocations });
+      dispatchPlayerAction('PLACE_CHRONO_TRAPS', teamId, {
+        allocations,
+        force: clientRoleRef.current === 'HOST',
+      });
     },
     [dispatchPlayerAction]
   );
@@ -1839,7 +1882,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const claimChronoYear = useCallback(
     (teamId: TeamId, year: number) => {
       soundFX.playSubmit();
-      dispatchPlayerAction('CLAIM_CHRONO_YEAR', teamId, { year });
+      dispatchPlayerAction('CLAIM_CHRONO_YEAR', teamId, {
+        year,
+        force: clientRoleRef.current === 'HOST',
+      });
     },
     [dispatchPlayerAction]
   );
@@ -1915,7 +1961,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const selectToyFactoryDataset = useCallback(
     (teamId: TeamId, datasetId: string) => {
       soundFX.playSubmit();
-      dispatchPlayerAction('SELECT_TOY_DATASET', teamId, { datasetId });
+      dispatchPlayerAction('SELECT_TOY_DATASET', teamId, {
+        datasetId,
+        force: clientRoleRef.current === 'HOST',
+      });
     },
     [dispatchPlayerAction]
   );
@@ -1948,7 +1997,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const triggerToyFactoryShuffle = useCallback(
     (spectatorTeamId: TeamId) => {
       soundFX.playBuzzer(1);
-      dispatchPlayerAction('TOY_SHUFFLE', spectatorTeamId, {});
+      dispatchPlayerAction('TOY_SHUFFLE', spectatorTeamId, {
+        force: clientRoleRef.current === 'HOST',
+      });
     },
     [dispatchPlayerAction]
   );
@@ -2772,18 +2823,65 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [commitState]
   );
 
+  const adjustLmsStep = useCallback(
+    (teamId: TeamId, delta: number) => {
+      commitState((prev) => {
+        const lms = prev.round.lastMan;
+        if (!lms || !lms.teamStates[teamId]) return prev;
+        const currentTs = lms.teamStates[teamId];
+        const nextStep = Math.max(0, Math.min(25, currentTs.step + delta));
+        const nextTs = {
+          ...currentTs,
+          step: nextStep,
+        };
+        return {
+          ...prev,
+          round: {
+            ...prev.round,
+            lastMan: {
+              ...lms,
+              teamStates: {
+                ...lms.teamStates,
+                [teamId]: nextTs,
+              },
+            },
+          },
+        };
+      });
+    },
+    [commitState]
+  );
+
   const toggleKillingFloor = useCallback(
     (teamId: TeamId) => {
-      commitState((prev) => ({
-        ...prev,
-        teams: {
-          ...prev.teams,
-          [teamId]: {
-            ...prev.teams[teamId],
-            isInKillingFloor: !prev.teams[teamId].isInKillingFloor,
+      commitState((prev) => {
+        const nextFlag = !prev.teams[teamId].isInKillingFloor;
+        const lms = prev.round.lastMan;
+        const nextLms =
+          lms && lms.teamStates[teamId]
+            ? {
+                ...lms,
+                teamStates: {
+                  ...lms.teamStates,
+                  [teamId]: {
+                    ...lms.teamStates[teamId],
+                    inKillingFloor: nextFlag,
+                  },
+                },
+              }
+            : lms;
+        return {
+          ...prev,
+          teams: {
+            ...prev.teams,
+            [teamId]: {
+              ...prev.teams[teamId],
+              isInKillingFloor: nextFlag,
+            },
           },
-        },
-      }));
+          round: nextLms ? { ...prev.round, lastMan: nextLms } : prev.round,
+        };
+      });
     },
     [commitState]
   );
@@ -3922,6 +4020,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         shuffleDoors,
         bailoutNiceShield,
         submitSnakeDraftPick,
+        undoTeamSnakePick,
         finishEightDoorsGame,
         switchEightDoorsSubRound,
         switchChronoSubRound,
@@ -3977,6 +4076,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         adjustShields,
         adjustCandles,
         adjustLmsHearts,
+        adjustLmsStep,
         toggleKillingFloor,
         updateTeamProfile,
         undoLastTransaction,
