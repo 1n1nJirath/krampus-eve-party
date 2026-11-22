@@ -26,6 +26,10 @@ import {
   getChronoTrapsReceived,
   getSuggestedSafeRange,
 } from '../data/initialData';
+import {
+  isToyFactoryPeekWindowOpen,
+  shouldMountToyFactoryItems,
+} from '../logic/toyFactoryLogic';
 import { LastManShopItemId, TeamId } from '../types/game';
 import { CountdownTimer } from '../components/CountdownTimer';
 import { TeamSouthParkAvatar } from '../components/SouthParkArt';
@@ -37,6 +41,7 @@ export const TeamController: React.FC = () => {
     pendingActions,
     actionSyncError,
     clearActionSyncError,
+    getAuthoritativeNow,
     registerTeam,
     submitTeamAnswer,
     pressTeamBuzzer,
@@ -106,8 +111,12 @@ export const TeamController: React.FC = () => {
   const [draftParity, setDraftParity] = useState<'EVEN' | 'ODD'>('EVEN');
   const [draftTrapAllocations, setDraftTrapAllocations] = useState<Partial<Record<TeamId, number>>>({});
 
-  // Game 3 ("THE TOY FACTORY CHAOS") live timer & vibration
-  const [toyNowMs, setToyNowMs] = useState<number>(() => Date.now());
+  // Game 3 ("THE TOY FACTORY CHAOS") live timer, Hold-to-Reveal & Anti-Screenshot focus guard
+  const [toyNowMs, setToyNowMs] = useState<number>(() => getAuthoritativeNow());
+  const [isHoldingToyReveal, setIsHoldingToyReveal] = useState<boolean>(false);
+  const [isWindowFocused, setIsWindowFocused] = useState<boolean>(() =>
+    typeof document !== 'undefined' ? !document.hidden : true
+  );
 
   // Game 4 ("THE LAST MAN STANDING") Black Market debounce & target modal
   const [lmsPendingTargetItem, setLmsPendingTargetItem] = useState<LastManShopItemId | null>(null);
@@ -116,10 +125,46 @@ export const TeamController: React.FC = () => {
   const isToyFactoryActive = round.gameStage === 'QUIXORT' && Boolean(round.toyFactory);
   useEffect(() => {
     if (!isToyFactoryActive) return;
-    setToyNowMs(Date.now());
-    const id = setInterval(() => setToyNowMs(Date.now()), 250);
+    setToyNowMs(getAuthoritativeNow());
+    const id = setInterval(() => setToyNowMs(getAuthoritativeNow()), 100);
     return () => clearInterval(id);
-  }, [isToyFactoryActive]);
+  }, [isToyFactoryActive, getAuthoritativeNow]);
+
+  // Reset Hold-to-Reveal whenever Toy Factory phase or timer window changes
+  useEffect(() => {
+    setIsHoldingToyReveal(false);
+  }, [round.toyFactory?.phase, round.toyFactory?.prepEndsAt, round.toyFactory?.bufferEndsAt]);
+
+  // Anti-Screenshot web deterrents: immediately hide/unmount item text on window blur or visibilitychange
+  useEffect(() => {
+    const handleBlur = () => {
+      setIsHoldingToyReveal(false);
+      setIsWindowFocused(false);
+    };
+    const handleFocus = () => {
+      if (typeof document === 'undefined' || !document.hidden) {
+        setIsWindowFocused(true);
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        setIsHoldingToyReveal(false);
+        setIsWindowFocused(false);
+      } else {
+        setIsWindowFocused(true);
+      }
+    };
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('pagehide', handleBlur);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('pagehide', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   useEffect(() => {
     const tf = round.toyFactory;
@@ -1841,126 +1886,220 @@ export const TeamController: React.FC = () => {
                   </div>
                 )}
 
-                {/* PREP_10S / ACTION / SHUFFLE_BUFFER_10S */}
+                {/* PREP_10S (20s Window) / ACTION / SHUFFLE_BUFFER_10S */}
                 {(tf.phase === 'PREP_10S' ||
                   tf.phase === 'ACTION' ||
-                  tf.phase === 'SHUFFLE_BUFFER_10S') && (
-                  <div className="flex-1 flex flex-col gap-3">
-                    {isHolding && (
-                      <>
-                        {tf.phase === 'PREP_10S' && (
-                          <div className="rounded-2xl bg-amber-500 text-black border-2 border-black p-3 text-center font-black">
-                            ⏱️ เตรียมความพร้อม! จำโพยของตัวเอง ({prepRemainingSec} วิ)
+                  tf.phase === 'SHUFFLE_BUFFER_10S') &&
+                  (() => {
+                    const isPeekWindowOpen = isToyFactoryPeekWindowOpen(
+                      tf.phase,
+                      toyNowMs,
+                      tf.prepEndsAt,
+                      tf.bufferEndsAt
+                    );
+                    const canMountSecretItems = shouldMountToyFactoryItems({
+                      phase: tf.phase,
+                      nowMs: toyNowMs,
+                      prepEndsAt: tf.prepEndsAt,
+                      bufferEndsAt: tf.bufferEndsAt,
+                      isHoldingReveal: isHoldingToyReveal,
+                      isWindowFocused,
+                    });
+                    const activePeekSeconds =
+                      tf.phase === 'PREP_10S' ? prepRemainingSec : bufferRemainingSec;
+
+                    return (
+                      <div
+                        className="flex-1 flex flex-col gap-3 select-none"
+                        onContextMenu={(e) => e.preventDefault()}
+                        style={{
+                          WebkitTouchCallout: 'none',
+                          WebkitUserSelect: 'none',
+                          userSelect: 'none',
+                        }}
+                      >
+                        {isHolding && (
+                          <>
+                            {tf.phase === 'PREP_10S' && (
+                              <div
+                                className={`rounded-2xl border-2 border-black p-3 text-center font-black transition-all ${
+                                  prepRemainingSec > 0
+                                    ? 'bg-amber-500 text-black'
+                                    : 'bg-red-950 text-red-200 border-red-500'
+                                }`}
+                              >
+                                {prepRemainingSec > 0
+                                  ? `⏱️ เตรียมความพร้อม 20 วินาที! จำโพยของตัวเอง (${prepRemainingSec} วิ)`
+                                  : '🔒 หมดเวลาดูโพย 20 วินาทีแล้ว! ระบบซ่อนข้อมูลอัตโนมัติ'}
+                              </div>
+                            )}
+                            {tf.phase === 'SHUFFLE_BUFFER_10S' && (
+                              <div
+                                className={`rounded-2xl border-4 border-black p-3 text-center shadow-[0_0_20px_rgba(250,204,21,0.7)] ${
+                                  bufferRemainingSec > 0
+                                    ? 'bg-yellow-400 text-black animate-pulse'
+                                    : 'bg-red-950 text-red-200 border-red-500'
+                                }`}
+                              >
+                                <div className="text-base font-black">
+                                  ⚡ โดน SHUFFLE! สลับคนถือข้อมูลแล้ว!
+                                </div>
+                                <div className="text-xs font-extrabold mt-0.5">
+                                  {bufferRemainingSec > 0
+                                    ? `รีบเช็กข้อมูลใหม่ของตัวเองภายใน ${bufferRemainingSec} วินาที!`
+                                    : '🔒 หมดเวลา Buffer แล้ว! ระบบซ่อนข้อมูลอัตโนมัติ'}
+                                </div>
+                              </div>
+                            )}
+
+                            {isPeekWindowOpen ? (
+                              <>
+                                {/* Hold-to-Reveal Anti-Screenshot Button */}
+                                <button
+                                  type="button"
+                                  onContextMenu={(e) => e.preventDefault()}
+                                  onPointerDown={() => setIsHoldingToyReveal(true)}
+                                  onPointerUp={() => setIsHoldingToyReveal(false)}
+                                  onPointerLeave={() => setIsHoldingToyReveal(false)}
+                                  onPointerCancel={() => setIsHoldingToyReveal(false)}
+                                  onTouchStart={() => setIsHoldingToyReveal(true)}
+                                  onTouchEnd={() => setIsHoldingToyReveal(false)}
+                                  onTouchCancel={() => setIsHoldingToyReveal(false)}
+                                  className={`w-full py-4 px-4 rounded-2xl border-4 border-black font-black text-base shadow-[4px_4px_0px_#000] transition-all select-none ${
+                                    canMountSecretItems
+                                      ? 'bg-emerald-500 text-slate-950 scale-[0.99]'
+                                      : 'bg-amber-400 hover:bg-amber-300 text-slate-950 animate-pulse'
+                                  }`}
+                                >
+                                  {canMountSecretItems
+                                    ? `👁️ กำลังเปิดดูโพยลับ (${activePeekSeconds} วิ) — ปล่อยนิ้วเพื่อซ่อนทันที`
+                                    : `👆 กดค้างไว้เพื่อเปิดดูโพยลับ (Hold to Peek • ${activePeekSeconds} วิ)`}
+                                </button>
+
+                                {canMountSecretItems ? (
+                                  <div
+                                    className="space-y-2 overflow-y-auto max-h-[380px] pr-1 select-none"
+                                    onContextMenu={(e) => e.preventDefault()}
+                                  >
+                                    {tf.assignments.map((a, idx) => (
+                                      <div
+                                        key={`${a.itemId}-${idx}`}
+                                        className={`rounded-2xl p-3 border-2 transition-all ${
+                                          a.changedOnShuffle
+                                            ? 'bg-yellow-400/20 border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.45)]'
+                                            : a.isMystery
+                                            ? 'bg-purple-950/70 border-purple-400'
+                                            : 'bg-slate-900 border-slate-700'
+                                        }`}
+                                      >
+                                        <div className="flex items-center justify-between gap-2">
+                                          <span className="text-sm font-black text-amber-300">
+                                            👤 {a.memberName}
+                                          </span>
+                                          {a.changedOnShuffle && (
+                                            <span className="px-2 py-0.5 rounded bg-yellow-400 text-black text-[10px] font-black">
+                                              🔄 สลับใหม่!
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="mt-1 text-base font-black text-white">
+                                          {a.isMystery ? '❓ ??? (ตัวปริศนา)' : a.label}
+                                        </div>
+                                        {a.isMystery && (
+                                          <div className="mt-1 text-xs font-bold text-purple-200 bg-purple-900/60 rounded-lg px-2.5 py-1.5">
+                                            💡 คำใบ้: {a.mysteryClue || 'ไม่มีคำใบ้'}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-slate-950 border-2 border-amber-500/50 p-6 text-center gap-2">
+                                    <div className="text-4xl">🛡️</div>
+                                    <div className="text-base font-black text-amber-300">
+                                      โหมดป้องกันการแคปหน้าจอ (Anti-Screenshot Shield)
+                                    </div>
+                                    <p className="text-xs text-slate-300 leading-relaxed">
+                                      กดปุ่มสีทองด้านบนค้างไว้เพื่อดูข้อมูลของสมาชิกในทีม • ทันทีที่ปล่อยนิ้วหรือหมดเวลา 20 วินาที ข้อมูลจะถูกลบออกจากหน้าจอทันที!
+                                    </p>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              /* Auto-Hidden & Completely Unmounted from DOM once 20s timer hits 0 or during ACTION phase */
+                              <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-slate-950 border-4 border-rose-500/80 p-6 text-center gap-3 shadow-xl">
+                                <Lock className="w-14 h-14 text-rose-400 animate-pulse" />
+                                <h3 className="text-xl font-black text-white">
+                                  🔒 ข้อมูลโพยลับถูกซ่อนแล้ว!
+                                </h3>
+                                <p className="text-sm font-bold text-amber-300 leading-relaxed">
+                                  หมดเวลาดูโพยแล้ว — ห้ามดูหน้าจอ! ใช้ความจำของคุณในการตอบคำถามเพื่อนทีมจัดเรียงเท่านั้น!
+                                </p>
+                              </div>
+                            )}
+                          </>
+                        )}
+
+                        {isSorting && (
+                          <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-emerald-950/40 border-2 border-emerald-500/60 p-5 text-center gap-3">
+                            <div className="text-4xl">
+                              {tf.phase === 'SHUFFLE_BUFFER_10S' ? '⏸️' : '🏃'}
+                            </div>
+                            <h3 className="text-xl font-black text-white">
+                              {tf.phase === 'PREP_10S'
+                                ? `เตรียมพร้อม! เริ่มใน ${prepRemainingSec} วิ`
+                                : tf.phase === 'SHUFFLE_BUFFER_10S'
+                                ? `หยุดถาม! ทีมถือข้อมูลโดน SHUFFLE (${bufferRemainingSec} วิ)`
+                                : 'ตะโกนถามเพื่อน แล้ววิ่งไปเรียงลำดับหน้าเวที!'}
+                            </h3>
+                            <p className="text-xs text-emerald-200 font-semibold">
+                              ห้ามเดินไปแอบดูมือถือทีมถือข้อมูล! ฟังคำตอบจากปากเพื่อนเท่านั้น
+                            </p>
                           </div>
                         )}
-                        {tf.phase === 'SHUFFLE_BUFFER_10S' && (
-                          <div className="rounded-2xl bg-yellow-400 text-black border-4 border-black p-3 text-center animate-pulse shadow-[0_0_20px_rgba(250,204,21,0.7)]">
-                            <div className="text-base font-black">
-                              ⚡ โดน SHUFFLE! สลับคนถือข้อมูลแล้ว!
+
+                        {isSpectator && (
+                          <div className="flex-1 flex flex-col justify-between gap-3">
+                            <div className="rounded-2xl bg-slate-900 border border-slate-700 p-4 text-center">
+                              <div className="text-xs font-bold text-slate-300">
+                                {tf.phase === 'PREP_10S'
+                                  ? `เตรียมพร้อม... (${prepRemainingSec} วิ)`
+                                  : tf.phase === 'SHUFFLE_BUFFER_10S'
+                                  ? `⏸️ SHUFFLE ทำงาน! พักเบรก ${bufferRemainingSec} วินาที`
+                                  : 'จับจังหวะดีๆ แล้วกดปุ่ม SHUFFLE เพื่อสลับคนถือข้อมูล!'}
+                              </div>
                             </div>
-                            <div className="text-xs font-extrabold mt-0.5">
-                              รีบเช็กข้อมูลใหม่ของตัวเองภายใน {bufferRemainingSec} วินาที!
-                            </div>
-                          </div>
-                        )}
-                        <div className="text-xs font-bold text-amber-300 text-center">
-                          🔒 ข้อมูลลับสำหรับทีมถือข้อมูล (ห้ามให้ทีมอื่นแอบดูหน้าจอ!)
-                        </div>
-                        <div className="space-y-2 overflow-y-auto max-h-[420px] pr-1">
-                          {tf.assignments.map((a, idx) => (
-                            <div
-                              key={`${a.itemId}-${idx}`}
-                              className={`rounded-2xl p-3 border-2 transition-all ${
-                                a.changedOnShuffle
-                                  ? 'bg-yellow-400/20 border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.45)]'
-                                  : a.isMystery
-                                  ? 'bg-purple-950/70 border-purple-400'
-                                  : 'bg-slate-900 border-slate-700'
+
+                            <SafeActionButton
+                              type="button"
+                              disabled={!canClickShuffle}
+                              loadingText="กำลังส่ง SHUFFLE..."
+                              onClick={() => triggerToyFactoryShuffle(selectedTeamId)}
+                              className={`flex-1 min-h-[150px] rounded-3xl border-4 border-black p-6 flex flex-col items-center justify-center gap-2 font-black transition-all ${
+                                canClickShuffle
+                                  ? 'bg-red-600 hover:bg-red-500 active:scale-95 text-white shadow-[6px_6px_0px_#000] animate-pulse'
+                                  : 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-75'
                               }`}
                             >
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-sm font-black text-amber-300">
-                                  👤 {a.memberName}
-                                </span>
-                                {a.changedOnShuffle && (
-                                  <span className="px-2 py-0.5 rounded bg-yellow-400 text-black text-[10px] font-black">
-                                    🔄 สลับใหม่!
-                                  </span>
-                                )}
-                              </div>
-                              <div className="mt-1 text-base font-black text-white">
-                                {a.isMystery ? '❓ ??? (ตัวปริศนา)' : a.label}
-                              </div>
-                              {a.isMystery && (
-                                <div className="mt-1 text-xs font-bold text-purple-200 bg-purple-900/60 rounded-lg px-2.5 py-1.5">
-                                  💡 คำใบ้: {a.mysteryClue || 'ไม่มีคำใบ้'}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    )}
-
-                    {isSorting && (
-                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-emerald-950/40 border-2 border-emerald-500/60 p-5 text-center gap-3">
-                        <div className="text-4xl">
-                          {tf.phase === 'SHUFFLE_BUFFER_10S' ? '⏸️' : '🏃'}
-                        </div>
-                        <h3 className="text-xl font-black text-white">
-                          {tf.phase === 'PREP_10S'
-                            ? `เตรียมพร้อม! เริ่มใน ${prepRemainingSec} วิ`
-                            : tf.phase === 'SHUFFLE_BUFFER_10S'
-                            ? `หยุดถาม! ทีมถือข้อมูลโดน SHUFFLE (${bufferRemainingSec} วิ)`
-                            : 'ตะโกนถามเพื่อน แล้ววิ่งไปเรียงลำดับหน้าเวที!'}
-                        </h3>
-                        <p className="text-xs text-emerald-200 font-semibold">
-                          ห้ามเดินไปแอบดูมือถือทีมถือข้อมูล! ฟังคำตอบจากปากเพื่อนเท่านั้น
-                        </p>
-                      </div>
-                    )}
-
-                    {isSpectator && (
-                      <div className="flex-1 flex flex-col justify-between gap-3">
-                        <div className="rounded-2xl bg-slate-900 border border-slate-700 p-4 text-center">
-                          <div className="text-xs font-bold text-slate-300">
-                            {tf.phase === 'PREP_10S'
-                              ? `เตรียมพร้อม... (${prepRemainingSec} วิ)`
-                              : tf.phase === 'SHUFFLE_BUFFER_10S'
-                              ? `⏸️ SHUFFLE ทำงาน! พักเบรก ${bufferRemainingSec} วินาที`
-                              : 'จับจังหวะดีๆ แล้วกดปุ่ม SHUFFLE เพื่อสลับคนถือข้อมูล!'}
+                              <span className="text-4xl">🔀</span>
+                              <span className="text-2xl">SHUFFLE! สลับคนถือ</span>
+                              <span className="text-xs font-bold">
+                                {alreadyUsedShuffleQuota
+                                  ? 'ทีมคุณใช้สิทธิ์ครบแล้ว (1 ครั้ง/เกม)'
+                                  : roundShuffleTaken
+                                  ? 'รอบนี้มีทีมกด SHUFFLE ไปแล้ว'
+                                  : isLast15Sec
+                                  ? 'ล็อกปุ่มอัตโนมัติใน 15 วินาทีสุดท้าย!'
+                                  : tf.phase !== 'ACTION'
+                                  ? 'กดได้เฉพาะช่วงเวลา Action เท่านั้น'
+                                  : 'กดได้ 1 ครั้งตลอดทั้งเกม!'}
+                              </span>
+                            </SafeActionButton>
                           </div>
-                        </div>
-
-                        <SafeActionButton
-                          type="button"
-                          disabled={!canClickShuffle}
-                          loadingText="กำลังส่ง SHUFFLE..."
-                          onClick={() => triggerToyFactoryShuffle(selectedTeamId)}
-                          className={`flex-1 min-h-[150px] rounded-3xl border-4 border-black p-6 flex flex-col items-center justify-center gap-2 font-black transition-all ${
-                            canClickShuffle
-                              ? 'bg-red-600 hover:bg-red-500 active:scale-95 text-white shadow-[6px_6px_0px_#000] animate-pulse'
-                              : 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-75'
-                          }`}
-                        >
-                          <span className="text-4xl">🔀</span>
-                          <span className="text-2xl">SHUFFLE! สลับคนถือ</span>
-                          <span className="text-xs font-bold">
-                            {alreadyUsedShuffleQuota
-                              ? 'ทีมคุณใช้สิทธิ์ครบแล้ว (1 ครั้ง/เกม)'
-                              : roundShuffleTaken
-                              ? 'รอบนี้มีทีมกด SHUFFLE ไปแล้ว'
-                              : isLast15Sec
-                              ? 'ล็อกปุ่มอัตโนมัติใน 15 วินาทีสุดท้าย!'
-                              : tf.phase !== 'ACTION'
-                              ? 'กดได้เฉพาะช่วงเวลา Action เท่านั้น'
-                              : 'กดได้ 1 ครั้งตลอดทั้งเกม!'}
-                          </span>
-                        </SafeActionButton>
+                        )}
                       </div>
-                    )}
-                  </div>
-                )}
+                    );
+                  })()}
 
                 {/* REVEAL_JUDGE */}
                 {tf.phase === 'REVEAL_JUDGE' && (
@@ -2003,38 +2142,60 @@ export const TeamController: React.FC = () => {
               setTimeout(() => setLmsShopBusy(false), 350);
             };
 
+            const latestAction = lms.killFeed && lms.killFeed.length > 0 ? lms.killFeed[0] : null;
+
             return (
               <div className="flex-1 flex flex-col gap-3">
+                {/* Single Live Action Toast Banner (One at a time, High Contrast) */}
+                {latestAction && (
+                  <div
+                    key={latestAction.id}
+                    className="rounded-2xl bg-black border-2 border-amber-400 px-3.5 py-2.5 shadow-[0_0_20px_rgba(245,158,11,0.3)] flex items-center gap-2.5"
+                  >
+                    <span className="text-2xl shrink-0">{latestAction.icon}</span>
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-mono font-black text-amber-400 uppercase tracking-wider">
+                        ⚡ LIVE ACTION
+                      </div>
+                      <div className="text-sm font-black text-white leading-snug">
+                        {latestAction.message}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Status Bar: Hearts, Zone, Shields, Jetpacks, Soul Sacrifice */}
-                <div className="rounded-2xl bg-slate-900 border-2 border-rose-500/60 p-3 space-y-2">
+                <div className="rounded-2xl bg-slate-950 border-2 border-rose-500/70 p-3.5 space-y-2.5">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2 text-sm font-black">
-                      <span className="px-2.5 py-1 rounded-xl bg-rose-950 border border-rose-500/60 text-rose-300">
+                      <span className="px-3 py-1 rounded-xl bg-rose-950 border border-rose-500/80 text-rose-200 text-base">
                         {myState.isGhost ? '👻 สถานะวิญญาณ' : `❤️ ${myState.hearts}/4 ดวง`}
                       </span>
                       {!myState.isGhost && isPart1 && (
                         <span
-                          className={`px-2.5 py-1 rounded-xl text-xs font-black ${
+                          className={`px-3 py-1 rounded-xl text-xs font-black ${
                             myState.inKillingFloor
                               ? 'bg-red-600 text-white'
-                              : 'bg-emerald-700 text-white'
+                              : 'bg-emerald-600 text-slate-950'
                           }`}
                         >
                           {myState.inKillingFloor ? '💀 ลานประหาร' : '🛡️ โซนปลอดภัย'}
                         </span>
                       )}
                       {lms.phase.startsWith('PART2_') && (
-                        <span className="px-2.5 py-1 rounded-xl bg-amber-500 text-black text-xs font-black">
+                        <span className="px-3 py-1 rounded-xl bg-amber-400 text-black text-sm font-black">
                           🪜 ขั้น {myState.step}/25
                         </span>
                       )}
                     </div>
                     <div className="flex items-center gap-1.5 text-xs font-bold">
                       {myState.mirrorShield && (
-                        <span className="px-2 py-0.5 rounded bg-cyan-600 text-white">🪞 โล่กระจก</span>
+                        <span className="px-2.5 py-1 rounded-lg bg-cyan-500 text-slate-950 font-black">
+                          🪞 โล่กระจก
+                        </span>
                       )}
                       {myState.jetpacks > 0 && (
-                        <span className="px-2 py-0.5 rounded bg-amber-400 text-black font-black">
+                        <span className="px-2.5 py-1 rounded-lg bg-amber-400 text-black font-black">
                           🚀 x{myState.jetpacks}
                         </span>
                       )}
@@ -2047,7 +2208,7 @@ export const TeamController: React.FC = () => {
                       disabled={isAnyActionPending}
                       loadingText="กำลังขายวิญญาณ..."
                       onClick={() => lmsSoulSacrifice(selectedTeamId)}
-                      className="w-full py-2 rounded-xl bg-rose-950 hover:bg-rose-900 border border-rose-500 text-rose-200 font-black text-xs flex items-center justify-center gap-1.5"
+                      className="w-full py-2.5 rounded-xl bg-rose-950 hover:bg-rose-900 border-2 border-rose-500 text-rose-100 font-black text-xs flex items-center justify-center gap-1.5"
                     >
                       💔 ขายวิญญาณ (-1 ❤️ แลกเงินสด +500 ฿)
                     </SafeActionButton>
@@ -2055,40 +2216,48 @@ export const TeamController: React.FC = () => {
 
                   {myCurse && (
                     <div className="rounded-xl bg-purple-950 border-2 border-purple-400 p-2.5 text-center animate-pulse">
-                      <div className="text-xs font-black text-yellow-300">
+                      <div className="text-sm font-black text-yellow-300">
                         {myCurse.icon} ทีมคุณติดคำสาป: {myCurse.name}
                       </div>
-                      <div className="text-[11px] text-purple-100 mt-0.5">{myCurse.desc}</div>
+                      <div className="text-xs text-purple-100 mt-0.5">{myCurse.desc}</div>
                     </div>
                   )}
                 </div>
 
                 {/* KRAMPUS_TWIST */}
                 {lms.phase === 'KRAMPUS_TWIST' && (
-                  <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-rose-950/60 border-2 border-rose-500 p-6 text-center gap-3">
-                    <div className="text-5xl animate-bounce">👹</div>
-                    <h3 className="text-xl font-black text-amber-300">
-                      THE LAST MAN STANDING — ประกาศหักมุม!
+                  <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-black border-4 border-rose-500 p-6 text-center gap-3">
+                    <div className="text-6xl animate-bounce">👹</div>
+                    <h3 className="text-2xl font-black text-amber-300">
+                      THE LAST MAN STANDING
                     </h3>
-                    <p className="text-xs text-slate-200 leading-relaxed">
-                      เงิน Holy Coins เป็นเพียงกระสุนและแต้มต่อ! เตรียมตอบคำถามเอาชีวิตรอด 4 รอบ แล้ววิ่งขึ้นบันไดหนีตาย 25 ขั้นเป็นทีมแรกเพื่อคว้าแชมป์ค่าย!
+                    <p className="text-sm font-bold text-slate-100 leading-relaxed">
+                      เงิน Holy Coins คือกระสุนและแต้มต่อ! เอาชีวิตรอด 4 รอบ แล้ววิ่งขึ้นบันไดหนีตาย 25 ขั้นเป็นทีมแรกเพื่อคว้าแชมป์!
                     </p>
                   </div>
                 )}
 
-                {/* PART1_TRIVIA */}
+                {/* PART1_TRIVIA (High-Contrast Bold Question & Choice Cards) */}
                 {lms.phase === 'PART1_TRIVIA' && (
-                  <div className="flex-1 flex flex-col gap-2.5">
+                  <div className="flex-1 flex flex-col gap-3">
+                    <div className="rounded-2xl bg-black border-2 border-slate-700 p-4 text-center">
+                      <div className="text-base md:text-lg font-black text-white leading-snug">
+                        {round.questionText}
+                      </div>
+                    </div>
+
                     {mySubmission ? (
-                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-emerald-950/50 border-2 border-emerald-400 p-6 text-center">
-                        <CheckCircle2 className="w-12 h-12 text-emerald-400 mb-2" />
-                        <div className="text-xl font-black text-white">
-                          LOCKED IN • ล็อกคำตอบ [{mySubmission.value}] แล้ว!
+                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-emerald-950/80 border-4 border-emerald-400 p-6 text-center">
+                        <CheckCircle2 className="w-14 h-14 text-emerald-400 mb-2" />
+                        <div className="text-2xl font-black text-white">
+                          LOCKED IN • [{mySubmission.value}]
                         </div>
-                        <div className="text-xs text-slate-300 mt-1">รอเฉลยพร้อมกันบนจอใหญ่...</div>
+                        <div className="text-sm font-bold text-emerald-200 mt-1">
+                          รอเฉลยพร้อมกันบนจอใหญ่...
+                        </div>
                       </div>
                     ) : pendingSubmission ? (
-                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-amber-950/80 border-2 border-amber-400 p-6 text-center gap-2">
+                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-amber-950/90 border-4 border-amber-400 p-6 text-center gap-2">
                         <Loader2 className="w-12 h-12 text-amber-400 animate-spin" />
                         <div className="text-xl font-black text-white">
                           กำลังส่งคำตอบ [{String(pendingSubmission.payload?.value ?? '...')}]...
@@ -2100,26 +2269,28 @@ export const TeamController: React.FC = () => {
                         )}
                       </div>
                     ) : round.status !== 'ACTIVE' ? (
-                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-red-950/40 border-2 border-red-500/60 p-6 text-center gap-2">
+                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-red-950/60 border-4 border-red-500 p-6 text-center gap-2">
                         <Lock className="w-12 h-12 text-red-400 mb-1" />
                         <div className="text-xl font-black text-white">
                           🔒 ปิดรับคำตอบแล้ว — รอ Host เฉลย!
                         </div>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 gap-2.5 my-auto">
+                      <div className="grid grid-cols-1 gap-3 my-auto">
                         {round.choices.slice(0, 4).map((c) => (
                           <SafeActionButton
                             key={c.key}
                             type="button"
                             loadingText="กำลังส่งคำตอบ..."
                             onClick={() => submitTeamAnswer(selectedTeamId, c.key)}
-                            className="p-4 rounded-2xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] border-2 border-amber-400/60 text-left flex items-center gap-3"
+                            className="p-4 rounded-2xl bg-black hover:bg-slate-900 active:scale-[0.98] border-[3px] border-amber-400 text-left flex items-center gap-3.5 shadow-lg"
                           >
-                            <span className="w-9 h-9 rounded-xl bg-amber-400 text-black font-black flex items-center justify-center shrink-0">
+                            <span className="w-11 h-11 rounded-xl bg-amber-400 text-black font-mono font-black text-xl flex items-center justify-center shrink-0">
                               {c.key}
                             </span>
-                            <span className="font-bold text-sm text-white">{c.label}</span>
+                            <span className="font-black text-base md:text-lg text-white leading-snug">
+                              {c.label}
+                            </span>
                           </SafeActionButton>
                         ))}
                       </div>
@@ -2523,7 +2694,7 @@ export const TeamController: React.FC = () => {
                   </div>
                 )}
 
-                {/* PART2: GIANT 3-COLOR BUTTONS + JETPACK */}
+                {/* PART2: GIANT 3-COLOR BUTTONS + JETPACK (High-Contrast Readability) */}
                 {(lms.phase === 'PART2_CLUE' ||
                   lms.phase === 'PART2_QUESTION' ||
                   lms.phase === 'PART2_REVEAL' ||
@@ -2535,30 +2706,40 @@ export const TeamController: React.FC = () => {
                         disabled={isAnyActionPending}
                         loadingText="กำลังจุดพลุไอพ่น..."
                         onClick={() => lmsUseJetpack(selectedTeamId)}
-                        className="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-400 to-orange-500 text-black font-black text-base border-4 border-black shadow-[4px_4px_0px_#000] active:scale-95 flex items-center justify-center gap-2 disabled:opacity-60"
+                        className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-400 to-orange-500 text-black font-black text-base border-4 border-black shadow-[4px_4px_0px_#000] active:scale-95 flex items-center justify-center gap-2 disabled:opacity-60"
                       >
                         🚀 จุดพลุไอพ่นหนีตาย (+3 ขั้นทันที! เหลือ {myState.jetpacks})
                       </SafeActionButton>
                     )}
 
+                    {lms.phase !== 'CHAMPION' && round.questionText && (
+                      <div className="rounded-2xl bg-black border-2 border-amber-400/70 p-4 text-center">
+                        <div className="text-base md:text-lg font-black text-white leading-snug">
+                          {round.questionText}
+                        </div>
+                      </div>
+                    )}
+
                     {lms.phase === 'CHAMPION' ? (
-                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-amber-950/60 border-4 border-amber-400 p-6 text-center">
-                        <div className="text-5xl mb-2">🏆</div>
+                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-black border-4 border-amber-400 p-6 text-center">
+                        <div className="text-6xl mb-2">🏆</div>
                         <h3 className="text-2xl font-black text-amber-300">
                           แชมป์คือ {teams[lms.winnerTeamId || 'team1']?.icon}{' '}
                           {teams[lms.winnerTeamId || 'team1']?.name}!
                         </h3>
                       </div>
                     ) : mySubmission && lms.phase === 'PART2_QUESTION' ? (
-                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-emerald-950/60 border-2 border-emerald-400 p-6 text-center">
-                        <CheckCircle2 className="w-12 h-12 text-emerald-400 mb-2" />
+                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-emerald-950/80 border-4 border-emerald-400 p-6 text-center">
+                        <CheckCircle2 className="w-14 h-14 text-emerald-400 mb-2" />
                         <div className="text-2xl font-black text-white">
-                          LOCKED IN • กดสี [{mySubmission.value}] แล้ว!
+                          LOCKED IN • [{mySubmission.value}]
                         </div>
-                        <div className="text-xs text-slate-300 mt-1">รอเฉลยบนจอใหญ่...</div>
+                        <div className="text-sm font-bold text-emerald-200 mt-1">
+                          รอเฉลยบนจอใหญ่...
+                        </div>
                       </div>
                     ) : pendingSubmission && lms.phase === 'PART2_QUESTION' ? (
-                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-amber-950/80 border-2 border-amber-400 p-6 text-center gap-2">
+                      <div className="flex-1 flex flex-col items-center justify-center rounded-3xl bg-amber-950/90 border-4 border-amber-400 p-6 text-center gap-2">
                         <Loader2 className="w-12 h-12 text-amber-400 animate-spin" />
                         <div className="text-2xl font-black text-white">
                           กำลังส่งคำตอบ [{String(pendingSubmission.payload?.value ?? '...')}]...
@@ -2573,13 +2754,30 @@ export const TeamController: React.FC = () => {
                       <div className="flex-1 grid grid-cols-1 gap-3">
                         {(
                           [
-                            { key: 'A', label: 'A สีแดง', bg: 'bg-red-600 hover:bg-red-500 text-white' },
-                            { key: 'B', label: 'B สีน้ำเงิน', bg: 'bg-blue-600 hover:bg-blue-500 text-white' },
-                            { key: 'C', label: 'C สีเหลือง', bg: 'bg-yellow-400 hover:bg-yellow-300 text-black' },
+                            {
+                              key: 'A',
+                              fallback: 'A สีแดง',
+                              bg: 'bg-red-600 hover:bg-red-500 text-white border-white/80',
+                            },
+                            {
+                              key: 'B',
+                              fallback: 'B สีน้ำเงิน',
+                              bg: 'bg-blue-600 hover:bg-blue-500 text-white border-white/80',
+                            },
+                            {
+                              key: 'C',
+                              fallback: 'C สีเหลือง',
+                              bg: 'bg-yellow-400 hover:bg-yellow-300 text-black border-black',
+                            },
                           ] as const
                         ).map((btn) => {
                           const unlocked =
                             lms.phase === 'PART2_QUESTION' && round.status === 'ACTIVE';
+                          const choiceObj = round.choices.find((c) => c.key === btn.key);
+                          const displayLabel =
+                            unlocked && choiceObj?.label
+                              ? `${btn.key} • ${choiceObj.label}`
+                              : btn.fallback;
                           return (
                             <SafeActionButton
                               key={btn.key}
@@ -2587,13 +2785,13 @@ export const TeamController: React.FC = () => {
                               disabled={!unlocked}
                               loadingText="กำลังส่งคำตอบ..."
                               onClick={() => submitTeamAnswer(selectedTeamId, btn.key)}
-                              className={`rounded-3xl border-4 border-black font-black text-3xl flex items-center justify-center gap-2 shadow-[6px_6px_0px_#000] transition-all ${
+                              className={`p-4 rounded-3xl border-4 font-black text-xl md:text-2xl flex items-center justify-center gap-2 shadow-[6px_6px_0px_#000] transition-all ${
                                 unlocked
                                   ? `${btn.bg} active:scale-95`
-                                  : 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-70'
+                                  : 'bg-slate-900 border-slate-700 text-slate-500 cursor-not-allowed opacity-70'
                               }`}
                             >
-                              {unlocked ? btn.label : `🔒 ${btn.label}`}
+                              {unlocked ? displayLabel : `🔒 ${btn.fallback}`}
                             </SafeActionButton>
                           );
                         })}

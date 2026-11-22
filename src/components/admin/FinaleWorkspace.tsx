@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Crown, Map, RotateCcw, Trophy, Clipboard, Download, Check } from 'lucide-react';
 import { useGame } from '../../context/GameContext';
-import { TEAM_ORDER } from '../../data/initialData';
+import { computeFinaleTeamsRanking } from '../../logic/adminFlowLogic';
 import { SafeActionButton } from '../SafeActionButton';
+import { TeamSouthParkAvatar } from '../SouthParkArt';
 
 export const FinaleWorkspace: React.FC = () => {
   const {
@@ -14,30 +15,20 @@ export const FinaleWorkspace: React.FC = () => {
 
   const { teams, round } = state;
   const championId = round.lastMan?.winnerTeamId;
-
-  const rankedTeams = [...TEAM_ORDER].sort((a, b) => {
-    if (a === championId) return -1;
-    if (b === championId) return 1;
-    return teams[b].coins - teams[a].coins;
-  });
+  const finaleTeams = computeFinaleTeamsRanking(state);
+  const rankLabels = ['1ST', '2ND', '3RD', '4TH'];
 
   const [copied, setCopied] = useState(false);
 
   const handleCopySummary = () => {
     const lines = [
-      '🎄🏆 สรุปผลการแข่งขัน "THE KRAMPUS EVE" 👹🏆',
+      '🎄🏆 สรุปอันดับสุดท้าย "THE KRAMPUS EVE" 👹🏆',
       '==========================================',
     ];
-    rankedTeams.forEach((tid, idx) => {
-      const t = teams[tid];
-      const isWinner = tid === championId || (idx === 0 && !championId);
+    finaleTeams.forEach((t, idx) => {
       const medal =
-        idx === 0 ? '👑 แชมป์เปี้ยน' : idx === 1 ? '🥈 รองชนะเลิศ' : idx === 2 ? '🥉 อันดับ 3' : '💀 อันดับ 4';
-      lines.push(
-        `${medal}: ${t.icon} ${t.name} — ${t.coins.toLocaleString()} ฿ ${
-          isWinner ? '⭐ (รอดชีวิตคนสุดท้าย!)' : ''
-        }`
-      );
+        idx === 0 ? '🥇 1ST' : idx === 1 ? '🥈 2ND' : idx === 2 ? '🥉 3RD' : '4TH';
+      lines.push(`${medal}: ${t.icon} ${t.name}`);
     });
     lines.push('==========================================');
     lines.push('ขอบคุณผู้กล้าทุกคนที่ร่วมเอาชีวิตรอดในคืนคริสต์มาสอีฟ!');
@@ -54,17 +45,14 @@ export const FinaleWorkspace: React.FC = () => {
       event: 'THE KRAMPUS EVE',
       timestamp: new Date().toISOString(),
       championId,
-      championName: championId ? teams[championId]?.name : null,
-      leaderboard: rankedTeams.map((tid, idx) => ({
+      championName: championId ? teams[championId]?.name : finaleTeams[0]?.name || null,
+      finalRankings: finaleTeams.map((t, idx) => ({
         rank: idx + 1,
-        teamId: tid,
-        name: teams[tid].name,
-        coins: teams[tid].coins,
-        shields: teams[tid].shields,
-        hearts: teams[tid].hearts,
-        roster: teams[tid].roster,
+        rankLabel: rankLabels[idx] || `#${idx + 1}`,
+        teamId: t.id,
+        name: t.name,
+        icon: t.icon,
       })),
-      transactions: state.transactions,
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -148,12 +136,11 @@ export const FinaleWorkspace: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {rankedTeams.map((tid, idx) => {
-            const t = teams[tid];
-            const isWinner = tid === championId || (idx === 0 && !championId);
+          {finaleTeams.map((t, idx) => {
+            const isWinner = idx === 0;
             return (
               <div
-                key={tid}
+                key={t.id}
                 className={`p-4 rounded-2xl border-2 flex items-center justify-between gap-3 ${
                   isWinner
                     ? 'bg-amber-950/50 border-amber-400 shadow-[0_0_25px_rgba(245,158,11,0.25)]'
@@ -161,30 +148,27 @@ export const FinaleWorkspace: React.FC = () => {
                 }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <span className="w-9 h-9 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-center font-mono font-black text-amber-300 shrink-0">
-                    #{idx + 1}
+                  <span
+                    className={`w-12 h-12 rounded-xl border-2 flex items-center justify-center font-mono font-black text-sm shrink-0 ${
+                      isWinner
+                        ? 'bg-amber-400 text-slate-950 border-white'
+                        : 'bg-slate-900 border-slate-700 text-amber-300'
+                    }`}
+                  >
+                    {rankLabels[idx] || `#${idx + 1}`}
                   </span>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-lg">{t.icon}</span>
-                      <span className="font-black text-base text-white truncate">{t.name}</span>
-                      {tid === championId && (
-                        <span className="px-2 py-0.5 rounded bg-amber-400 text-slate-950 text-[10px] font-black shrink-0">
-                          LMS CHAMPION
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-slate-400">
-                      {t.shields > 0 ? `Nice List (🛡️×${t.shields})` : 'Naughty List (0 🛡️)'}
-                    </div>
+                  <TeamSouthParkAvatar slotNumber={t.number} className="w-12 h-12 shrink-0" />
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xl shrink-0">{t.icon}</span>
+                    <span className="font-black text-lg text-white truncate">{t.name}</span>
                   </div>
                 </div>
 
-                <div className="text-right shrink-0">
-                  <div className="font-mono font-black text-lg text-amber-300">
-                    {t.coins.toLocaleString()} ฿
-                  </div>
-                </div>
+                {isWinner && (
+                  <span className="px-2.5 py-1 rounded-lg bg-amber-400 text-slate-950 text-xs font-black shrink-0">
+                    🏆 CHAMPION
+                  </span>
+                )}
               </div>
             );
           })}

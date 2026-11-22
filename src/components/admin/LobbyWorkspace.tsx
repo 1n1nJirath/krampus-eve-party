@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, Lock, Map, QrCode, Sparkles, Unlock } from 'lucide-react';
+import { CheckCircle2, Lock, Map, QrCode, Sparkles, Trophy, Unlock, X } from 'lucide-react';
 import { useGame } from '../../context/GameContext';
 import { TEAM_ORDER } from '../../data/initialData';
 import { AdminTabId } from '../../logic/adminFlowLogic';
@@ -56,6 +56,7 @@ export const LobbyWorkspace: React.FC<LobbyWorkspaceProps> = ({
     state,
     updateTeamProfile,
     setGameStage,
+    setShowLeaderboardOverlay,
     startMansionGame,
     switchEightDoorsSubRound,
     switchChronoSubRound,
@@ -65,8 +66,12 @@ export const LobbyWorkspace: React.FC<LobbyWorkspaceProps> = ({
 
   const { teams, round, clearedStages = [] } = state;
   const regCount = TEAM_ORDER.filter((tid) => teams[tid].isRegistered).length;
+  const sortedByCoins = [...TEAM_ORDER]
+    .map((tid) => teams[tid])
+    .sort((a, b) => (b.coins !== a.coins ? b.coins - a.coins : b.shields - a.shields));
 
   const handleLaunchStage = (stage: GameStage, tab: AdminTabId) => {
+    setShowLeaderboardOverlay(false);
     if (stage === 'POLL_MINE') {
       switchEightDoorsSubRound('SUB1_SURVIVAL');
     } else if (stage === 'TIMEJINX') {
@@ -81,6 +86,55 @@ export const LobbyWorkspace: React.FC<LobbyWorkspaceProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Cumulative Scoreboard Popup Control Banner (Automatically triggered after Game 1, 2, or 3) */}
+      {state.showLeaderboardOverlay && (
+        <div className="rounded-2xl bg-gradient-to-r from-amber-950/90 via-slate-900 to-emerald-950/80 border-2 border-amber-400 p-4 shadow-[0_0_30px_rgba(245,158,11,0.3)] space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-amber-400 text-slate-950">
+                <Trophy className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-xs font-mono font-black text-amber-300 uppercase">
+                  CUMULATIVE SCOREBOARD POPUP ACTIVE ON /DISPLAY
+                </div>
+                <div className="text-sm md:text-base font-black text-white">
+                  กำลังแสดงตารางคะแนนสะสมหลังจบเกม — กดปิดเมื่อพร้อมแล้วเลือกเปิดเกมถัดไปด้านล่าง
+                </div>
+              </div>
+            </div>
+
+            <SafeActionButton
+              type="button"
+              showSpinner={false}
+              onClick={() => setShowLeaderboardOverlay(false)}
+              className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-lg shrink-0"
+            >
+              <X className="w-4 h-4" />
+              <span>ปิด Popup ตารางคะแนนสะสม</span>
+            </SafeActionButton>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {sortedByCoins.map((t, idx) => (
+              <div
+                key={t.id}
+                className="rounded-xl bg-slate-950/90 border border-amber-500/40 px-3 py-2 flex items-center justify-between gap-2"
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-xs font-mono font-black text-amber-400">#{idx + 1}</span>
+                  <span className="text-sm">{t.icon}</span>
+                  <span className="text-xs font-black text-white truncate">{t.name}</span>
+                </div>
+                <span className="font-mono font-black text-xs text-amber-300 shrink-0">
+                  {t.coins.toLocaleString()} ฿
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Lobby Gate Hero Card */}
       <div className="rounded-2xl bg-gradient-to-r from-red-950/70 via-slate-900 to-emerald-950/60 border border-amber-500/40 p-4 md:p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">

@@ -7,6 +7,8 @@ export const BAILOUT_SHIELDS_RESTORED = 2;
 export const FIRST_CORRECT_DOOR_REWARD = 300;
 export const SECOND_CORRECT_DOOR_REWARD = 500; // Cumulative total = +800 (300 + 500)
 export const WRONG_DOOR_SHIELD_PENALTY = 1;
+export const SNAKE_DRAFT_TURN_SECONDS = 45;
+export const SNAKE_DRAFT_TURN_MS = 45000;
 
 export interface BailoutOptions {
   /**
@@ -254,6 +256,12 @@ export function applySnakePickToState(
         prevShields,
       });
     }
+  } else {
+    // Reset selection timer to 45 seconds for the next turn/pick
+    r.durationSeconds = SNAKE_DRAFT_TURN_SECONDS;
+    r.timerStartedAt = now;
+    r.timerEndAt = now + SNAKE_DRAFT_TURN_MS;
+    r.timerRemainingMs = SNAKE_DRAFT_TURN_MS;
   }
   return true;
 }

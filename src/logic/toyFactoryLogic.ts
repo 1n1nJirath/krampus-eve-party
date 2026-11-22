@@ -4,7 +4,58 @@ import {
   TeamId,
   ToyFactoryAssignment,
   ToyFactoryItem,
+  ToyFactoryPhase,
 } from '../types/game';
+
+export const TOY_FACTORY_PREP_SECONDS = 20;
+export const TOY_FACTORY_PREP_MS = 20000;
+export const TOY_FACTORY_SHUFFLE_BUFFER_SECONDS = 10;
+export const TOY_FACTORY_SHUFFLE_BUFFER_MS = 10000;
+
+/**
+ * Pure check for whether the Toy Factory item viewing timer window is currently open (> 0s left).
+ * The exact moment the 20s prep timer (or 10s shuffle buffer) reaches 0 (`nowMs >= endsAt`), returns false.
+ */
+export function isToyFactoryPeekWindowOpen(
+  phase: ToyFactoryPhase | undefined,
+  nowMs: number,
+  prepEndsAt: number | null | undefined,
+  bufferEndsAt: number | null | undefined
+): boolean {
+  if (phase === 'PREP_10S') {
+    return typeof prepEndsAt === 'number' && nowMs < prepEndsAt;
+  }
+  if (phase === 'SHUFFLE_BUFFER_10S') {
+    return typeof bufferEndsAt === 'number' && nowMs < bufferEndsAt;
+  }
+  return false;
+}
+
+/**
+ * Pure check for whether assigned Toy Factory item text is allowed to be mounted in the `/play` DOM.
+ * Requires:
+ * 1) Active peek window (`nowMs < prepEndsAt` during PREP_10S or `nowMs < bufferEndsAt` during SHUFFLE_BUFFER_10S)
+ * 2) User actively holding the Hold-to-Reveal button (`isHoldingReveal === true`)
+ * 3) Browser window focused & visible (`isWindowFocused === true`)
+ */
+export function shouldMountToyFactoryItems(params: {
+  phase: ToyFactoryPhase | undefined;
+  nowMs: number;
+  prepEndsAt: number | null | undefined;
+  bufferEndsAt: number | null | undefined;
+  isHoldingReveal: boolean;
+  isWindowFocused: boolean;
+}): boolean {
+  if (!params.isHoldingReveal || !params.isWindowFocused) {
+    return false;
+  }
+  return isToyFactoryPeekWindowOpen(
+    params.phase,
+    params.nowMs,
+    params.prepEndsAt,
+    params.bufferEndsAt
+  );
+}
 
 export function buildToyFactoryAssignments(
   roster: string[],
@@ -67,7 +118,7 @@ export function applyToyDatasetSelection(
     tf.usedDatasetIds = [...tf.usedDatasetIds, datasetId];
   }
   tf.phase = 'PREP_10S';
-  tf.prepEndsAt = now + 10000;
+  tf.prepEndsAt = now + TOY_FACTORY_PREP_MS;
   tf.assignments = assignments;
   next.round.status = 'ACTIVE';
   next.round.briefingOpen = false;

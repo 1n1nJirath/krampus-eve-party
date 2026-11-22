@@ -55,8 +55,6 @@ export const Game3ToyFactoryWorkspace: React.FC<Game3ToyFactoryWorkspaceProps> =
     if (!tf) return;
     if (tf.roundIndex >= tf.pairings.length) {
       finishToyFactoryGame();
-      startLastManStandingGame();
-      onAdvanceToGame4();
     } else {
       nextToyFactoryRound();
     }
@@ -242,7 +240,7 @@ export const Game3ToyFactoryWorkspace: React.FC<Game3ToyFactoryWorkspaceProps> =
                       ? '2. ⏳ รอทีมเรียงเลือกหัวข้อ...'
                       : '2. ▶️ ปลดล็อกให้เลือกหัวข้อ'
                     : tf.phase === 'PREP_10S'
-                    ? '2. ▶️ ครบ 10 วิ: เริ่มจับเวลาหลัก!'
+                    ? '2. ▶️ ครบ 20 วิ: เริ่มจับเวลาหลัก!'
                     : tf.phase === 'SHUFFLE_BUFFER_10S'
                     ? '2. ▶️ ครบ Buffer: เดินเวลาต่อ!'
                     : '2. ⏱️ กำลังเดินเวลาหลัก',
@@ -250,7 +248,7 @@ export const Game3ToyFactoryWorkspace: React.FC<Game3ToyFactoryWorkspaceProps> =
                   tf.phase === 'TOPIC_SELECT'
                     ? 'ปลดล็อกให้ทีมจัดเรียงจิ้มโจทย์บนมือถือ'
                     : tf.phase === 'PREP_10S'
-                    ? 'หลังทีมถือโพยเช็กข้อมูล 10 วิครบ'
+                    ? 'หลังทีมถือโพยเช็กข้อมูล 20 วิครบ (ซ่อนอัตโนมัติ)'
                     : tf.phase === 'SHUFFLE_BUFFER_10S'
                     ? 'หลังสลับคนถือโพย 10 วิครบ'
                     : 'ช่วงทีมจัดเรียงวิ่งล่าคำตอบ',
@@ -295,11 +293,11 @@ export const Game3ToyFactoryWorkspace: React.FC<Game3ToyFactoryWorkspaceProps> =
               step4={{
                 label:
                   tf.roundIndex >= tf.pairings.length
-                    ? '4. 🏁 จบเกมที่ 3 ➔ ไปเกมที่ 4'
+                    ? '4. 🏁 จบเกมที่ 3 ➔ กลับ Lobby & สรุปคะแนน'
                     : `4. ⏭️ รอบที่ ${tf.roundIndex + 1} (Standby)`,
                 sublabel:
                   tf.roundIndex >= tf.pairings.length
-                    ? 'สรุปด่านและโหลด Last Man Standing'
+                    ? 'กลับหน้า Lobby พร้อมเปิด Popup ตารางคะแนนสะสม'
                     : 'กลับเข้าโหมด Standby รอบถัดไป',
                 onClick: handleNext,
               }}

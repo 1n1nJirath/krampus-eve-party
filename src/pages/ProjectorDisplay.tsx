@@ -35,6 +35,7 @@ import {
   getSuggestedSafeRange,
   scoreChronoTeam,
 } from '../data/initialData';
+import { computeFinaleTeamsRanking } from '../logic/adminFlowLogic';
 import { CountdownTimer } from '../components/CountdownTimer';
 import {
   SnowPineForestFrame,
@@ -891,16 +892,19 @@ export const ProjectorDisplay: React.FC = () => {
             </div>
           ) : (
           <>
-        {/* Question Banner (The Christmas Manor Paper-Cut Contrast for Projector Readability) */}
-        <div className="relative rounded-3xl bg-[#352D45]/95 border-[3px] border-[#D8C6B5] shadow-[0_7px_0_#1e1828,0_14px_35px_rgba(0,0,0,0.75)] p-5 md:p-6 text-center">
-          <div className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-[#B94B50] border-2 border-[#EFE2D2]/80 text-[#EFE2D2] font-manor-display text-base md:text-xl font-bold mb-2 shadow">
-            <Sparkles className="w-5 h-5 text-[#E5B86C] shrink-0" />
-            <span>{round.subtitle}</span>
-          </div>
-          <h2 className="font-manor-display text-2xl md:text-4xl lg:text-5xl font-bold text-[#EFE2D2] leading-tight tracking-tight drop-shadow-[0_3px_0_#1e1828]">
-            {round.questionText}
-          </h2>
-        </div>
+        {/* Question Banner (Hidden for Game 4 LMS & Finale which use dedicated 10-foot TV Stage Cards) */}
+        {!(round.gameStage === 'TRIVIA_MURDER' && round.lastMan) &&
+          round.gameStage !== 'FINALE' && (
+            <div className="relative rounded-3xl bg-[#352D45]/95 border-[3px] border-[#D8C6B5] shadow-[0_7px_0_#1e1828,0_14px_35px_rgba(0,0,0,0.75)] p-5 md:p-6 text-center">
+              <div className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-[#B94B50] border-2 border-[#EFE2D2]/80 text-[#EFE2D2] font-manor-display text-base md:text-xl font-bold mb-2 shadow">
+                <Sparkles className="w-5 h-5 text-[#E5B86C] shrink-0" />
+                <span>{round.subtitle}</span>
+              </div>
+              <h2 className="font-manor-display text-2xl md:text-4xl lg:text-5xl font-bold text-[#EFE2D2] leading-tight tracking-tight drop-shadow-[0_3px_0_#1e1828]">
+                {round.questionText}
+              </h2>
+            </div>
+          )}
 
         {/* ==========================================================
             GAME 1 SPECIAL: THE DOORS OF DOOM (8-12 Doors Board + 3 Sub-Rounds)
@@ -1303,7 +1307,7 @@ export const ProjectorDisplay: React.FC = () => {
         })()}
 
         {/* ==========================================================
-            GAME 4: THE LAST MAN STANDING (ลานประหารคริสต์มาส)
+            GAME 4: THE LAST MAN STANDING (10-Foot TV Readability Overhaul)
         ========================================================== */}
         {round.gameStage === 'TRIVIA_MURDER' &&
           round.lastMan &&
@@ -1315,12 +1319,26 @@ export const ProjectorDisplay: React.FC = () => {
             const p1Q = p1List[(lms.part1Round - 1) % p1List.length];
             const p2Q = p2List[lms.part2QuestionIndex % p2List.length];
             const isPart2 = lms.phase.startsWith('PART2_') || lms.phase === 'CHAMPION';
+            const latestAction = lms.killFeed && lms.killFeed.length > 0 ? lms.killFeed[0] : null;
 
             return (
-              <div className="flex-1 flex flex-col justify-between gap-4">
-                {/* Part 1 Top Status Strip: Safe Zone vs Killing Floor */}
+              <div className="flex-1 flex flex-col justify-between gap-5">
+                {/* 10-Foot Single Live Action Banner / Toast (One event at a time, High Contrast) */}
+                {latestAction && lms.phase !== 'PART1_BLACK_MARKET' && (
+                  <div
+                    key={latestAction.id}
+                    className="rounded-3xl bg-black border-4 border-amber-400 px-6 py-4 shadow-[0_0_40px_rgba(245,158,11,0.45)] flex items-center justify-center gap-4 text-center"
+                  >
+                    <span className="text-4xl md:text-5xl shrink-0">{latestAction.icon}</span>
+                    <div className="text-2xl md:text-3xl font-black text-white tracking-tight">
+                      {latestAction.message}
+                    </div>
+                  </div>
+                )}
+
+                {/* Part 1 Top Status Strip: Safe Zone vs Killing Floor (Oversized 10-Foot Cards) */}
                 {!isPart2 && (
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                     {active.map((tid) => {
                       const ts = lms.teamStates[tid];
                       const t = teams[tid];
@@ -1328,50 +1346,50 @@ export const ProjectorDisplay: React.FC = () => {
                       return (
                         <div
                           key={tid}
-                          className={`rounded-2xl p-3 border-4 border-black shadow-[4px_4px_0px_#000] transition-all ${
+                          className={`rounded-3xl p-4 border-4 transition-all ${
                             ts.isGhost
-                              ? 'bg-slate-900/80 opacity-75'
+                              ? 'bg-black/90 border-slate-700 opacity-75'
                               : ts.inKillingFloor
-                              ? 'bg-red-950/90 border-red-500'
-                              : 'bg-emerald-950/80 border-emerald-400'
+                              ? 'bg-red-950/95 border-red-500 shadow-[0_0_25px_rgba(239,68,68,0.4)]'
+                              : 'bg-emerald-950/95 border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.25)]'
                           }`}
                         >
                           <div className="flex items-center justify-between gap-2">
-                            <span className="font-black text-base text-white truncate">
+                            <span className="font-black text-xl md:text-2xl text-white truncate">
                               {t.icon} {t.name}
                             </span>
-                            <span className="font-mono text-xs font-black text-amber-300">
+                            <span className="font-mono text-base md:text-lg font-black text-amber-300 shrink-0">
                               {t.coins.toLocaleString()} ฿
                             </span>
                           </div>
-                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs font-black">
-                            <span className="px-2 py-0.5 rounded bg-black/60 text-rose-300">
+                          <div className="mt-2.5 flex flex-wrap items-center gap-2 text-sm md:text-base font-black">
+                            <span className="px-3 py-1 rounded-xl bg-black text-rose-300 border border-rose-500/50">
                               {ts.isGhost ? '👻 วิญญาณ' : `❤️ ${ts.hearts}/4`}
                             </span>
                             {!ts.isGhost && (
                               <span
-                                className={`px-2 py-0.5 rounded ${
+                                className={`px-3 py-1 rounded-xl ${
                                   ts.inKillingFloor
                                     ? 'bg-red-600 text-white'
-                                    : 'bg-emerald-600 text-black'
+                                    : 'bg-emerald-400 text-slate-950'
                                 }`}
                               >
-                                {ts.inKillingFloor ? '💀 ลานประหาร' : '🛡️ โซนปลอดภัย'}
+                                {ts.inKillingFloor ? '💀 ลานประหาร' : '🛡️ ปลอดภัย'}
                               </span>
                             )}
                             {ts.mirrorShield && (
-                              <span className="px-2 py-0.5 rounded bg-cyan-500 text-black">
+                              <span className="px-2.5 py-1 rounded-xl bg-cyan-400 text-black">
                                 🪞 โล่
                               </span>
                             )}
                             {ts.jetpacks > 0 && (
-                              <span className="px-2 py-0.5 rounded bg-amber-400 text-black">
+                              <span className="px-2.5 py-1 rounded-xl bg-amber-400 text-black">
                                 🚀 x{ts.jetpacks}
                               </span>
                             )}
                           </div>
                           {curse && (
-                            <div className="mt-1.5 text-[11px] font-black text-yellow-300 bg-purple-950/90 rounded px-2 py-0.5 truncate">
+                            <div className="mt-2 text-sm font-black text-yellow-300 bg-purple-950 border border-purple-400 rounded-xl px-3 py-1 truncate">
                               {curse.icon} คำสาป: {curse.name}
                             </div>
                           )}
@@ -1383,46 +1401,49 @@ export const ProjectorDisplay: React.FC = () => {
 
                 {/* KRAMPUS_TWIST */}
                 {lms.phase === 'KRAMPUS_TWIST' && (
-                  <div className="flex-1 rounded-3xl bg-gradient-to-br from-rose-950 via-black to-slate-950 border-4 border-rose-500 p-8 flex flex-col items-center justify-center text-center gap-4">
-                    <div className="text-7xl animate-bounce">👹</div>
-                    <h2 className="text-4xl md:text-5xl font-black text-amber-300">
+                  <div className="flex-1 rounded-3xl bg-black/95 border-4 border-rose-500 p-10 flex flex-col items-center justify-center text-center gap-6 shadow-2xl">
+                    <div className="text-8xl animate-bounce">👹</div>
+                    <h2 className="text-5xl md:text-6xl font-black text-amber-300 tracking-tight">
                       ประกาศหักมุมจาก KRAMPUS!
                     </h2>
-                    <p className="text-xl md:text-2xl font-bold text-white max-w-3xl leading-relaxed">
-                      &ldquo;เงิน Holy Coins (฿) ที่สะสมมาไม่ใช่คะแนนตัดสินแชมป์อีกต่อไป! แต่มันคือ{' '}
-                      <span className="text-rose-400 font-black">กระสุนในตลาดมืดและแต้มต่อ</span>{' '}
-                      ใครวิ่งทะลุประตูบันไดหนีตาย 25 ขั้นได้เป็นทีมแรก ชนะเลิศทั้งค่ายทันที!&rdquo;
+                    <p className="text-2xl md:text-3xl font-black text-white max-w-4xl leading-relaxed">
+                      &ldquo;เงิน Holy Coins (฿) คือ{' '}
+                      <span className="text-rose-400 underline">กระสุนในตลาดมืดและแต้มต่อ</span>{' '}
+                      ทีมแรกที่วิ่งทะลุบันไดหนีตาย 25 ขั้น ชนะเลิศทันที!&rdquo;
                     </p>
                   </div>
                 )}
 
-                {/* PART1_TRIVIA / PART1_TRIVIA_REVEAL / PART1_MISERY_PULL */}
+                {/* PART1_TRIVIA / PART1_TRIVIA_REVEAL / PART1_MISERY_PULL (10-Foot High Contrast) */}
                 {(lms.phase === 'PART1_TRIVIA' ||
                   lms.phase === 'PART1_TRIVIA_REVEAL' ||
                   lms.phase === 'PART1_MISERY_PULL') && (
-                  <div className="flex-1 flex flex-col justify-between gap-4">
+                  <div className="flex-1 flex flex-col justify-between gap-5">
                     {lms.phase === 'PART1_MISERY_PULL' && (
-                      <div className="rounded-2xl bg-red-600 border-4 border-yellow-300 p-4 text-center animate-pulse">
-                        <div className="text-2xl font-black text-white">
-                          😈 ลากเพื่อนตกนรก! {teams[lms.miseryPullTeamId || 'team1']?.name} ตอบผิดทีมเดียว — เลือกดึง 1 ทีมที่รอดลงลานประหารภายใน 10 วิ!
+                      <div className="rounded-3xl bg-red-600 border-4 border-yellow-300 p-6 text-center animate-pulse shadow-2xl">
+                        <div className="text-3xl md:text-4xl font-black text-white">
+                          😈 ลากเพื่อนตกนรก! {teams[lms.miseryPullTeamId || 'team1']?.name} เลือกดึง 1 ทีมลงลานประหาร!
                         </div>
                       </div>
                     )}
 
-                    <div className="rounded-3xl bg-slate-900/95 border-4 border-black p-5 text-center space-y-3">
+                    <div className="rounded-3xl bg-black/95 border-4 border-amber-400 p-7 md:p-9 text-center space-y-4 shadow-2xl">
+                      <div className="inline-block px-4 py-1 rounded-full bg-rose-600 text-white text-sm md:text-base font-black uppercase tracking-wider">
+                        คำถามคัดคนลงลานประหาร • รอบที่ {lms.part1Round}/4
+                      </div>
                       {p1Q.imageUrl && (
                         <img
                           src={p1Q.imageUrl}
                           alt="Trivia"
-                          className="max-h-48 mx-auto rounded-2xl border-2 border-slate-700 object-contain"
+                          className="max-h-52 mx-auto rounded-2xl border-2 border-slate-700 object-contain"
                         />
                       )}
-                      <div className="text-2xl md:text-3xl font-black text-white">
+                      <div className="text-3xl md:text-5xl font-black text-white leading-tight">
                         {p1Q.questionText}
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                       {p1Q.choices.map((c) => {
                         const isRev = lms.phase !== 'PART1_TRIVIA';
                         const isCorrect = c.key === p1Q.correctKey;
@@ -1432,17 +1453,17 @@ export const ProjectorDisplay: React.FC = () => {
                         return (
                           <div
                             key={c.key}
-                            className={`rounded-2xl p-4 border-4 transition-all flex items-center justify-between gap-3 ${
+                            className={`rounded-3xl p-6 border-4 transition-all flex items-center justify-between gap-4 ${
                               isRev
                                 ? isCorrect
-                                  ? 'bg-emerald-950/90 border-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.4)]'
-                                  : 'bg-red-950/50 border-slate-800 opacity-75'
-                                : 'bg-slate-900 border-slate-700'
+                                  ? 'bg-emerald-950 border-emerald-400 shadow-[0_0_35px_rgba(16,185,129,0.5)]'
+                                  : 'bg-black/75 border-slate-800 opacity-60'
+                                : 'bg-black/95 border-slate-600'
                             }`}
                           >
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-4">
                               <span
-                                className={`w-10 h-10 rounded-xl font-black text-xl flex items-center justify-center ${
+                                className={`w-14 h-14 rounded-2xl font-mono font-black text-3xl flex items-center justify-center shrink-0 ${
                                   isRev && isCorrect
                                     ? 'bg-emerald-400 text-black'
                                     : 'bg-amber-400 text-black'
@@ -1450,16 +1471,18 @@ export const ProjectorDisplay: React.FC = () => {
                               >
                                 {c.key}
                               </span>
-                              <span className="text-lg font-black text-white">{c.label}</span>
+                              <span className="text-2xl md:text-3xl font-black text-white leading-snug">
+                                {c.label}
+                              </span>
                             </div>
                             {isRev && pickers.length > 0 && (
-                              <div className="flex gap-1">
+                              <div className="flex gap-2 shrink-0">
                                 {pickers.map((tid) => (
                                   <span
                                     key={tid}
-                                    className="px-2 py-1 rounded-lg bg-black/70 text-sm font-black text-white"
+                                    className="px-3 py-1.5 rounded-xl bg-slate-900 border-2 border-white/30 text-xl font-black text-white"
                                   >
-                                    {teams[tid].icon}
+                                    {teams[tid].icon} T{teams[tid].number}
                                   </span>
                                 ))}
                               </div>
@@ -1471,77 +1494,71 @@ export const ProjectorDisplay: React.FC = () => {
                   </div>
                 )}
 
-                {/* PART1_BLACK_MARKET */}
+                {/* PART1_BLACK_MARKET (Clean Catalog + Single Oversized Live Action Toast) */}
                 {lms.phase === 'PART1_BLACK_MARKET' && (
-                  <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4">
-                    <div className="lg:col-span-7 rounded-3xl bg-purple-950/50 border-4 border-purple-500/60 p-4 space-y-2.5">
-                      <h3 className="text-xl font-black text-amber-300">
-                        🛒 ตลาดมืดละลายทรัพย์ (25 วินาที • ซื้อปุ๊บ ออกฤทธิ์ปั๊บ!)
-                      </h3>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {BLACK_MARKET_ITEMS.map((item) => {
-                          const rStock = lms.roundStock[item.id] ?? 0;
-                          const gStock =
-                            item.id === 'HELL_CHAINS'
-                              ? lms.gameStock.HELL_CHAINS
-                              : item.id === 'JETPACK'
-                              ? lms.gameStock.JETPACK
-                              : 99;
-                          const left = Math.min(rStock, gStock);
-                          return (
-                            <div
-                              key={item.id}
-                              className={`rounded-2xl p-3 border-2 ${
-                                left > 0
-                                  ? 'bg-slate-900 border-purple-400/60'
-                                  : 'bg-slate-950 border-slate-800 opacity-45'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between gap-2 font-black text-sm text-white">
-                                <span>
-                                  {item.icon} {item.name}
-                                </span>
-                                <span className="text-amber-300 font-mono">{item.price} ฿</span>
-                              </div>
-                              <div className="text-[11px] text-slate-300 mt-1">
-                                คงเหลือ: <span className="font-black text-white">{left} ชิ้น</span>
-                              </div>
-                            </div>
-                          );
-                        })}
+                  <div className="flex-1 flex flex-col justify-between gap-5">
+                    {/* Giant Single Live Action Spotlight Banner */}
+                    <div className="rounded-3xl bg-black/95 border-4 border-amber-400 p-7 md:p-8 text-center shadow-[0_0_50px_rgba(245,158,11,0.35)]">
+                      <div className="inline-block px-4 py-1 rounded-full bg-amber-400 text-black font-mono font-black text-sm uppercase tracking-widest mb-3">
+                        ⚡ LIVE BLACK MARKET ACTION
                       </div>
+                      {latestAction ? (
+                        <div
+                          key={latestAction.id}
+                          className="flex flex-col md:flex-row items-center justify-center gap-4"
+                        >
+                          <span className="text-6xl md:text-7xl">{latestAction.icon}</span>
+                          <span className="text-3xl md:text-5xl font-black text-white leading-tight">
+                            {latestAction.message}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="text-2xl md:text-4xl font-black text-slate-300 py-2">
+                          🛒 ตลาดมืดเปิดแล้ว! กดซื้อไอเทมบนมือถือเพื่อโจมตีหรือเอาชีวิตรอดทันที
+                        </div>
+                      )}
                     </div>
 
-                    <div className="lg:col-span-5 rounded-3xl bg-slate-950 border-4 border-rose-500/60 p-4 flex flex-col">
-                      <h3 className="text-lg font-black text-rose-400 mb-2">
-                        ⚡ LIVE KILL-FEED (ประกาศสดตามเวลา!)
-                      </h3>
-                      <div className="flex-1 space-y-2 overflow-y-auto max-h-[340px]">
-                        {lms.killFeed.length === 0 ? (
-                          <div className="text-sm text-slate-500 text-center py-8">
-                            รอทีมแรกกดซื้อไอเทมในตลาดมืด...
-                          </div>
-                        ) : (
-                          lms.killFeed.map((kf) => (
-                            <div
-                              key={kf.id}
-                              className="rounded-xl bg-slate-900 border border-slate-800 px-3 py-2 text-xs font-bold text-white flex items-center gap-2"
-                            >
-                              <span className="text-lg">{kf.icon}</span>
-                              <span>{kf.message}</span>
+                    {/* Clean High-Contrast Item Grid */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                      {BLACK_MARKET_ITEMS.map((item) => {
+                        const rStock = lms.roundStock[item.id] ?? 0;
+                        const gStock =
+                          item.id === 'HELL_CHAINS'
+                            ? lms.gameStock.HELL_CHAINS
+                            : item.id === 'JETPACK'
+                            ? lms.gameStock.JETPACK
+                            : 99;
+                        const left = Math.min(rStock, gStock);
+                        return (
+                          <div
+                            key={item.id}
+                            className={`rounded-2xl p-4 border-2 flex flex-col justify-between text-center ${
+                              left > 0
+                                ? 'bg-black/95 border-purple-400'
+                                : 'bg-black/50 border-slate-800 opacity-40'
+                            }`}
+                          >
+                            <div className="text-4xl mb-1">{item.icon}</div>
+                            <div className="font-black text-base text-white leading-snug">
+                              {item.name}
                             </div>
-                          ))
-                        )}
-                      </div>
+                            <div className="mt-2 pt-2 border-t border-slate-800 flex items-center justify-between text-sm font-mono font-black">
+                              <span className="text-amber-300">{item.price} ฿</span>
+                              <span className="text-slate-300">x{left}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
 
                 {/* PART1_MINIGAME / PART1_MINIGAME_REVEAL */}
                 {(lms.phase === 'PART1_MINIGAME' || lms.phase === 'PART1_MINIGAME_REVEAL') && (
-                  <div className="flex-1 rounded-3xl bg-slate-900/95 border-4 border-red-500/70 p-6 flex flex-col justify-between gap-4">
+                  <div className="flex-1 rounded-3xl bg-black/95 border-4 border-red-500 p-8 flex flex-col justify-between gap-6">
                     {lms.part1Round === 1 && (
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 my-auto">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-5 my-auto">
                         {[1, 2, 3, 4].map((num) => {
                           const isPoison =
                             lms.phase === 'PART1_MINIGAME_REVEAL' &&
@@ -1550,23 +1567,28 @@ export const ProjectorDisplay: React.FC = () => {
                           return (
                             <div
                               key={num}
-                              className={`rounded-3xl p-5 border-4 text-center space-y-2 ${
+                              className={`rounded-3xl p-6 border-4 text-center space-y-3 ${
                                 isPoison
                                   ? 'bg-purple-950 border-purple-400'
                                   : 'bg-slate-950 border-slate-700'
                               }`}
                             >
-                              <div className="text-5xl">{isPoison ? '☠️' : '🍷'}</div>
-                              <div className="text-xl font-black text-white">ถ้วย #{num}</div>
+                              <div className="text-6xl">{isPoison ? '☠️' : '🍷'}</div>
+                              <div className="text-2xl md:text-3xl font-black text-white">
+                                ถ้วย #{num}
+                              </div>
                               {lms.phase === 'PART1_MINIGAME_REVEAL' && (
-                                <div className="text-xs font-black text-amber-300">
-                                  {isPoison ? 'มียาพิษ!' : 'ปลอดภัย!'}
+                                <div className="text-lg font-black text-amber-300">
+                                  {isPoison ? 'มียาพิษ! (-1 ❤️)' : 'ปลอดภัย!'}
                                 </div>
                               )}
                               {lms.phase === 'PART1_MINIGAME_REVEAL' && drinkers.length > 0 && (
-                                <div className="flex justify-center gap-1 pt-1">
+                                <div className="flex flex-wrap justify-center gap-2 pt-2">
                                   {drinkers.map((tid) => (
-                                    <span key={tid} className="px-2 py-0.5 rounded bg-black text-xs">
+                                    <span
+                                      key={tid}
+                                      className="px-3 py-1 rounded-xl bg-black border border-white/20 text-base font-black text-white"
+                                    >
                                       {teams[tid].icon} {teams[tid].name}
                                     </span>
                                   ))}
@@ -1579,22 +1601,24 @@ export const ProjectorDisplay: React.FC = () => {
                     )}
 
                     {lms.part1Round === 2 && (
-                      <div className="my-auto text-center space-y-4">
-                        <div className="text-3xl font-black text-amber-300">
+                      <div className="my-auto text-center space-y-6">
+                        <div className="text-4xl md:text-5xl font-black text-amber-300">
                           🤝 หักหลังแบ่งสมบัติ (SPLIT OR STEAL)
                         </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
                           {active.map((tid) => {
                             const pick = lms.splitStealPicks[tid];
                             if (!pick && lms.phase !== 'PART1_MINIGAME_REVEAL') return null;
                             return (
                               <div
                                 key={tid}
-                                className="rounded-2xl bg-slate-950 border-2 border-slate-700 p-4"
+                                className="rounded-3xl bg-slate-950 border-4 border-slate-700 p-6"
                               >
-                                <div className="text-2xl">{teams[tid].icon}</div>
-                                <div className="font-black text-white">{teams[tid].name}</div>
-                                <div className="mt-2 text-sm font-black text-amber-300">
+                                <div className="text-4xl">{teams[tid].icon}</div>
+                                <div className="text-2xl font-black text-white mt-2">
+                                  {teams[tid].name}
+                                </div>
+                                <div className="mt-3 text-xl font-black text-amber-300">
                                   {lms.phase === 'PART1_MINIGAME_REVEAL'
                                     ? pick === 'STEAL'
                                       ? '🗡️ แทงข้างหลัง!'
@@ -1609,43 +1633,43 @@ export const ProjectorDisplay: React.FC = () => {
                     )}
 
                     {lms.part1Round === 3 && (
-                      <div className="my-auto text-center space-y-3">
-                        <div className="text-5xl">🎭</div>
-                        <div className="text-3xl font-black text-white">
-                          ท้าทายความกล้า (Krampus Dare • 15 วิ)
+                      <div className="my-auto text-center space-y-5">
+                        <div className="text-7xl">🎭</div>
+                        <div className="text-4xl md:text-5xl font-black text-white">
+                          ท้าทายความกล้า (Krampus Dare)
                         </div>
-                        <div className="text-lg font-bold text-amber-300">
+                        <div className="text-2xl md:text-3xl font-black text-amber-300">
                           {lms.phase === 'PART1_MINIGAME_REVEAL'
                             ? `ผลโหวต: 💚 ไว้ชีวิต ${
                                 Object.values(lms.dareVotes).filter((v) => v === 'SPARE').length
                               } เสียง vs 💀 ประหาร ${
                                 Object.values(lms.dareVotes).filter((v) => v === 'EXECUTE').length
                               } เสียง`
-                            : 'ทีมที่รอดกำลังโหวตว่าจะไว้ชีวิตหรือประหาร!'}
+                            : 'ทีมโซนปลอดภัยกำลังโหวตว่าจะไว้ชีวิตหรือประหาร!'}
                         </div>
                       </div>
                     )}
 
                     {lms.part1Round === 4 && (
-                      <div className="my-auto text-center space-y-4">
-                        <div className="text-2xl font-black text-orange-400">
+                      <div className="my-auto text-center space-y-6">
+                        <div className="text-3xl md:text-4xl font-black text-orange-400">
                           🎲 แต้มลูกเต๋าของ Krampus:{' '}
-                          <span className="text-5xl text-white ml-2">
+                          <span className="text-6xl text-white ml-2">
                             {lms.krampusDiceRoll ?? '?'}
                           </span>
                         </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
                           {active.map((tid) => {
                             const roll = lms.teamDiceRolls[tid];
                             return (
                               <div
                                 key={tid}
-                                className="rounded-2xl bg-slate-950 border-2 border-slate-700 p-4"
+                                className="rounded-3xl bg-slate-950 border-4 border-slate-700 p-6"
                               >
-                                <div className="font-black text-white">
+                                <div className="text-xl font-black text-white">
                                   {teams[tid].icon} {teams[tid].name}
                                 </div>
-                                <div className="text-4xl font-black text-amber-300 mt-1">
+                                <div className="text-5xl font-black text-amber-300 mt-2">
                                   🎲 {roll ?? '-'}
                                 </div>
                               </div>
@@ -1659,30 +1683,30 @@ export const ProjectorDisplay: React.FC = () => {
 
                 {/* PART1_GREED_TAX */}
                 {lms.phase === 'PART1_GREED_TAX' && (
-                  <div className="flex-1 rounded-3xl bg-gradient-to-b from-amber-950 via-black to-red-950 border-4 border-amber-400 p-8 flex flex-col items-center justify-center text-center gap-4">
-                    <div className="text-6xl">💸</div>
-                    <h2 className="text-4xl font-black text-amber-300">
+                  <div className="flex-1 rounded-3xl bg-black/95 border-4 border-amber-400 p-10 flex flex-col items-center justify-center text-center gap-6">
+                    <div className="text-7xl">💸</div>
+                    <h2 className="text-4xl md:text-6xl font-black text-amber-300">
                       ภาษีคนงกของ KRAMPUS!
                     </h2>
-                    <p className="text-lg font-bold text-white">
+                    <p className="text-xl md:text-2xl font-bold text-white">
                       ทีมใดถือเงินสดเกิน 1,000 ฿ ถูกหักเงินครึ่งหนึ่ง (50%) ทันที!
                     </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-2xl">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-3xl">
                       {lms.greedTaxReport.length === 0 ? (
-                        <div className="col-span-2 text-emerald-300 font-black text-xl">
+                        <div className="col-span-2 text-emerald-300 font-black text-2xl">
                           ✨ ไม่มีทีมไหนถือเงินเกิน 1,000 ฿ — รอดภาษีทั้งหมด!
                         </div>
                       ) : (
                         lms.greedTaxReport.map((r) => (
                           <div
                             key={r.teamId}
-                            className="rounded-2xl bg-slate-950 border-2 border-red-500 p-3 flex items-center justify-between"
+                            className="rounded-2xl bg-slate-950 border-4 border-red-500 p-4 flex items-center justify-between text-xl"
                           >
                             <span className="font-black text-white">
                               {teams[r.teamId].icon} {teams[r.teamId].name}
                             </span>
                             <span className="font-mono font-black text-red-400">
-                              {r.before} ฿ → {r.after} ฿ (-{r.lost} ฿)
+                              {r.before} ฿ → {r.after} ฿
                             </span>
                           </div>
                         ))
@@ -1691,45 +1715,43 @@ export const ProjectorDisplay: React.FC = () => {
                   </div>
                 )}
 
-                {/* PART2: SPLIT-SCREEN 25-STEP STAIRCASE + CLUE/QUESTION */}
+                {/* PART2: 10-FOOT SPLIT-SCREEN 25-STEP STAIRCASE + CLUE/QUESTION */}
                 {isPart2 && (
-                  <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4">
-                    {/* Left: 25-Step Staircase */}
-                    <div className="lg:col-span-6 rounded-3xl bg-slate-950 border-4 border-black p-4 flex flex-col justify-between">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-lg font-black text-amber-300">
+                  <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5">
+                    {/* Left: Clean 25-Step Staircase (No cluttered scroll log) */}
+                    <div className="lg:col-span-5 rounded-3xl bg-black/95 border-4 border-slate-700 p-6 flex flex-col justify-between">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-2xl font-black text-amber-300">
                           🪜 บันไดหนีตาย 25 ขั้น
                         </h3>
-                        <span className="px-2.5 py-1 rounded-lg bg-red-900 text-white text-xs font-black">
+                        <span className="px-4 py-1.5 rounded-xl bg-red-600 text-white text-base font-black">
                           👹 Krampus: ขั้น {lms.krampusStep}
                         </span>
                       </div>
 
-                      <div className="space-y-2.5 my-auto">
+                      <div className="space-y-5 my-auto">
                         {active.map((tid) => {
                           const ts = lms.teamStates[tid];
                           const pct = Math.min(100, Math.max(0, (ts.step / 25) * 100));
                           return (
-                            <div key={tid} className="space-y-1">
-                              <div className="flex items-center justify-between text-xs font-black">
+                            <div key={tid} className="space-y-2">
+                              <div className="flex items-center justify-between text-lg md:text-xl font-black">
                                 <span className={ts.isGhost ? 'text-purple-300' : 'text-white'}>
-                                  {ts.isGhost ? '👻 [วิญญาณ]' : '🏃'} {teams[tid].icon}{' '}
-                                  {teams[tid].name}
+                                  {ts.isGhost ? '👻' : '🏃'} {teams[tid].icon} {teams[tid].name}
                                 </span>
-                                <span className="font-mono text-amber-300">
+                                <span className="font-mono text-2xl text-amber-300">
                                   ขั้น {ts.step} / 25
                                 </span>
                               </div>
-                              <div className="h-6 rounded-full bg-slate-900 border-2 border-slate-700 relative overflow-hidden">
+                              <div className="h-8 rounded-full bg-slate-900 border-2 border-slate-600 relative overflow-hidden">
                                 <div
                                   className={`h-full transition-all duration-500 ${
-                                    ts.isGhost ? 'bg-purple-600/80' : 'bg-emerald-500'
+                                    ts.isGhost ? 'bg-purple-600' : 'bg-emerald-500'
                                   }`}
                                   style={{ width: `${pct}%` }}
                                 />
-                                {/* Krampus marker */}
                                 <div
-                                  className="absolute top-0 bottom-0 w-1 bg-red-500 shadow-[0_0_8px_#ef4444]"
+                                  className="absolute top-0 bottom-0 w-1.5 bg-red-500 shadow-[0_0_12px_#ef4444]"
                                   style={{
                                     left: `${Math.min(100, (lms.krampusStep / 25) * 100)}%`,
                                   }}
@@ -1739,61 +1761,53 @@ export const ProjectorDisplay: React.FC = () => {
                           );
                         })}
                       </div>
-
-                      <div className="mt-3 rounded-xl bg-slate-900 border border-slate-800 p-2.5 max-h-28 overflow-y-auto space-y-1">
-                        {lms.killFeed.slice(0, 4).map((kf) => (
-                          <div key={kf.id} className="text-[11px] font-bold text-slate-200">
-                            {kf.icon} {kf.message}
-                          </div>
-                        ))}
-                      </div>
                     </div>
 
-                    {/* Right: Clue / Question / 3 Options / Champion */}
-                    <div className="lg:col-span-6 rounded-3xl bg-slate-900/95 border-4 border-black p-5 flex flex-col justify-between gap-4">
+                    {/* Right: Oversized Clue / Question / 3 High-Contrast Options / Champion */}
+                    <div className="lg:col-span-7 rounded-3xl bg-black/95 border-4 border-amber-400 p-7 flex flex-col justify-between gap-5">
                       {lms.phase === 'CHAMPION' ? (
-                        <div className="flex-1 flex flex-col items-center justify-center text-center gap-3">
-                          <div className="text-7xl animate-bounce">🏆</div>
-                          <div className="text-sm font-mono font-black text-amber-400 uppercase">
+                        <div className="flex-1 flex flex-col items-center justify-center text-center gap-4">
+                          <div className="text-8xl animate-bounce">🏆</div>
+                          <div className="text-base font-mono font-black text-amber-400 uppercase tracking-widest">
                             THE KRAMPUS EVE CHAMPION!
                           </div>
-                          <div className="text-4xl font-black text-white">
+                          <div className="text-5xl md:text-6xl font-black text-white">
                             {teams[lms.winnerTeamId || 'team1']?.icon}{' '}
                             {teams[lms.winnerTeamId || 'team1']?.name}
                           </div>
-                          <div className="text-base font-bold text-emerald-300">
+                          <div className="text-2xl font-bold text-emerald-300">
                             วิ่งทะลุประตูขั้นที่ 25 สำเร็จเป็นทีมแรก!
                           </div>
                         </div>
                       ) : (
                         <>
-                          <div className="space-y-2">
-                            <div className="inline-block px-3 py-1 rounded-full bg-amber-400 text-black text-xs font-black">
+                          <div className="space-y-3">
+                            <div className="inline-block px-4 py-1.5 rounded-full bg-amber-400 text-black text-sm md:text-base font-black">
                               ข้อที่ {lms.part2QuestionIndex + 1} •{' '}
                               {lms.phase === 'PART2_CLUE'
-                                ? 'เบาะแสตั้งต้น (รอเปิดคำถาม)'
+                                ? 'เบาะแสตั้งต้น'
                                 : lms.phase === 'PART2_QUESTION'
-                                ? 'กดปุ่มสีบนมือถือ!'
+                                ? 'กดปุ่มสี A / B / C บนมือถือ!'
                                 : 'เฉลย & ขยับขั้น!'}
                             </div>
-                            <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 text-base font-bold text-amber-200">
+                            <div className="rounded-2xl bg-slate-950 border-2 border-slate-700 p-5 text-xl md:text-2xl font-bold text-amber-200 leading-snug">
                               {p2Q.clueText}
                             </div>
                             {p2Q.imageUrl && (
                               <img
                                 src={p2Q.imageUrl}
                                 alt="Clue"
-                                className="max-h-36 mx-auto rounded-xl object-contain"
+                                className="max-h-44 mx-auto rounded-2xl object-contain"
                               />
                             )}
                           </div>
 
                           {lms.phase !== 'PART2_CLUE' && (
-                            <div className="space-y-3">
-                              <div className="text-xl font-black text-white">
+                            <div className="space-y-4">
+                              <div className="text-2xl md:text-4xl font-black text-white leading-tight">
                                 {p2Q.questionText}
                               </div>
-                              <div className="space-y-2">
+                              <div className="space-y-3">
                                 {p2Q.choices.map((c) => {
                                   const isRev = lms.phase === 'PART2_REVEAL';
                                   const isCorrect = c.key === p2Q.correctKey;
@@ -1806,18 +1820,18 @@ export const ProjectorDisplay: React.FC = () => {
                                   return (
                                     <div
                                       key={c.key}
-                                      className={`rounded-2xl p-3 border-2 flex items-center gap-3 ${
+                                      className={`rounded-2xl p-4 border-4 flex items-center gap-4 ${
                                         isRev && isCorrect
-                                          ? 'bg-emerald-950 border-emerald-400'
-                                          : 'bg-slate-950 border-slate-800'
+                                          ? 'bg-emerald-950 border-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.45)]'
+                                          : 'bg-slate-950 border-slate-700'
                                       }`}
                                     >
                                       <span
-                                        className={`w-9 h-9 rounded-xl font-black flex items-center justify-center shrink-0 ${colorBadge}`}
+                                        className={`w-12 h-12 rounded-xl font-mono font-black text-2xl flex items-center justify-center shrink-0 ${colorBadge}`}
                                       >
                                         {c.key}
                                       </span>
-                                      <span className="font-bold text-white text-sm">
+                                      <span className="font-black text-white text-xl md:text-2xl">
                                         {c.label}
                                       </span>
                                     </div>
@@ -2937,18 +2951,93 @@ export const ProjectorDisplay: React.FC = () => {
       )}
 
       {/* ============================================================
-          4. FULLSCREEN LEADERBOARD / FINALE CEREMONY OVERLAY
+          4A. SIMPLIFIED FINAL LEADERBOARD (END OF GAME 4 / FINALE)
+              Displays ONLY the final ranking order (1st, 2nd, 3rd, 4th)
+              and team names/avatars with zero cluttered stats or coin breakdowns.
       ============================================================ */}
-      {(showLeaderboardOverlay || round.gameStage === 'FINALE') && (
+      {round.gameStage === 'FINALE' &&
+        (() => {
+          const finaleTeams = computeFinaleTeamsRanking(state);
+          const rankLabels = ['1ST', '2ND', '3RD', '4TH'];
+          return (
+            <div className="fixed inset-0 z-40 bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 overflow-y-auto">
+              <div className="max-w-4xl w-full rounded-3xl bg-black border-4 border-amber-400 shadow-[0_0_90px_rgba(245,158,11,0.35)] p-8 md:p-12 space-y-8">
+                <div className="text-center space-y-2 border-b-2 border-slate-800 pb-6">
+                  <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-400 text-black text-sm font-black uppercase tracking-widest">
+                    <Crown className="w-5 h-5" /> FINAL RANKINGS • THE KRAMPUS EVE
+                  </div>
+                  <h2 className="text-4xl md:text-6xl font-black text-white tracking-tight">
+                    สรุปอันดับผลการแข่งขันสุดท้าย
+                  </h2>
+                </div>
+
+                <div className="space-y-4">
+                  {finaleTeams.map((team, idx) => {
+                    const rank = idx + 1;
+                    const isChampion = rank === 1;
+                    return (
+                      <div
+                        key={team.id}
+                        className={`flex items-center justify-between gap-6 p-6 rounded-3xl border-4 transition-all ${
+                          isChampion
+                            ? 'bg-gradient-to-r from-amber-950/90 via-slate-900 to-black border-amber-400 shadow-[0_0_40px_rgba(245,158,11,0.4)] scale-[1.01]'
+                            : 'bg-slate-950 border-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center gap-6 min-w-0">
+                          <div
+                            className={`w-20 h-20 rounded-2xl font-mono font-black text-2xl md:text-3xl flex items-center justify-center border-4 shrink-0 ${
+                              isChampion
+                                ? 'bg-amber-400 text-black border-white'
+                                : rank === 2
+                                ? 'bg-slate-300 text-slate-950 border-white'
+                                : rank === 3
+                                ? 'bg-amber-700 text-white border-amber-400'
+                                : 'bg-slate-900 text-slate-300 border-slate-700'
+                            }`}
+                          >
+                            {rankLabels[idx] || `#${rank}`}
+                          </div>
+                          <TeamSouthParkAvatar
+                            slotNumber={team.number}
+                            className="w-16 h-16 md:w-20 md:h-20 shrink-0"
+                          />
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="text-4xl md:text-5xl shrink-0">{team.icon}</span>
+                            <span className="text-3xl md:text-5xl font-black text-white truncate">
+                              {team.name}
+                            </span>
+                          </div>
+                        </div>
+
+                        {isChampion && (
+                          <span className="px-5 py-2 rounded-2xl bg-amber-400 text-black font-black text-lg md:text-xl uppercase shrink-0">
+                            🏆 CHAMPION
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+      {/* ============================================================
+          4B. CUMULATIVE SCOREBOARD POPUP / MODAL (BETWEEN MAIN GAMES)
+              Triggered automatically when Game 1, 2, or 3 returns to Lobby.
+      ============================================================ */}
+      {showLeaderboardOverlay && round.gameStage !== 'FINALE' && (
         <div className="fixed inset-0 z-40 bg-black/92 backdrop-blur-xl flex flex-col items-center justify-center p-6 overflow-y-auto">
-          <div className="max-w-5xl w-full rounded-3xl bg-gradient-to-b from-slate-900 via-slate-950 to-black border-2 border-amber-400 shadow-[0_0_80px_rgba(234,179,8,0.3)] p-8">
+          <div className="max-w-5xl w-full rounded-3xl bg-gradient-to-b from-slate-900 via-slate-950 to-black border-4 border-amber-400 shadow-[0_0_80px_rgba(234,179,8,0.35)] p-8">
             <div className="flex items-center justify-between border-b border-slate-800 pb-5 mb-6">
               <div>
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-xs font-extrabold uppercase tracking-widest mb-2">
-                  <Crown className="w-4 h-4" /> THE KRAMPUS EVE STANDINGS
+                  <Crown className="w-4 h-4" /> CUMULATIVE SCOREBOARD • คะแนนสะสมรวม
                 </div>
                 <h2 className="text-3xl md:text-5xl font-black text-white">
-                  ตารางอันดับเหรียญศักดิ์สิทธิ์ & เกราะเด็กดี (Nice vs Naughty List)
+                  สรุปอันดับเหรียญสะสมหลังจบเกม ({(state.clearedStages || []).length}/4 ด่าน)
                 </h2>
               </div>
             </div>
@@ -2956,8 +3045,7 @@ export const ProjectorDisplay: React.FC = () => {
             <div className="space-y-4">
               {sortedTeams.map((team, idx) => {
                 const rank = idx + 1;
-                const isNaughty = rank === 4 || team.coins <= 0 || team.shields <= 0;
-                const isFirst = rank === 1 && !isNaughty;
+                const isFirst = rank === 1;
 
                 return (
                   <div
@@ -2965,8 +3053,6 @@ export const ProjectorDisplay: React.FC = () => {
                     className={`flex flex-col sm:flex-row items-center justify-between gap-4 p-5 rounded-2xl border-2 transition-all ${
                       isFirst
                         ? 'bg-gradient-to-r from-amber-950/90 via-emerald-950/70 to-slate-900 border-amber-400 shadow-[0_0_35px_rgba(234,179,8,0.35)] scale-[1.01]'
-                        : isNaughty
-                        ? 'bg-gradient-to-r from-red-950/90 via-black to-red-950/60 border-red-500'
                         : 'bg-slate-900/90 border-slate-700'
                     }`}
                   >
@@ -2975,52 +3061,29 @@ export const ProjectorDisplay: React.FC = () => {
                         className={`w-14 h-14 rounded-2xl font-mono font-black text-2xl flex items-center justify-center border-2 ${
                           isFirst
                             ? 'bg-amber-400 text-slate-950 border-white'
-                            : isNaughty
-                            ? 'bg-red-600 text-white border-red-300'
                             : 'bg-slate-800 text-slate-200 border-slate-600'
                         }`}
                       >
                         #{rank}
                       </div>
-                      <span className="text-5xl">{team.icon}</span>
+                      <TeamSouthParkAvatar slotNumber={team.number} className="w-14 h-14 shrink-0" />
+                      <span className="text-4xl">{team.icon}</span>
                       <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-2xl md:text-3xl font-black text-white">
-                            {team.name}
-                          </span>
-                          {isFirst && (
-                            <span className="px-3 py-1 rounded-full bg-emerald-400 text-slate-950 font-black text-xs uppercase whitespace-nowrap">
-                              🌟 NICE LIST (เด็กดีรอดชีวิต!)
-                            </span>
-                          )}
-                          {isNaughty && (
-                            <span className="px-3 py-1 rounded-full bg-red-600 text-white font-black text-xs uppercase animate-pulse whitespace-nowrap">
-                              👹 NAUGHTY LIST (ถูกครามปุสลงทัณฑ์!)
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-sm text-slate-300 mt-1 flex flex-wrap items-center gap-4">
-                          <span>Team {team.number}</span>
-                          <span>•</span>
-                          <span>
-                            เกราะเด็กดี (Nice Shields):{' '}
-                            {'🛡️'.repeat(team.shields) || '💔 แตกหมดแล้ว (Naughty List)'}
-                          </span>
-                          {team.isInKillingFloor && (
-                            <span className="text-red-400 font-bold whitespace-nowrap">
-                              • 💀 ติดอยู่ในลานประหาร
-                            </span>
-                          )}
+                        <span className="text-2xl md:text-3xl font-black text-white">
+                          {team.name}
+                        </span>
+                        <div className="text-sm text-slate-300 mt-1">
+                          Team {team.number} • เกราะเด็กดี: 🛡️×{team.shields}
                         </div>
                       </div>
                     </div>
 
                     <div className="text-right font-mono">
                       <div className="text-4xl md:text-5xl font-black text-amber-300">
-                        {team.coins.toLocaleString()} <span className="text-2xl">🪙</span>
+                        {team.coins.toLocaleString()} <span className="text-2xl">฿</span>
                       </div>
                       <div className="text-xs text-amber-400/80 uppercase tracking-wider">
-                        HOLY COINS BALANCE
+                        TOTAL HOLY COINS
                       </div>
                     </div>
                   </div>

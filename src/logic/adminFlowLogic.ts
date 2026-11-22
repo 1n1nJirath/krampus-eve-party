@@ -1,10 +1,11 @@
-import { getActiveTeamIds, getSuggestedSafeRange } from '../data/initialData';
+import { getActiveTeamIds, getSuggestedSafeRange, TEAM_ORDER } from '../data/initialData';
 import {
   EightDoorsSubRound,
   GameStage,
   KrampusGameState,
   QuestionPreset,
   RoundConfig,
+  Team,
 } from '../types/game';
 
 export type AdminTabId = 'LOBBY' | 'GAME1' | 'GAME2' | 'GAME3' | 'GAME4' | 'FINALE';
@@ -203,4 +204,63 @@ export function canRevealCurrentRound(
     submittedCount,
     activeTeamCount,
   };
+}
+
+/**
+ * Pure transition when a main game (Game 1, Game 2, or Game 3) finishes:
+ * - Marks the completed game stage in `clearedStages`
+ * - Returns `round.gameStage` back to `'LOBBY'` (does NOT auto-launch the next game)
+ * - Triggers the Cumulative Scoreboard Popup (`showLeaderboardOverlay: true`) on `/display`
+ */
+export function finishMainGameToLobby(
+  prev: KrampusGameState,
+  completedStage: GameStage
+): KrampusGameState {
+  return {
+    ...prev,
+    clearedStages: Array.from(new Set([...(prev.clearedStages || []), completedStage])),
+    showLeaderboardOverlay: true,
+    submissions: {},
+    buzzerQueue: [],
+    round: {
+      ...prev.round,
+      gameStage: 'LOBBY',
+      status: 'IDLE',
+      timerStartedAt: null,
+      timerEndAt: null,
+      timerRemainingMs: 0,
+      briefingOpen: false,
+    },
+  };
+}
+
+/**
+ * Pure Finale Ranking Calculator:
+ * Ranks teams 1st, 2nd, 3rd, 4th for the Simplified Final Leaderboard at the end of Game 4.
+ */
+export function computeFinaleTeamsRanking(state: KrampusGameState): Team[] {
+  const championId = state.round.lastMan?.winnerTeamId;
+  const lmsStates = state.round.lastMan?.teamStates;
+
+  return TEAM_ORDER.map((tid) => state.teams[tid]).sort((a, b) => {
+    if (a.id === championId) return -1;
+    if (b.id === championId) return 1;
+
+    if (lmsStates && lmsStates[a.id] && lmsStates[b.id]) {
+      const tsA = lmsStates[a.id];
+      const tsB = lmsStates[b.id];
+      if (tsA.isGhost !== tsB.isGhost) {
+        return tsA.isGhost ? 1 : -1;
+      }
+      if (tsB.step !== tsA.step) {
+        return tsB.step - tsA.step;
+      }
+      if (tsB.hearts !== tsA.hearts) {
+        return tsB.hearts - tsA.hearts;
+      }
+    }
+
+    if (b.coins !== a.coins) return b.coins - a.coins;
+    return b.shields - a.shields;
+  });
 }

@@ -41,7 +41,12 @@ import {
   TEAM_ORDER,
 } from '../data/initialData';
 import { soundFX } from '../utils/sound';
-import { buildSnakeDraftOrder, undoLastTeamSnakePick } from '../logic/doorsLogic';
+import {
+  buildSnakeDraftOrder,
+  SNAKE_DRAFT_TURN_SECONDS,
+  undoLastTeamSnakePick,
+} from '../logic/doorsLogic';
+import { finishMainGameToLobby } from '../logic/adminFlowLogic';
 import {
   applyLmsMiseryPull,
   pushLmsFeed,
@@ -1760,20 +1765,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const finishEightDoorsGame = useCallback(() => {
-    commitState((prev) => ({
-      ...prev,
-      clearedStages: Array.from(new Set([...(prev.clearedStages || []), 'POLL_MINE' as GameStage])),
-      submissions: {},
-      buzzerQueue: [],
-      round: {
-        ...prev.round,
-        gameStage: 'WORLD_MAP',
-        status: 'IDLE',
-        timerStartedAt: null,
-        timerEndAt: null,
-        timerRemainingMs: 0,
-      },
-    }));
+    commitState((prev) => finishMainGameToLobby(prev, 'POLL_MINE'));
   }, [commitState]);
 
   const switchChronoSubRound = useCallback(
@@ -1821,6 +1813,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         return {
           ...prev,
+          showLeaderboardOverlay: false,
           submissions: {},
           buzzerQueue: [],
           round: {
@@ -1891,20 +1884,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const finishChronoGame = useCallback(() => {
-    commitState((prev) => ({
-      ...prev,
-      clearedStages: Array.from(new Set([...(prev.clearedStages || []), 'TIMEJINX' as GameStage])),
-      submissions: {},
-      buzzerQueue: [],
-      round: {
-        ...prev.round,
-        gameStage: 'WORLD_MAP',
-        status: 'IDLE',
-        timerStartedAt: null,
-        timerEndAt: null,
-        timerRemainingMs: 0,
-      },
-    }));
+    commitState((prev) => finishMainGameToLobby(prev, 'TIMEJINX'));
   }, [commitState]);
 
   // ==============================================================
@@ -1930,7 +1910,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           inputMode: 'MODE_D_SECRET',
           modeDSubType: 'QUIXORT_BET',
           title: `THE TOY FACTORY CHAOS • รอบที่ 1/${pairings.length}`,
-          subtitle: 'เลือกชุดข้อมูล (1–5) เพื่อสุ่มจับคู่คนถือข้อมูลและเริ่มเตรียมตัว 10 วินาที!',
+          subtitle: 'เลือกชุดข้อมูล (1–5) เพื่อสุ่มจับคู่คนถือข้อมูลและเริ่มเตรียมตัว 20 วินาที!',
           questionText: 'สายพานคัดแยกของเล่นผีสิง — วิ่งล่าข้อมูล & ยืนเรียงหน้ากระดาน!',
           durationSeconds: durSec,
           timerStartedAt: null,
@@ -2173,18 +2153,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const tf = prev.round.toyFactory;
       if (!tf) return prev;
       if (tf.roundIndex >= tf.pairings.length) {
-        return {
-          ...prev,
-          clearedStages: Array.from(new Set([...(prev.clearedStages || []), 'QUIXORT' as GameStage])),
-          round: {
-            ...prev.round,
-            gameStage: 'WORLD_MAP',
-            status: 'IDLE',
-            timerStartedAt: null,
-            timerEndAt: null,
-            timerRemainingMs: 0,
-          },
-        };
+        return finishMainGameToLobby(prev, 'QUIXORT');
       }
       const nextIndex = tf.roundIndex + 1;
       const durSec = prev.round.durationSeconds || 120;
@@ -2237,20 +2206,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const finishToyFactoryGame = useCallback(() => {
-    commitState((prev) => ({
-      ...prev,
-      clearedStages: Array.from(new Set([...(prev.clearedStages || []), 'QUIXORT' as GameStage])),
-      submissions: {},
-      buzzerQueue: [],
-      round: {
-        ...prev.round,
-        gameStage: 'WORLD_MAP',
-        status: 'IDLE',
-        timerStartedAt: null,
-        timerEndAt: null,
-        timerRemainingMs: 0,
-      },
-    }));
+    commitState((prev) => finishMainGameToLobby(prev, 'QUIXORT'));
   }, [commitState]);
 
   // Switch between Sub-Rounds 1, 2 (2.1 / 2.2), and 3 of "THE DOORS OF DOOM"
@@ -2318,7 +2274,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           SUB3_POLARITY: `ด่านย่อยที่ 3: วัดใจขั้วตรงข้าม (#1 & #${choiceCount}) + เก้าอี้ 12 ตัวหน้ากระดาน (1 ที่นั่ง/กลุ่ม ห้ามซ้ำ) — ถูก 1 อันดับ +300 ฿ / ถูก 2 อันดับ +700 ฿`,
         };
 
-        const duration = subRound === 'SUB2_AUCTION' ? 30 : 45;
+        const duration = SNAKE_DRAFT_TURN_SECONDS;
         const snakeOrder =
           subRound === 'SUB1_SURVIVAL'
             ? buildSnakeDraftOrder(prev.teams, false)
@@ -2328,6 +2284,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         return {
           ...prev,
+          showLeaderboardOverlay: false,
           submissions: {},
           buzzerQueue: [],
           round: {
@@ -2474,10 +2431,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             subtitle: isCowardTax
               ? `Coward's Tax รอบ 2.${iter}: ${nextTeams[bestTeam].name} ถูกสุ่มเปิดประตูฟรี (ไม่ได้เงินรางวัล) • ทีมอื่นแทงข้าง!`
               : `ด่านย่อยที่ 2.${iter} (เลือกประตู & แทงข้าง): ${nextTeams[bestTeam].name} เลือกเปิดประตู 1 บาน • ทีมอื่นแทงว่ารอดหรือพัง!`,
-            durationSeconds: 35,
+            durationSeconds: SNAKE_DRAFT_TURN_SECONDS,
             timerStartedAt: now,
-            timerEndAt: now + 35 * 1000,
-            timerRemainingMs: 35 * 1000,
+            timerEndAt: now + SNAKE_DRAFT_TURN_SECONDS * 1000,
+            timerRemainingMs: SNAKE_DRAFT_TURN_SECONDS * 1000,
             status: 'ACTIVE',
             rewardsApplied: false,
           },
@@ -2495,7 +2452,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!acquireActionLock('host:startTimer', 400)) return;
       const now = getAuthoritativeNow();
       commitState((prev) => {
-        const durationSec = customDurationSeconds ?? prev.round.durationSeconds;
+        const isGame1Sub1Or2 =
+          prev.round.gameStage === 'POLL_MINE' &&
+          (prev.round.eightDoorsSubRound === 'SUB1_SURVIVAL' ||
+            prev.round.eightDoorsSubRound === 'SUB2_SNAKE_DRAFT' ||
+            prev.round.eightDoorsSubRound === 'SUB2_AUCTION' ||
+            prev.round.eightDoorsSubRound === 'SUB2_DOOR_AND_BET');
+        const durationSec =
+          customDurationSeconds ??
+          (isGame1Sub1Or2 ? SNAKE_DRAFT_TURN_SECONDS : prev.round.durationSeconds);
         if (prev.round.gameStage === 'QUIXORT' && prev.round.toyFactory?.phase === 'TOPIC_SELECT') {
           return {
             ...prev,

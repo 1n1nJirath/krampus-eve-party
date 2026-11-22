@@ -9,8 +9,11 @@ import {
   applyBailoutToState,
   applySnakePickToState,
   buildSnakeDraftOrder,
+  SNAKE_DRAFT_TURN_MS,
+  SNAKE_DRAFT_TURN_SECONDS,
   undoLastTeamSnakePick,
 } from '../logic/doorsLogic';
+import { finishMainGameToLobby } from '../logic/adminFlowLogic';
 import { KrampusGameState } from '../types/game';
 
 function makeDoorsState(subRound: 'SUB1_SURVIVAL' | 'SUB2_SNAKE_DRAFT' = 'SUB1_SURVIVAL'): KrampusGameState {
@@ -115,5 +118,28 @@ describe('Suite 2: Game 1 — THE DOORS OF DOOM (Updated Rules)', () => {
     expect(undoLastTeamSnakePick(state, 'team3')).toBe(true);
     expect(state.teams.team3.coins).toBe(1000);
     expect(state.round.choices[0].isOpened).toBe(false);
+  });
+
+  it('Sub-round 1.1 and 1.2 set a 45-second selection timer (timerEndAt = now + 45000) on each turn/pick', () => {
+    const s1 = makeDoorsState('SUB1_SURVIVAL');
+    const now1 = 50000;
+    expect(applySnakePickToState(s1, 'team1', 'A', now1)).toBe(true);
+    expect(s1.round.durationSeconds).toBe(SNAKE_DRAFT_TURN_SECONDS);
+    expect(s1.round.timerStartedAt).toBe(now1);
+    expect(s1.round.timerEndAt).toBe(now1 + SNAKE_DRAFT_TURN_MS);
+
+    const s2 = makeDoorsState('SUB2_SNAKE_DRAFT');
+    const now2 = 90000;
+    expect(applySnakePickToState(s2, 'team4', 'B', now2)).toBe(true);
+    expect(s2.round.durationSeconds).toBe(45);
+    expect(s2.round.timerEndAt).toBe(now2 + 45000);
+  });
+
+  it('finishMainGameToLobby returns state to LOBBY and opens Cumulative Scoreboard Popup without jumping to next game', () => {
+    const state = makeDoorsState('SUB1_SURVIVAL');
+    const next = finishMainGameToLobby(state, 'POLL_MINE');
+    expect(next.round.gameStage).toBe('LOBBY');
+    expect(next.showLeaderboardOverlay).toBe(true);
+    expect(next.clearedStages).toContain('POLL_MINE');
   });
 });

@@ -79,8 +79,6 @@ export const Game1DoorsWorkspace: React.FC<Game1DoorsWorkspaceProps> = ({
       switchEightDoorsSubRound(nextSub);
     } else {
       finishEightDoorsGame();
-      switchChronoSubRound('CHRONO_SUB1_CLASSIC', { presetId: 'tj-1' });
-      onAdvanceToGame2();
     }
   };
 
@@ -241,8 +239,10 @@ export const Game1DoorsWorkspace: React.FC<Game1DoorsWorkspaceProps> = ({
               step4={{
                 label: nextSub
                   ? '4. ⏭️ ข้อถัดไป (Standby)'
-                  : '4. 🏁 จบเกมที่ 1 ➔ ไปเกมที่ 2',
-                sublabel: nextSub ? 'ขึ้นด่านย่อยถัดไปอัตโนมัติ' : 'สรุปด่านและโหลด Game 2 (Standby)',
+                  : '4. 🏁 จบเกมที่ 1 ➔ กลับ Lobby & สรุปคะแนน',
+                sublabel: nextSub
+                  ? 'ขึ้นด่านย่อยถัดไปอัตโนมัติ'
+                  : 'กลับหน้า Lobby พร้อมเปิด Popup ตารางคะแนนสะสม',
                 onClick: handleNext,
               }}
               secondaryStep3Action={

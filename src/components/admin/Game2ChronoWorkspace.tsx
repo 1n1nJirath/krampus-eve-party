@@ -91,8 +91,6 @@ export const Game2ChronoWorkspace: React.FC<Game2ChronoWorkspaceProps> = ({
       });
     } else {
       finishChronoGame();
-      startToyFactoryGame();
-      onAdvanceToGame3();
     }
   };
 
@@ -267,10 +265,10 @@ export const Game2ChronoWorkspace: React.FC<Game2ChronoWorkspaceProps> = ({
                 step4={{
                   label: nextPreset
                     ? `4. ⏭️ ข้อถัดไป (Standby)`
-                    : '4. 🏁 จบเกมที่ 2 ➔ ไปเกมที่ 3',
+                    : '4. 🏁 จบเกมที่ 2 ➔ กลับ Lobby & สรุปคะแนน',
                   sublabel: nextPreset
                     ? `ถัดไป: ${nextPreset.id.toUpperCase()} (เข้าโหมด Standby)`
-                    : 'ครบ 9 ข้อแล้ว ➔ เริ่มเกมที่ 3',
+                    : 'ครบ 9 ข้อแล้ว ➔ กลับ Lobby พร้อมเปิดตารางคะแนนสะสม',
                   onClick: handleNext,
                 }}
                 secondaryStep3Action={

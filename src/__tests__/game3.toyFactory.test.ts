@@ -8,6 +8,9 @@ import {
   applyToyDatasetSelection,
   applyToyFactoryFinalize,
   applyToyFactoryShuffle,
+  isToyFactoryPeekWindowOpen,
+  shouldMountToyFactoryItems,
+  TOY_FACTORY_PREP_MS,
 } from '../logic/toyFactoryLogic';
 import { KrampusGameState } from '../types/game';
 
@@ -53,8 +56,65 @@ describe('Suite 4: Game 3 — THE TOY FACTORY CHAOS', () => {
     expect(applyToyDatasetSelection(state, 'team1', dsId, 2000)).toBe(true);
     const tf = state.round.toyFactory!;
     expect(tf.phase).toBe('PREP_10S');
+    expect(tf.prepEndsAt).toBe(2000 + TOY_FACTORY_PREP_MS);
+    expect(TOY_FACTORY_PREP_MS).toBe(20000);
     expect(tf.assignments).toHaveLength(6);
     expect(tf.assignments.filter((a) => a.isMystery)).toHaveLength(1);
+  });
+
+  it('auto-hides and unmounts item data immediately when the 20s prep timer reaches 0 or Hold-to-Reveal / focus is lost', () => {
+    const state = makeToyFactoryState();
+    const dsId = DEFAULT_TOY_FACTORY_DATASETS[0].id;
+    applyToyDatasetSelection(state, 'team1', dsId, 2000);
+    const tf = state.round.toyFactory!;
+
+    // During 20s prep window (before 22000ms)
+    expect(isToyFactoryPeekWindowOpen(tf.phase, 21999, tf.prepEndsAt, tf.bufferEndsAt)).toBe(true);
+    expect(
+      shouldMountToyFactoryItems({
+        phase: tf.phase,
+        nowMs: 21999,
+        prepEndsAt: tf.prepEndsAt,
+        bufferEndsAt: tf.bufferEndsAt,
+        isHoldingReveal: true,
+        isWindowFocused: true,
+      })
+    ).toBe(true);
+
+    // Releasing Hold-to-Reveal or losing window focus immediately unmounts items
+    expect(
+      shouldMountToyFactoryItems({
+        phase: tf.phase,
+        nowMs: 10000,
+        prepEndsAt: tf.prepEndsAt,
+        bufferEndsAt: tf.bufferEndsAt,
+        isHoldingReveal: false,
+        isWindowFocused: true,
+      })
+    ).toBe(false);
+    expect(
+      shouldMountToyFactoryItems({
+        phase: tf.phase,
+        nowMs: 10000,
+        prepEndsAt: tf.prepEndsAt,
+        bufferEndsAt: tf.bufferEndsAt,
+        isHoldingReveal: true,
+        isWindowFocused: false,
+      })
+    ).toBe(false);
+
+    // Exact moment 20s prep timer reaches 0 (22000ms) -> auto-hidden even if still holding button
+    expect(isToyFactoryPeekWindowOpen(tf.phase, 22000, tf.prepEndsAt, tf.bufferEndsAt)).toBe(false);
+    expect(
+      shouldMountToyFactoryItems({
+        phase: tf.phase,
+        nowMs: 22000,
+        prepEndsAt: tf.prepEndsAt,
+        bufferEndsAt: tf.bufferEndsAt,
+        isHoldingReveal: true,
+        isWindowFocused: true,
+      })
+    ).toBe(false);
   });
 
   it('applyToyFactoryShuffle enforces spectator-only, >15s remaining, 1/round & 1/game quota, and marks changedOnShuffle', () => {
