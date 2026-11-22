@@ -101,6 +101,11 @@ export const ProjectorDisplay: React.FC = () => {
     soundFX.enabled = effectiveSound;
   }, [effectiveSound]);
 
+  // Phase Rules & Demo Briefing Screen state (local dismissal only; paused until Host starts)
+  const activePhaseKey = getPhaseBriefingKey(round);
+  const [dismissedPhases, setDismissedPhases] = useState<Record<string, boolean>>({});
+  const [forceBriefing, setForceBriefing] = useState(false);
+
   // BGM Engine UI state & Synchronization
   const [showBgmMenu, setShowBgmMenu] = useState(false);
   const [bgmInfo, setBgmInfo] = useState(() => ({
@@ -116,20 +121,6 @@ export const ProjectorDisplay: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!effectiveSound) {
-      bgmEngine.stop();
-      return;
-    }
-    const isBriefing = Boolean(forceBriefing || (activePhaseKey && !dismissedPhases[activePhaseKey]));
-    bgmEngine.syncWithGameState(round.gameStage, round.status, null, isBriefing);
-  }, [effectiveSound, round.gameStage, round.status, forceBriefing, activePhaseKey, dismissedPhases]);
-
-  // Phase Rules & Demo Briefing Screen state (local dismissal only; paused until Host starts)
-  const activePhaseKey = getPhaseBriefingKey(round);
-  const [dismissedPhases, setDismissedPhases] = useState<Record<string, boolean>>({});
-  const [forceBriefing, setForceBriefing] = useState(false);
-
-  useEffect(() => {
     setForceBriefing(false);
   }, [activePhaseKey]);
 
@@ -142,6 +133,14 @@ export const ProjectorDisplay: React.FC = () => {
   const showPhaseBriefing = Boolean(
     activePhaseKey && (forceBriefing || (round.briefingOpen && !dismissedPhases[activePhaseKey]))
   );
+
+  useEffect(() => {
+    if (!effectiveSound) {
+      bgmEngine.stop();
+      return;
+    }
+    bgmEngine.syncWithGameState(round.gameStage, round.status, null, showPhaseBriefing);
+  }, [effectiveSound, round.gameStage, round.status, showPhaseBriefing]);
 
   const isSpecialGame3View =
     round.gameStage === 'QUIXORT' &&

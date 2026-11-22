@@ -137,7 +137,11 @@ class BgmManager {
       return;
     }
 
-    if (this.currentTrack === track && this.audioElement && !this.audioElement.paused) {
+    if (
+      this.currentTrack === track &&
+      ((this.audioElement && !this.audioElement.paused) ||
+        (this.isUsingFallback && this.synthOscillators.length > 0))
+    ) {
       return; // Already playing this track
     }
 
