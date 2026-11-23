@@ -5,6 +5,7 @@ import {
   ChronoSubRound,
   ClientRole,
   CoinTransaction,
+  DisplayMode,
   EightDoorsSubRound,
   GameStage,
   InputMode,
@@ -633,6 +634,7 @@ interface GameContextValue {
   undoLastTransaction: () => void;
   autoApplyRoundScoring: (quixortOutcome?: 'PASS' | 'FAIL') => { summary: string[] };
   setShowLeaderboardOverlay: (show: boolean) => void;
+  setDisplayMode: (mode: DisplayMode) => void;
   setShowQrOverlay: (show: boolean) => void;
   setGameStage: (stage: GameStage, syncPreset?: boolean) => void;
   triggerKrampusAlert: (msg: string | null) => void;
@@ -4086,6 +4088,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }));
   }, [commitState]);
 
+  const setDisplayMode = useCallback(
+    (mode: DisplayMode) => {
+      commitState((prev) => ({
+        ...prev,
+        displayMode: mode,
+      }));
+    },
+    [commitState]
+  );
+
   const resetAllGameData = useCallback(() => {
     commitState(() => ({
       ...INITIAL_GAME_STATE,
@@ -4188,6 +4200,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         undoLastTransaction,
         autoApplyRoundScoring,
         setShowLeaderboardOverlay,
+        setDisplayMode,
         setShowQrOverlay,
         setGameStage,
         triggerKrampusAlert,

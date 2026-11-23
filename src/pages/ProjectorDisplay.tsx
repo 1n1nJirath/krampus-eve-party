@@ -19,6 +19,8 @@ import {
   BookOpen,
   Music,
   AlertTriangle,
+  Monitor,
+  Projector,
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import { soundFX } from '../utils/sound';
@@ -45,7 +47,7 @@ import {
 } from '../components/SouthParkArt';
 import { PhaseBriefingModal, getPhaseBriefingKey } from '../components/PhaseBriefingModal';
 import { SafeActionButton } from '../components/SafeActionButton';
-import { GameStage, TeamId } from '../types/game';
+import { DisplayMode, GameStage, TeamId } from '../types/game';
 
 const STAGE_META: Record<GameStage, { badge: string; name: string; color: string }> = {
   LOBBY: {
@@ -160,14 +162,48 @@ export const ProjectorDisplay: React.FC = () => {
     !isSpecialGame3View &&
     !isSpecialGame4View;
 
+  const [localDisplayModeOverride, setLocalDisplayModeOverride] = useState<DisplayMode | null>(
+    null
+  );
+  const [bgArtFailed, setBgArtFailed] = useState(false);
+  const [krampusArtFailed, setKrampusArtFailed] = useState(false);
+  const [krampusAngryFailed, setKrampusAngryFailed] = useState(false);
+
+  const syncedDisplayMode: DisplayMode = state.displayMode === 'tv' ? 'tv' : 'projector';
+  const effectiveDisplayMode: DisplayMode = localDisplayModeOverride ?? syncedDisplayMode;
+
+  const toggleLocalDisplayMode = () => {
+    setLocalDisplayModeOverride((prev) => {
+      const current = prev ?? syncedDisplayMode;
+      const next: DisplayMode = current === 'projector' ? 'tv' : 'projector';
+      return next === syncedDisplayMode ? null : next;
+    });
+  };
+
   const activeStageArt =
     round.gameStage === 'POLL_MINE'
-      ? '/art/manor-interior.png'
+      ? '/assets/art/bg-game1-doors.webp'
       : round.gameStage === 'TIMEJINX'
-      ? '/art/winter-forest.png'
+      ? '/assets/art/bg-game2-chrono.webp'
       : round.gameStage === 'QUIXORT'
-      ? '/art/manor-snowy.png'
-      : '/art/manor-exterior.png';
+      ? '/assets/art/bg-game3-toy.webp'
+      : round.gameStage === 'TRIVIA_MURDER'
+      ? '/assets/art/bg-game4-lms.webp'
+      : '/assets/art/bg-lobby.webp';
+
+  useEffect(() => {
+    setBgArtFailed(false);
+  }, [activeStageArt]);
+
+  const isDenseTriviaGrid =
+    (round.gameStage === 'TRIVIA_MURDER' &&
+      (round.lastMan?.phase === 'PART1_TRIVIA' ||
+        round.lastMan?.phase === 'PART1_TRIVIA_REVEAL' ||
+        round.lastMan?.phase === 'PART2_QUESTION' ||
+        round.lastMan?.phase === 'PART2_REVEAL')) ||
+    (round.gameStage === 'POLL_MINE' && round.status === 'ACTIVE');
+
+  const isKrampusProminentScreen = round.gameStage === 'LOBBY' || isStandbyPrep;
 
   // Sorted leaderboard (Rank 1 to 4 by Holy Coins, tie-break by Nice Shields)
   const sortedTeams = useMemo(() => {
@@ -299,7 +335,12 @@ export const ProjectorDisplay: React.FC = () => {
   const subRound = round.eightDoorsSubRound || 'SUB1_SURVIVAL';
 
   return (
-    <div className="min-h-screen flex flex-col justify-between bg-[#1e1828] text-[#EFE2D2] relative overflow-hidden select-none">
+    <div
+      data-display-mode={effectiveDisplayMode}
+      className={`min-h-screen flex flex-col justify-between bg-[#0b0912] text-[#EFE2D2] relative overflow-hidden select-none ${
+        effectiveDisplayMode === 'tv' ? 'display-overscan-safe' : ''
+      }`}
+    >
       {/* Manual Reconnect / Sync Banner when bounded backoff stops without Host state */}
       {syncStalled && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 rounded-2xl bg-amber-950/95 border-2 border-amber-400 text-amber-100 shadow-2xl">
@@ -316,21 +357,52 @@ export const ProjectorDisplay: React.FC = () => {
           </button>
         </div>
       )}
-      {/* The Christmas Manor Concept Art Backdrop for Active Game Stages */}
+      {/* The Christmas Manor / Four Rooms Static Concept Art Backdrop (Zero Supabase Egress + Graceful Fallback) */}
       {round.gameStage !== 'LOBBY' && round.gameStage !== 'WORLD_MAP' && (
         <>
+          {!bgArtFailed ? (
+            <img
+              src={activeStageArt}
+              alt=""
+              aria-hidden="true"
+              onError={() => setBgArtFailed(true)}
+              className="pointer-events-none fixed inset-0 w-full h-full object-cover scale-[1.01] transition-opacity duration-700"
+            />
+          ) : (
+            <div
+              className={`pointer-events-none fixed inset-0 bg-gradient-to-br ${stageInfo.color}`}
+            />
+          )}
           <div
-            className="pointer-events-none fixed inset-0 bg-cover bg-center scale-[1.01] transition-all duration-700"
-            style={{ backgroundImage: `url('${activeStageArt}')` }}
-          />
-          <div
-            className="pointer-events-none fixed inset-0"
+            className="pointer-events-none fixed inset-0 transition-all duration-500"
             style={{
               background:
-                'linear-gradient(180deg, rgba(35,28,46,0.82) 0%, rgba(28,22,38,0.72) 50%, rgba(25,19,34,0.88) 100%)',
+                effectiveDisplayMode === 'projector'
+                  ? 'radial-gradient(circle at 50% 45%, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.88) 100%)'
+                  : 'linear-gradient(180deg, var(--display-scrim-top) 0%, var(--display-scrim-mid) 50%, var(--display-scrim-bot) 100%)',
             }}
           />
         </>
+      )}
+
+      {/* Krampus Character Integration (Prominent Floating on Lobby/Standby, Non-Intrusive Corner on Active Screens) */}
+      {!krampusArtFailed && round.gameStage !== 'WORLD_MAP' && (
+        <div
+          className={`pointer-events-none fixed z-20 transition-all duration-500 ${
+            isKrampusProminentScreen
+              ? 'bottom-5 right-6 md:bottom-8 md:right-10 w-36 md:w-48 lg:w-56 animate-krampus-float'
+              : `bottom-4 right-4 w-20 md:w-28 opacity-85 ${
+                  isDenseTriviaGrid ? 'krampus-trivia-auto-hide' : ''
+                }`
+          }`}
+        >
+          <img
+            src="/assets/art/krampus.png"
+            alt="Krampus Mascot"
+            onError={() => setKrampusArtFailed(true)}
+            className="w-full h-auto object-contain krampus-mascot-img"
+          />
+        </div>
       )}
 
       {/* Phase Rules & Demo Briefing Modal */}
@@ -347,12 +419,20 @@ export const ProjectorDisplay: React.FC = () => {
       {/* Krampus Emergency / Curse Alert Banner */}
       {krampusAlertMessage && (
         <div className="fixed inset-x-0 top-20 z-50 flex justify-center px-6 animate-bounce">
-          <div className="max-w-4xl w-full py-4 px-8 rounded-2xl bg-gradient-to-r from-red-950 via-red-700 to-red-950 border-2 border-amber-400 shadow-[0_0_60px_rgba(220,38,38,0.9)] flex items-center justify-center gap-4 text-center">
-            <Skull className="w-10 h-10 text-amber-300 shrink-0 animate-pulse" />
-            <span className="text-2xl md:text-3xl font-extrabold text-white tracking-wide">
+          <div className="max-w-4xl w-full py-4 px-8 rounded-2xl bg-gradient-to-r from-red-950 via-red-700 to-red-950 border-4 border-amber-400 shadow-[0_0_60px_rgba(220,38,38,0.9)] flex items-center justify-center gap-5 text-center">
+            {!krampusAngryFailed ? (
+              <img
+                src="/assets/art/krampus-angry.png"
+                alt="Angry Krampus"
+                onError={() => setKrampusAngryFailed(true)}
+                className="w-16 h-16 md:w-20 md:h-20 object-contain shrink-0 krampus-mascot-img"
+              />
+            ) : (
+              <Skull className="w-10 h-10 text-amber-300 shrink-0 animate-pulse" />
+            )}
+            <span className="text-2xl md:text-4xl font-black text-white tracking-wide">
               {krampusAlertMessage}
             </span>
-            <Skull className="w-10 h-10 text-amber-300 shrink-0 animate-pulse" />
           </div>
         </div>
       )}
@@ -362,6 +442,28 @@ export const ProjectorDisplay: React.FC = () => {
       ============================================================ */}
       {round.gameStage === 'LOBBY' || round.gameStage === 'WORLD_MAP' ? (
         <div className="fixed top-3 right-4 z-30 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleLocalDisplayMode}
+            className={`px-2.5 py-2 rounded-xl border-2 border-black shadow-[3px_3px_0px_#000] transition flex items-center gap-1.5 text-xs font-black ${
+              effectiveDisplayMode === 'tv'
+                ? 'bg-sky-500 text-slate-950'
+                : 'bg-slate-900/90 text-amber-300'
+            }`}
+            title="สลับโหมดแสดงผลหน้าจอนี้ (TV vs Projector)"
+          >
+            {effectiveDisplayMode === 'tv' ? (
+              <>
+                <Monitor className="w-4 h-4" />
+                <span>TV</span>
+              </>
+            ) : (
+              <>
+                <Projector className="w-4 h-4" />
+                <span>Projector</span>
+              </>
+            )}
+          </button>
           <button
             onClick={() => setLocalMuted((m) => !m)}
             className="p-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-slate-200 border-2 border-black shadow-[3px_3px_0px_#000] transition"
@@ -557,6 +659,29 @@ export const ProjectorDisplay: React.FC = () => {
               </div>
             )}
           </div>
+
+          <button
+            type="button"
+            onClick={toggleLocalDisplayMode}
+            className={`px-2.5 py-2 rounded-xl border font-black text-xs flex items-center gap-1.5 transition ${
+              effectiveDisplayMode === 'tv'
+                ? 'bg-sky-500 text-slate-950 border-sky-200'
+                : 'bg-[#241e30] hover:bg-[#443a59] text-[#E5B86C] border-[#D8C6B5]/30'
+            }`}
+            title="สลับโหมดแสดงผลหน้าจอนี้ (TV vs Projector)"
+          >
+            {effectiveDisplayMode === 'tv' ? (
+              <>
+                <Monitor className="w-4 h-4" />
+                <span>TV</span>
+              </>
+            ) : (
+              <>
+                <Projector className="w-4 h-4" />
+                <span>Projector</span>
+              </>
+            )}
+          </button>
 
           <button
             onClick={toggleFullscreen}
@@ -1344,10 +1469,19 @@ export const ProjectorDisplay: React.FC = () => {
                 {latestAction && lms.phase !== 'PART1_BLACK_MARKET' && (
                   <div
                     key={latestAction.id}
-                    className="rounded-3xl bg-black border-4 border-amber-400 px-6 py-4 shadow-[0_0_40px_rgba(245,158,11,0.45)] flex items-center justify-center gap-4 text-center"
+                    className="display-surface-card rounded-3xl bg-black border-4 border-amber-400 px-6 py-4 shadow-[0_0_40px_rgba(245,158,11,0.45)] flex items-center justify-center gap-4 text-center"
                   >
-                    <span className="text-4xl md:text-5xl shrink-0">{latestAction.icon}</span>
-                    <div className="text-2xl md:text-3xl font-black text-white tracking-tight">
+                    {!krampusAngryFailed ? (
+                      <img
+                        src="/assets/art/krampus-angry.png"
+                        alt="Krampus"
+                        onError={() => setKrampusAngryFailed(true)}
+                        className="w-14 h-14 md:w-16 md:h-16 object-contain shrink-0 krampus-mascot-img"
+                      />
+                    ) : (
+                      <span className="text-4xl md:text-5xl shrink-0">{latestAction.icon}</span>
+                    )}
+                    <div className="display-question-text text-2xl md:text-3xl font-black text-white tracking-tight">
                       {latestAction.message}
                     </div>
                   </div>
@@ -1736,13 +1870,23 @@ export const ProjectorDisplay: React.FC = () => {
                 {isPart2 && (
                   <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5">
                     {/* Left: Clean 25-Step Staircase (No cluttered scroll log) */}
-                    <div className="lg:col-span-5 rounded-3xl bg-black/95 border-4 border-slate-700 p-6 flex flex-col justify-between">
+                    <div className="display-surface-card lg:col-span-5 rounded-3xl bg-black/95 border-4 border-slate-700 p-6 flex flex-col justify-between">
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="text-2xl font-black text-amber-300">
                           🪜 บันไดหนีตาย 25 ขั้น
                         </h3>
-                        <span className="px-4 py-1.5 rounded-xl bg-red-600 text-white text-base font-black">
-                          👹 Krampus: ขั้น {lms.krampusStep}
+                        <span className="px-3.5 py-1.5 rounded-xl bg-red-600 text-white text-base font-black flex items-center gap-2">
+                          {!krampusAngryFailed ? (
+                            <img
+                              src="/assets/art/krampus-angry.png"
+                              alt="Krampus Pursuer"
+                              onError={() => setKrampusAngryFailed(true)}
+                              className="w-7 h-7 object-contain"
+                            />
+                          ) : (
+                            <span>👹</span>
+                          )}
+                          <span>Krampus: ขั้น {lms.krampusStep}</span>
                         </span>
                       </div>
 
@@ -1750,6 +1894,7 @@ export const ProjectorDisplay: React.FC = () => {
                         {active.map((tid) => {
                           const ts = lms.teamStates[tid];
                           const pct = Math.min(100, Math.max(0, (ts.step / 25) * 100));
+                          const krampusPct = Math.min(100, (lms.krampusStep / 25) * 100);
                           return (
                             <div key={tid} className="space-y-2">
                               <div className="flex items-center justify-between text-lg md:text-xl font-black">
@@ -1760,19 +1905,28 @@ export const ProjectorDisplay: React.FC = () => {
                                   ขั้น {ts.step} / 25
                                 </span>
                               </div>
-                              <div className="h-8 rounded-full bg-slate-900 border-2 border-slate-600 relative overflow-hidden">
+                              <div className="h-9 rounded-full bg-slate-900 border-2 border-slate-600 relative overflow-visible">
+                                <div className="absolute inset-0 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full transition-all duration-500 ${
+                                      ts.isGhost ? 'bg-purple-600' : 'bg-emerald-500'
+                                    }`}
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
                                 <div
-                                  className={`h-full transition-all duration-500 ${
-                                    ts.isGhost ? 'bg-purple-600' : 'bg-emerald-500'
-                                  }`}
-                                  style={{ width: `${pct}%` }}
-                                />
-                                <div
-                                  className="absolute top-0 bottom-0 w-1.5 bg-red-500 shadow-[0_0_12px_#ef4444]"
-                                  style={{
-                                    left: `${Math.min(100, (lms.krampusStep / 25) * 100)}%`,
-                                  }}
-                                />
+                                  className="absolute top-0 bottom-0 w-1.5 bg-red-500 shadow-[0_0_12px_#ef4444] transition-all duration-500"
+                                  style={{ left: `${krampusPct}%` }}
+                                >
+                                  {!krampusAngryFailed && (
+                                    <img
+                                      src="/assets/art/krampus-angry.png"
+                                      alt="Krampus"
+                                      onError={() => setKrampusAngryFailed(true)}
+                                      className="w-8 h-8 object-contain absolute -top-2 -translate-x-1/2 pointer-events-none drop-shadow-[0_2px_6px_rgba(0,0,0,0.95)]"
+                                    />
+                                  )}
+                                </div>
                               </div>
                             </div>
                           );
@@ -1781,7 +1935,7 @@ export const ProjectorDisplay: React.FC = () => {
                     </div>
 
                     {/* Right: Oversized Clue / Question / 3 High-Contrast Options / Champion */}
-                    <div className="lg:col-span-7 rounded-3xl bg-black/95 border-4 border-amber-400 p-7 flex flex-col justify-between gap-5">
+                    <div className="display-surface-card lg:col-span-7 rounded-3xl bg-black/95 border-4 border-amber-400 p-7 flex flex-col justify-between gap-5">
                       {lms.phase === 'CHAMPION' ? (
                         <div className="flex-1 flex flex-col items-center justify-center text-center gap-4">
                           <div className="text-8xl animate-bounce">🏆</div>

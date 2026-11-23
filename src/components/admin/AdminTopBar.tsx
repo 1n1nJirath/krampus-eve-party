@@ -2,6 +2,8 @@ import React from 'react';
 import {
   BookOpen,
   ExternalLink,
+  Monitor,
+  Projector,
   QrCode,
   Settings,
   Trophy,
@@ -36,8 +38,10 @@ export const AdminTopBar: React.FC<AdminTopBarProps> = ({
   onOpenManual,
   onOpenSettings,
 }) => {
-  const { state, connectionMode, setShowLeaderboardOverlay, toggleSound } = useGame();
+  const { state, connectionMode, setShowLeaderboardOverlay, setDisplayMode, toggleSound } =
+    useGame();
   const onAirTab = stageToAdminTab(state.round.gameStage);
+  const currentDisplayMode = state.displayMode === 'tv' ? 'tv' : 'projector';
 
   const syncLabel =
     connectionMode === 'LOCAL_SERVER'
@@ -109,6 +113,36 @@ export const AdminTopBar: React.FC<AdminTopBarProps> = ({
 
         {/* Right: Quick Utilities */}
         <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+          <SafeActionButton
+            type="button"
+            showSpinner={false}
+            onClick={() =>
+              setDisplayMode(currentDisplayMode === 'projector' ? 'tv' : 'projector')
+            }
+            className={`px-2.5 py-1.5 rounded-xl font-extrabold text-xs flex items-center gap-1.5 border transition ${
+              currentDisplayMode === 'tv'
+                ? 'bg-sky-500 text-slate-950 border-sky-200 shadow-[0_0_12px_rgba(56,189,248,0.45)]'
+                : 'bg-slate-800 hover:bg-slate-700 text-amber-200 border-amber-500/40'
+            }`}
+            title={
+              currentDisplayMode === 'tv'
+                ? 'กำลังใช้ TV Mode (Safe Overscan + ฟอนต์ใหญ่พิเศษ) — คลิกเพื่อสลับเป็น Projector Mode'
+                : 'กำลังใช้ Projector Mode (High-Contrast สู้แสงสว่าง) — คลิกเพื่อสลับเป็น TV Mode'
+            }
+          >
+            {currentDisplayMode === 'tv' ? (
+              <>
+                <Monitor className="w-3.5 h-3.5" />
+                <span>TV Mode</span>
+              </>
+            ) : (
+              <>
+                <Projector className="w-3.5 h-3.5" />
+                <span>Projector</span>
+              </>
+            )}
+          </SafeActionButton>
+
           <a
             href="/display"
             target="_blank"

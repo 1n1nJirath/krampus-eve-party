@@ -583,6 +583,7 @@ export function stripStaticDataForSync(state: KrampusGameState): CompactSyncStat
       ? { clearedStages: state.clearedStages }
       : {}),
     soundEnabled: state.soundEnabled,
+    ...(state.displayMode === 'tv' ? { displayMode: 'tv' as const } : {}),
     showLeaderboardOverlay: state.showLeaderboardOverlay,
     ...(state.showQrOverlay ? { showQrOverlay: state.showQrOverlay } : {}),
     krampusAlertMessage: state.krampusAlertMessage,
@@ -726,6 +727,7 @@ export function rehydrateStateFromLocal(
     roomLocked: Boolean(raw.roomLocked),
     clearedStages: raw.clearedStages || [],
     soundEnabled: raw.soundEnabled ?? INITIAL_GAME_STATE.soundEnabled,
+    displayMode: raw.displayMode === 'tv' ? 'tv' : 'projector',
     showLeaderboardOverlay: Boolean(raw.showLeaderboardOverlay),
     showQrOverlay: Boolean(raw.showQrOverlay),
     krampusAlertMessage: raw.krampusAlertMessage ?? null,

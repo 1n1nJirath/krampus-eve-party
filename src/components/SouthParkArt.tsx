@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { GameStage } from '../types/game';
 
 /**
@@ -316,23 +316,30 @@ export const SnowPineForestFrame: React.FC<{
   children: React.ReactNode;
 }> = ({ variant, children }) => {
   const isLobby = variant === 'LOBBY';
-  const bgUrl = isLobby ? '/art/manor-exterior.png' : '/art/manor-interior.png';
+  const bgUrl = isLobby ? '/assets/art/bg-lobby.webp' : '/assets/art/bg-game1-doors.webp';
+  const [bgFailed, setBgFailed] = useState(false);
 
   return (
-    <div className="min-h-screen w-full relative overflow-hidden flex flex-col justify-between select-none bg-[#352D45]">
-      {/* Canva Illustrated Manor Backdrop */}
-      <div
-        className="pointer-events-none fixed inset-0 bg-cover bg-center scale-[1.01]"
-        style={{ backgroundImage: `url('${bgUrl}')` }}
-      />
+    <div className="min-h-screen w-full relative overflow-hidden flex flex-col justify-between select-none bg-[#181224]">
+      {/* Static Local Concept Art Backdrop with Graceful Fallback */}
+      {!bgFailed ? (
+        <img
+          src={bgUrl}
+          alt=""
+          aria-hidden="true"
+          onError={() => setBgFailed(true)}
+          className="pointer-events-none fixed inset-0 w-full h-full object-cover scale-[1.01]"
+        />
+      ) : (
+        <div className="pointer-events-none fixed inset-0 bg-gradient-to-br from-red-950 via-slate-950 to-emerald-950" />
+      )}
 
-      {/* Atmospheric Ink Plum & Warm Amber Vignette for High UI Readability */}
+      {/* Atmospheric Scrim adapting to Projector vs TV Display Mode */}
       <div
-        className="pointer-events-none fixed inset-0"
+        className="pointer-events-none fixed inset-0 transition-all duration-500"
         style={{
-          background: isLobby
-            ? 'linear-gradient(180deg, rgba(53,45,69,0.68) 0%, rgba(53,45,69,0.28) 42%, rgba(53,45,69,0.65) 100%)'
-            : 'linear-gradient(180deg, rgba(40,30,48,0.72) 0%, rgba(40,30,48,0.38) 48%, rgba(40,30,48,0.78) 100%)',
+          background:
+            'linear-gradient(180deg, var(--display-scrim-top, rgba(35,28,46,0.72)) 0%, var(--display-scrim-mid, rgba(35,28,46,0.45)) 45%, var(--display-scrim-bot, rgba(25,19,34,0.78)) 100%)',
         }}
       />
 

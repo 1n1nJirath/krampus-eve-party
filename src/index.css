@@ -45,3 +45,67 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #eab308;
 }
+
+/* ==========================================
+   Krampus Character Subtle Float / Breathing
+   ========================================== */
+@keyframes krampus-float {
+  0%, 100% {
+    transform: translateY(0px) scale(1);
+  }
+  50% {
+    transform: translateY(-10px) scale(1.025);
+  }
+}
+
+.animate-krampus-float {
+  animation: krampus-float 3.8s ease-in-out infinite;
+}
+
+/* ==========================================
+   Switchable Display Modes: Projector vs TV
+   Controlled via data-display-mode on /display root
+   ========================================== */
+[data-display-mode='projector'] {
+  --display-scrim-top: rgba(0, 0, 0, 0.82);
+  --display-scrim-mid: rgba(0, 0, 0, 0.78);
+  --display-scrim-bot: rgba(0, 0, 0, 0.88);
+}
+
+[data-display-mode='projector'] .display-surface-card {
+  background-color: rgba(9, 9, 11, 0.96) !important;
+  border-width: 4px !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+[data-display-mode='projector'] .krampus-mascot-img {
+  filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.95));
+}
+
+[data-display-mode='tv'] {
+  --display-scrim-top: rgba(0, 0, 0, 0.52);
+  --display-scrim-mid: rgba(0, 0, 0, 0.48);
+  --display-scrim-bot: rgba(0, 0, 0, 0.62);
+}
+
+[data-display-mode='tv'] .display-overscan-safe {
+  padding: 2rem 2.5rem;
+}
+
+[data-display-mode='tv'] .display-question-text {
+  font-size: 1.18em;
+  line-height: 1.25;
+}
+
+[data-display-mode='tv'] .display-choice-text {
+  font-size: 1.15em;
+}
+
+[data-display-mode='tv'] .krampus-mascot-img {
+  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.7));
+}
+
+[data-display-mode='tv'] .krampus-trivia-auto-hide {
+  display: none;
+}

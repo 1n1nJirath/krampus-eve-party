@@ -1096,6 +1096,7 @@ export const INITIAL_GAME_STATE: KrampusGameState = {
   roomCode: 'KRAMPUS',
   roomLocked: false,
   soundEnabled: true,
+  displayMode: 'projector',
   showLeaderboardOverlay: false,
   showQrOverlay: false,
   krampusAlertMessage: null,

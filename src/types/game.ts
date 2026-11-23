@@ -345,6 +345,8 @@ export interface QuestionPreset {
   durationSeconds: number;
 }
 
+export type DisplayMode = 'tv' | 'projector';
+
 export interface KrampusGameState {
   version: number;
   stateVersion: number;
@@ -354,6 +356,7 @@ export interface KrampusGameState {
   roomLocked?: boolean;
   clearedStages?: GameStage[];
   soundEnabled: boolean;
+  displayMode?: DisplayMode;
   showLeaderboardOverlay: boolean;
   showQrOverlay?: boolean;
   krampusAlertMessage: string | null;
