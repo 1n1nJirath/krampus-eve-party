@@ -18,6 +18,7 @@ import {
   Gavel,
   BookOpen,
   Music,
+  AlertTriangle,
 } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import { soundFX } from '../utils/sound';
@@ -85,7 +86,7 @@ const STAGE_META: Record<GameStage, { badge: string; name: string; color: string
 };
 
 export const ProjectorDisplay: React.FC = () => {
-  const { state } = useGame();
+  const { state, syncStalled, requestManualSync } = useGame();
   const {
     round,
     teams,
@@ -299,6 +300,22 @@ export const ProjectorDisplay: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col justify-between bg-[#1e1828] text-[#EFE2D2] relative overflow-hidden select-none">
+      {/* Manual Reconnect / Sync Banner when bounded backoff stops without Host state */}
+      {syncStalled && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 rounded-2xl bg-amber-950/95 border-2 border-amber-400 text-amber-100 shadow-2xl">
+          <AlertTriangle className="w-5 h-5 text-amber-300 shrink-0" />
+          <span className="text-sm font-bold">
+            ยังไม่ได้รับสัญญาณจาก Host (/admin) กรุณาเปิดหน้า Admin แล้วกดซิงค์ใหม่
+          </span>
+          <button
+            type="button"
+            onClick={requestManualSync}
+            className="px-4 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-black text-xs cursor-pointer transition-colors"
+          >
+            Reconnect / Sync
+          </button>
+        </div>
+      )}
       {/* The Christmas Manor Concept Art Backdrop for Active Game Stages */}
       {round.gameStage !== 'LOBBY' && round.gameStage !== 'WORLD_MAP' && (
         <>

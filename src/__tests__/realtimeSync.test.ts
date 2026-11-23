@@ -6,10 +6,15 @@ import {
   computeSecondsLeft,
   createUnhydratedClientState,
   isPendingActionConfirmed,
+  rehydrateStateFromLocal,
   resolveClientRole,
   shouldAcceptIncomingState,
   shouldCancelPendingAction,
   stampNextState,
+  stripStaticDataForSync,
+  SYNC_MAX_KILL_FEED,
+  SYNC_MAX_PROCESSED_ACTION_IDS,
+  SYNC_MAX_TRANSACTIONS,
 } from '../logic/syncLogic';
 import { KrampusGameState, PendingPlayerAction, PlayerActionEvent } from '../types/game';
 
@@ -368,5 +373,117 @@ describe('Suite 8: Host-Authoritative Realtime Sync & Monotonic Versioning', () 
     const nextRound = structuredClone(state);
     nextRound.round.id = 'round-live-2';
     expect(shouldCancelPendingAction(pending, nextRound)).toBe(true);
+  });
+
+  it('stripStaticDataForSync shrinks STATE_SYNC payload by >90% (< 3,000 bytes) and rehydrateStateFromLocal restores all static data & custom overrides', () => {
+    const fullState = makeActiveState();
+    const rawBytes = new TextEncoder().encode(JSON.stringify(fullState)).length;
+
+    const compact = stripStaticDataForSync(fullState);
+    const wrappedPayload = {
+      state: compact,
+      serverNow: 123_456_789,
+      stateVersion: fullState.stateVersion,
+      updatedAt: fullState.updatedAt,
+    };
+    const compactBytes = new TextEncoder().encode(JSON.stringify(wrappedPayload)).length;
+
+    expect(rawBytes).toBeGreaterThan(25_000);
+    expect(compactBytes).toBeLessThan(3_000);
+    expect(compactBytes / rawBytes).toBeLessThan(0.1);
+
+    // Static fields must be omitted when unmodified
+    expect((compact as unknown as Record<string, unknown>).presets).toBeUndefined();
+    expect((compact as unknown as Record<string, unknown>).toyFactoryDatasets).toBeUndefined();
+    expect(compact.toyFactoryDatasetOverrides).toBeUndefined();
+    expect(compact.lastManPart1QuestionOverrides).toBeUndefined();
+    expect(compact.lastManPart2QuestionOverrides).toBeUndefined();
+
+    // Rehydration restores presets, datasets, and questions seamlessly
+    const rehydrated = rehydrateStateFromLocal(compact);
+    expect(rehydrated.presets.length).toBe(DEFAULT_PRESETS.length);
+    expect(rehydrated.toyFactoryDatasets?.length).toBeGreaterThan(0);
+    expect(rehydrated.lastManPart1Questions?.length).toBeGreaterThan(0);
+    expect(rehydrated.lastManPart2Questions?.length).toBeGreaterThan(0);
+    expect(rehydrated.round.title).toBe(fullState.round.title);
+    expect(rehydrated.round.choices.length).toBe(fullState.round.choices.length);
+
+    // Custom Host edits to a single Toy Factory dataset & Game 4 question survive round-trip
+    const edited = structuredClone(fullState);
+    edited.toyFactoryDatasets![0].title = 'CUSTOM EDITED TOY DATASET';
+    edited.lastManPart1Questions![0].questionText = 'CUSTOM EDITED LMS QUESTION?';
+    edited.round.choices[0].isOpened = true;
+
+    const editedCompact = stripStaticDataForSync(edited);
+    expect(editedCompact.toyFactoryDatasetOverrides).toHaveLength(1);
+    expect(editedCompact.lastManPart1QuestionOverrides).toHaveLength(1);
+    expect(editedCompact.lastManPart2QuestionOverrides).toBeUndefined();
+
+    const editedRehydrated = rehydrateStateFromLocal(editedCompact);
+    expect(editedRehydrated.toyFactoryDatasets![0].title).toBe('CUSTOM EDITED TOY DATASET');
+    expect(editedRehydrated.lastManPart1Questions![0].questionText).toBe('CUSTOM EDITED LMS QUESTION?');
+    expect(editedRehydrated.round.choices[0].isOpened).toBe(true);
+  });
+
+  it('stripStaticDataForSync caps transactions, killFeed, and processedActionIds while preserving local Host history', () => {
+    const state = makeActiveState();
+    state.transactions = Array.from({ length: 40 }, (_, i) => ({
+      id: `tx-${i}`,
+      timestamp: 100_000 + i,
+      teamId: 'team1',
+      delta: 100,
+      reason: `Reason ${i}`,
+      prevBalances: { team1: 1000, team2: 1000, team3: 1000, team4: 1000 },
+    }));
+    state.processedActionIds = Array.from({ length: 50 }, (_, i) => `act-${i}`);
+    state.round.lastMan = {
+      phase: 'PART1_BLACK_MARKET',
+      part1Round: 1,
+      part2QuestionIndex: 0,
+      krampusStep: 0,
+      winnerTeamId: null,
+      miseryPullTeamId: null,
+      miseryEndsAt: null,
+      roundStock: {
+        CURSE_BOX: 2,
+        SNIPER_SHOT: 2,
+        MIRROR_SHIELD: 2,
+        HELL_CHAINS: 1,
+        EXECUTIONER_BRIBE: 1,
+        REVIVE_POTION: 1,
+        JETPACK: 1,
+      },
+      gameStock: { HELL_CHAINS: 2, JETPACK: 2 },
+      killFeed: Array.from({ length: 30 }, (_, i) => ({
+        id: `kf-${i}`,
+        timestamp: 100_000 + i,
+        icon: '🎯',
+        message: `Event ${i}`,
+      })),
+      poisonedChalices: [],
+      chalicePicks: {},
+      splitStealPicks: {},
+      dareVotes: {},
+      krampusDiceRoll: null,
+      teamDiceRolls: {},
+      greedTaxReport: [],
+      teamStates: {
+        team1: { hearts: 4, isGhost: false, inKillingFloor: false, mirrorShield: false, activeCurse: null, jetpacks: 0, step: 0 },
+        team2: { hearts: 4, isGhost: false, inKillingFloor: false, mirrorShield: false, activeCurse: null, jetpacks: 0, step: 0 },
+        team3: { hearts: 4, isGhost: false, inKillingFloor: false, mirrorShield: false, activeCurse: null, jetpacks: 0, step: 0 },
+        team4: { hearts: 4, isGhost: false, inKillingFloor: false, mirrorShield: false, activeCurse: null, jetpacks: 0, step: 0 },
+      },
+    };
+
+    const compact = stripStaticDataForSync(state);
+    expect(compact.transactions).toHaveLength(SYNC_MAX_TRANSACTIONS);
+    expect((compact.transactions[0] as unknown as Record<string, unknown>).prevBalances).toBeUndefined();
+    expect(compact.processedActionIds).toHaveLength(SYNC_MAX_PROCESSED_ACTION_IDS);
+    expect(compact.round.lastMan?.killFeed).toHaveLength(SYNC_MAX_KILL_FEED);
+
+    // Host's original state remains untouched
+    expect(state.transactions).toHaveLength(40);
+    expect(state.processedActionIds).toHaveLength(50);
+    expect(state.round.lastMan.killFeed).toHaveLength(30);
   });
 });

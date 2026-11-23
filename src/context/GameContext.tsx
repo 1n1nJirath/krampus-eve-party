@@ -54,14 +54,22 @@ import {
 } from '../logic/lastManLogic';
 import {
   applyPlayerAction,
+  CompactSyncState,
   createUnhydratedClientState,
+  HOST_ECONOMY_DEBOUNCE_MS,
+  HOST_REQUEST_STATE_THROTTLE_MS,
   isPendingActionConfirmed,
+  rehydrateStateFromLocal,
   resolveClientRole,
   shouldAcceptIncomingState,
   shouldCancelPendingAction,
   stampNextState,
+  stripStaticDataForSync,
+  SYNC_BACKOFF_DELAYS_MS,
 } from '../logic/syncLogic';
 import { triggerHaptic } from '../utils/haptics';
+
+export { stripStaticDataForSync, rehydrateStateFromLocal };
 
 const STORAGE_KEY = 'krampus_eve_state_v2';
 const SUPABASE_CONFIG_KEY = 'krampus_supabase_config_v2';
@@ -500,6 +508,8 @@ interface GameContextValue {
   lanIp: string;
   connectionMode: 'LOCAL_SERVER' | 'SUPABASE_CLOUD' | 'BROWSER_SYNC';
   isConnected: boolean;
+  syncStalled: boolean;
+  requestManualSync: () => void;
   serverTimeOffset: number;
   getAuthoritativeNow: () => number;
   supabaseConfig: SupabaseConfig;
@@ -769,76 +779,120 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  const [syncStalled, setSyncStalled] = useState(false);
+  const backoffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedBroadcastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRequestStateReplyAtRef = useRef<number>(0);
+  const requestStateTrailingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearBackoffTimer = useCallback(() => {
+    if (backoffTimerRef.current) {
+      clearTimeout(backoffTimerRef.current);
+      backoffTimerRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     return () => {
       Object.values(retryTimersRef.current).forEach((t) => clearTimeout(t));
       retryTimersRef.current = {};
+      if (backoffTimerRef.current) {
+        clearTimeout(backoffTimerRef.current);
+        backoffTimerRef.current = null;
+      }
+      if (debouncedBroadcastTimerRef.current) {
+        clearTimeout(debouncedBroadcastTimerRef.current);
+        debouncedBroadcastTimerRef.current = null;
+      }
+      if (requestStateTrailingTimerRef.current) {
+        clearTimeout(requestStateTrailingTimerRef.current);
+        requestStateTrailingTimerRef.current = null;
+      }
     };
   }, []);
 
-  // Host-only state broadcast helper (never called from /play or /display)
-  const broadcastAuthoritativeState = useCallback((stamped: KrampusGameState) => {
-    if (clientRoleRef.current !== 'HOST') return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(stamped));
-    } catch {
-      // ignore quota errors
+  // Build compact STATE_SYNC payload (strips static data & caps unbounded arrays)
+  const buildCompactSyncPayload = useCallback((stamped: KrampusGameState) => {
+    const compactState = stripStaticDataForSync(stamped);
+    const payload = {
+      state: compactState,
+      serverNow: Date.now(),
+      stateVersion: stamped.stateVersion,
+      updatedAt: stamped.updatedAt,
+    };
+    if ((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV) {
+      console.debug('[Sync] STATE_SYNC size:', new Blob([JSON.stringify(payload)]).size, 'bytes');
     }
-
-    if (isSupabaseCloudActiveRef.current) {
-      if (supaChannelRef.current) {
-        supaChannelRef.current
-          .send({
-            type: 'broadcast',
-            event: 'STATE_SYNC',
-            payload: {
-              state: stamped,
-              serverNow: Date.now(),
-              stateVersion: stamped.stateVersion,
-              updatedAt: stamped.updatedAt,
-            },
-          })
-          .catch(() => {});
-      }
-      return;
-    }
-
-    if (bcRef.current) {
-      try {
-        bcRef.current.postMessage({
-          type: 'STATE_SYNC',
-          state: stamped,
-          serverNow: Date.now(),
-        });
-      } catch {
-        // ignore
-      }
-    }
-
-    if (connectionModeRef.current === 'LOCAL_SERVER') {
-      fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'FULL_STATE', state: stamped }),
-      }).catch(() => {});
-    }
+    return payload;
   }, []);
+
+  // Host-only state broadcast helper (never called from /play or /display)
+  const broadcastAuthoritativeState = useCallback(
+    (stamped: KrampusGameState) => {
+      if (clientRoleRef.current !== 'HOST') return;
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(stamped));
+      } catch {
+        // ignore quota errors
+      }
+
+      if (isSupabaseCloudActiveRef.current) {
+        if (supaChannelRef.current) {
+          const payload = buildCompactSyncPayload(stamped);
+          supaChannelRef.current
+            .send({
+              type: 'broadcast',
+              event: 'STATE_SYNC',
+              payload,
+            })
+            .catch(() => {});
+        }
+        return;
+      }
+
+      if (bcRef.current) {
+        try {
+          bcRef.current.postMessage({
+            type: 'STATE_SYNC',
+            state: stamped,
+            serverNow: Date.now(),
+          });
+        } catch {
+          // ignore
+        }
+      }
+
+      if (connectionModeRef.current === 'LOCAL_SERVER') {
+        fetch('/api/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'FULL_STATE', state: stamped }),
+        }).catch(() => {});
+      }
+    },
+    [buildCompactSyncPayload]
+  );
 
   // Apply incoming STATE_SYNC on non-host clients with strict monotonic stateVersion guard
   const applyIncomingState = useCallback(
     (
-      incoming: KrampusGameState,
+      incoming: CompactSyncState | KrampusGameState,
       serverNow?: number,
       options?: { allowHostFromLocalServer?: boolean }
     ) => {
       if (clientRoleRef.current === 'HOST' && !options?.allowHostFromLocalServer) return;
       if (!incoming || !incoming.teams) return;
 
-      const normalized = normalizeGameState(incoming);
+      const normalized = rehydrateStateFromLocal(incoming);
       const prev = stateRef.current;
 
       if (!shouldAcceptIncomingState(prev, normalized)) {
         return;
+      }
+
+      if (normalized.stateVersion > 0) {
+        clearBackoffTimer();
+        setSyncStalled(false);
       }
 
       if (typeof serverNow === 'number') {
@@ -881,12 +935,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setPendingActions({ ...pendingActionsRef.current });
       }
     },
-    []
+    [clearBackoffTimer]
   );
 
   // Authoritative state commit (HOST only)
+  // Supports optional trailing debounce for rapid economy clicks while keeping critical transitions immediate.
   const commitState = useCallback(
-    (updater: (prev: KrampusGameState) => KrampusGameState | null) => {
+    (
+      updater: (prev: KrampusGameState) => KrampusGameState | null,
+      options?: { debounceBroadcastMs?: number }
+    ) => {
       if (clientRoleRef.current !== 'HOST') return;
       const prev = stateRef.current;
       const next = updater(prev);
@@ -894,7 +952,21 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const stamped = stampNextState(prev, next, Date.now());
       stateRef.current = stamped;
       setState(stamped);
-      broadcastAuthoritativeState(stamped);
+
+      if (debouncedBroadcastTimerRef.current) {
+        clearTimeout(debouncedBroadcastTimerRef.current);
+        debouncedBroadcastTimerRef.current = null;
+      }
+
+      const debounceMs = options?.debounceBroadcastMs ?? 0;
+      if (debounceMs > 0) {
+        debouncedBroadcastTimerRef.current = setTimeout(() => {
+          debouncedBroadcastTimerRef.current = null;
+          broadcastAuthoritativeState(stateRef.current);
+        }, debounceMs);
+      } else {
+        broadcastAuthoritativeState(stamped);
+      }
     },
     [broadcastAuthoritativeState]
   );
@@ -1213,6 +1285,69 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [isSupabaseCloudActive]);
 
+  // Bounded exponential backoff (3s -> 6s -> 12s, max 3 retries) for non-host initial hydration
+  const startHydrationRequestWithBackoff = useCallback(
+    (channel: RealtimeChannel | null) => {
+      if (clientRoleRef.current === 'HOST') return;
+      clearBackoffTimer();
+      setSyncStalled(false);
+
+      const sendRequest = () => {
+        if (channel) {
+          channel
+            .send({
+              type: 'broadcast',
+              event: 'REQUEST_STATE',
+              payload: { requestedAt: Date.now() },
+            })
+            .catch(() => {});
+        } else if (bcRef.current) {
+          try {
+            bcRef.current.postMessage({ type: 'REQUEST_STATE' });
+          } catch {
+            // ignore
+          }
+        }
+      };
+
+      // Send once immediately
+      sendRequest();
+
+      if (stateRef.current.stateVersion > 0) return;
+
+      const scheduleAttempt = (attemptIndex: number) => {
+        const delayMs = SYNC_BACKOFF_DELAYS_MS[attemptIndex];
+        backoffTimerRef.current = setTimeout(() => {
+          backoffTimerRef.current = null;
+          if (stateRef.current.stateVersion > 0) {
+            setSyncStalled(false);
+            return;
+          }
+          if (attemptIndex < SYNC_BACKOFF_DELAYS_MS.length - 1) {
+            sendRequest();
+            scheduleAttempt(attemptIndex + 1);
+          } else {
+            // Final 3rd retry (at 12s): send once more, then stop and surface manual Reconnect / Sync button
+            sendRequest();
+            backoffTimerRef.current = setTimeout(() => {
+              backoffTimerRef.current = null;
+              if (stateRef.current.stateVersion === 0) {
+                setSyncStalled(true);
+              }
+            }, 3000);
+          }
+        }, delayMs);
+      };
+
+      scheduleAttempt(0);
+    },
+    [clearBackoffTimer]
+  );
+
+  const requestManualSync = useCallback(() => {
+    startHydrationRequestWithBackoff(supaChannelRef.current);
+  }, [startHydrationRequestWithBackoff]);
+
   // 3. Setup Supabase Realtime Broadcast (Host-Authoritative Single Source of Truth)
   useEffect(() => {
     if (!supabaseConfig.enabled || !supabaseConfig.url || !supabaseConfig.anonKey) {
@@ -1221,13 +1356,45 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     let unmounted = false;
-    let hydratePollTimer: ReturnType<typeof setInterval> | null = null;
 
     try {
       const supabase = createClient(supabaseConfig.url, supabaseConfig.anonKey);
       const channel = supabase.channel('krampus_eve_room', {
         config: { broadcast: { self: false } },
       });
+
+      const sendThrottledHostSync = () => {
+        if (clientRoleRef.current !== 'HOST' || unmounted) return;
+        const now = Date.now();
+        const elapsed = now - lastRequestStateReplyAtRef.current;
+
+        const flushSync = () => {
+          if (unmounted || clientRoleRef.current !== 'HOST') return;
+          lastRequestStateReplyAtRef.current = Date.now();
+          const payload = buildCompactSyncPayload(stateRef.current);
+          channel
+            .send({
+              type: 'broadcast',
+              event: 'STATE_SYNC',
+              payload,
+            })
+            .catch(() => {});
+        };
+
+        if (elapsed >= HOST_REQUEST_STATE_THROTTLE_MS) {
+          if (requestStateTrailingTimerRef.current) {
+            clearTimeout(requestStateTrailingTimerRef.current);
+            requestStateTrailingTimerRef.current = null;
+          }
+          flushSync();
+        } else if (!requestStateTrailingTimerRef.current) {
+          const waitMs = HOST_REQUEST_STATE_THROTTLE_MS - elapsed;
+          requestStateTrailingTimerRef.current = setTimeout(() => {
+            requestStateTrailingTimerRef.current = null;
+            flushSync();
+          }, waitMs);
+        }
+      };
 
       channel
         .on('broadcast', { event: 'STATE_SYNC' }, ({ payload }) => {
@@ -1236,20 +1403,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         })
         .on('broadcast', { event: 'REQUEST_STATE' }, () => {
-          if (clientRoleRef.current !== 'HOST') return;
-          const current = stateRef.current;
-          channel
-            .send({
-              type: 'broadcast',
-              event: 'STATE_SYNC',
-              payload: {
-                state: current,
-                serverNow: Date.now(),
-                stateVersion: current.stateVersion,
-                updatedAt: current.updatedAt,
-              },
-            })
-            .catch(() => {});
+          sendThrottledHostSync();
         })
         .on('broadcast', { event: 'PLAYER_ACTION' }, ({ payload }) => {
           if (clientRoleRef.current !== 'HOST' || !payload) return;
@@ -1279,43 +1433,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setIsConnected(true);
 
             if (clientRoleRef.current === 'HOST') {
-              const current = stateRef.current;
+              lastRequestStateReplyAtRef.current = Date.now();
+              const payload = buildCompactSyncPayload(stateRef.current);
               channel
                 .send({
                   type: 'broadcast',
                   event: 'STATE_SYNC',
-                  payload: {
-                    state: current,
-                    serverNow: Date.now(),
-                    stateVersion: current.stateVersion,
-                    updatedAt: current.updatedAt,
-                  },
+                  payload,
                 })
                 .catch(() => {});
             } else {
-              const sendRequest = () => {
-                channel
-                  .send({
-                    type: 'broadcast',
-                    event: 'REQUEST_STATE',
-                    payload: { requestedAt: Date.now() },
-                  })
-                  .catch(() => {});
-              };
-              sendRequest();
-
-              if (stateRef.current.stateVersion === 0) {
-                hydratePollTimer = setInterval(() => {
-                  if (stateRef.current.stateVersion > 0) {
-                    if (hydratePollTimer) {
-                      clearInterval(hydratePollTimer);
-                      hydratePollTimer = null;
-                    }
-                    return;
-                  }
-                  sendRequest();
-                }, 2500);
-              }
+              startHydrationRequestWithBackoff(channel);
             }
           }
         });
@@ -1323,14 +1451,25 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       supaChannelRef.current = channel;
       return () => {
         unmounted = true;
-        if (hydratePollTimer) clearInterval(hydratePollTimer);
+        clearBackoffTimer();
+        if (requestStateTrailingTimerRef.current) {
+          clearTimeout(requestStateTrailingTimerRef.current);
+          requestStateTrailingTimerRef.current = null;
+        }
         supabase.removeChannel(channel);
         supaChannelRef.current = null;
       };
     } catch {
       // ignore invalid supabase url
     }
-  }, [supabaseConfig.enabled, supabaseConfig.url, supabaseConfig.anonKey]);
+  }, [
+    supabaseConfig.enabled,
+    supabaseConfig.url,
+    supabaseConfig.anonKey,
+    buildCompactSyncPayload,
+    clearBackoffTimer,
+    startHydrationRequestWithBackoff,
+  ]);
 
   const saveSupabaseConfig = useCallback((cfg: SupabaseConfig) => {
     setSupabaseConfig(cfg);
@@ -2696,7 +2835,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           teams: nextTeams,
           transactions: [tx, ...prev.transactions.slice(0, 49)],
         };
-      });
+      }, { debounceBroadcastMs: HOST_ECONOMY_DEBOUNCE_MS });
     },
     [commitState]
   );
@@ -2730,7 +2869,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           },
           transactions: [tx, ...prev.transactions.slice(0, 49)],
         };
-      });
+      }, { debounceBroadcastMs: HOST_ECONOMY_DEBOUNCE_MS });
     },
     [commitState]
   );
@@ -2751,7 +2890,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             },
           },
         };
-      });
+      }, { debounceBroadcastMs: HOST_ECONOMY_DEBOUNCE_MS });
     },
     [commitState]
   );
@@ -2783,7 +2922,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             },
           },
         };
-      });
+      }, { debounceBroadcastMs: HOST_ECONOMY_DEBOUNCE_MS });
     },
     [commitState]
   );
@@ -2812,7 +2951,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             },
           },
         };
-      });
+      }, { debounceBroadcastMs: HOST_ECONOMY_DEBOUNCE_MS });
     },
     [commitState]
   );
@@ -3967,6 +4106,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         lanIp,
         connectionMode,
         isConnected,
+        syncStalled,
+        requestManualSync,
         serverTimeOffset: 0,
         getAuthoritativeNow,
         supabaseConfig,

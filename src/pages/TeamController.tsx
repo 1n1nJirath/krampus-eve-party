@@ -41,6 +41,8 @@ export const TeamController: React.FC = () => {
     pendingActions,
     actionSyncError,
     clearActionSyncError,
+    syncStalled,
+    requestManualSync,
     getAuthoritativeNow,
     registerTeam,
     submitTeamAnswer,
@@ -339,6 +341,21 @@ export const TeamController: React.FC = () => {
           }}
         />
         <div className="relative z-10 max-w-md w-full mx-auto my-auto space-y-4">
+          {syncStalled && (
+            <div className="rounded-2xl bg-amber-950/95 border-2 border-amber-400 p-3 text-xs text-amber-100 flex items-center justify-between gap-2 shadow-lg">
+              <div className="flex items-center gap-2 font-bold">
+                <AlertTriangle className="w-4 h-4 text-amber-300 shrink-0" />
+                <span>ยังไม่ได้รับข้อมูลจาก Host</span>
+              </div>
+              <button
+                type="button"
+                onClick={requestManualSync}
+                className="px-3 py-1.5 rounded-lg bg-amber-400 text-black font-black shrink-0"
+              >
+                Reconnect / Sync
+              </button>
+            </div>
+          )}
           {actionSyncError && (
             <div className="rounded-2xl bg-red-950/95 border-2 border-red-400 p-3 text-xs text-red-100 flex items-center justify-between gap-2 shadow-lg">
               <div className="flex items-center gap-2 font-bold">
@@ -640,6 +657,21 @@ export const TeamController: React.FC = () => {
           MAIN CONTROLLER BODY
       ============================================================ */}
       <main className="relative z-10 flex-1 max-w-lg w-full mx-auto px-4 pt-3 flex flex-col justify-between gap-4">
+        {syncStalled && (
+          <div className="rounded-2xl bg-amber-950/95 border-2 border-amber-400 p-3 text-xs text-amber-100 flex items-center justify-between gap-2 shadow-lg">
+            <div className="flex items-center gap-2 font-bold">
+              <AlertTriangle className="w-4 h-4 text-amber-300 shrink-0" />
+              <span>ยังไม่ได้รับข้อมูลจาก Host</span>
+            </div>
+            <button
+              type="button"
+              onClick={requestManualSync}
+              className="px-3 py-1.5 rounded-lg bg-amber-400 text-black font-black shrink-0"
+            >
+              Reconnect / Sync
+            </button>
+          </div>
+        )}
         {actionSyncError && (
           <div className="rounded-2xl bg-red-950/95 border-2 border-red-400 p-3 text-xs text-red-100 flex items-center justify-between gap-2 shadow-lg">
             <div className="flex items-center gap-2 font-bold">
