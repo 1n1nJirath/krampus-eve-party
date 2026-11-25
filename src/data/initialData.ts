@@ -28,25 +28,23 @@ export function computeChronoRankings(teams: Record<TeamId, Team>): {
   shields: Partial<Record<TeamId, number>>;
 } {
   const active = getActiveTeamIds(teams);
-  const ordered = [...active].sort(
-    (a, b) => (teams[b]?.coins ?? 0) - (teams[a]?.coins ?? 0)
-  );
+  const ordered = [...active].sort((a, b) => {
+    const coinDiff = (teams[b]?.coins ?? 0) - (teams[a]?.coins ?? 0);
+    if (coinDiff !== 0) return coinDiff;
+    const shieldDiff = (teams[b]?.shields ?? 0) - (teams[a]?.shields ?? 0);
+    if (shieldDiff !== 0) return shieldDiff;
+    return (teams[a]?.number ?? 0) - (teams[b]?.number ?? 0);
+  });
+  const quotaTable = [3, 2, 1, 0] as const;
   const quotas: Partial<Record<TeamId, number>> = {};
   const shields: Partial<Record<TeamId, number>> = {};
+  let sharedRankIdx = 0;
   ordered.forEach((tid, idx) => {
-    if (idx === 0) {
-      quotas[tid] = 3;
-      shields[tid] = 0;
-    } else if (idx === 1) {
-      quotas[tid] = 2;
-      shields[tid] = 0;
-    } else if (idx === 2) {
-      quotas[tid] = 1;
-      shields[tid] = 0;
-    } else {
-      quotas[tid] = 0;
-      shields[tid] = 0;
+    if (idx > 0 && (teams[tid]?.coins ?? 0) !== (teams[ordered[idx - 1]]?.coins ?? 0)) {
+      sharedRankIdx = idx;
     }
+    quotas[tid] = quotaTable[sharedRankIdx] ?? 0;
+    shields[tid] = 0;
   });
   return { ordered, quotas, shields };
 }

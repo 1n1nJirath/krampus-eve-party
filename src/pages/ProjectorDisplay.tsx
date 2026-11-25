@@ -38,7 +38,10 @@ import {
   getSuggestedSafeRange,
   scoreChronoTeam,
 } from '../data/initialData';
-import { computeFinaleTeamsRanking } from '../logic/adminFlowLogic';
+import {
+  computeFinaleSharedRanking,
+  computeSharedTeamsRanking,
+} from '../logic/adminFlowLogic';
 import { CountdownTimer } from '../components/CountdownTimer';
 import {
   SnowPineForestFrame,
@@ -205,12 +208,9 @@ export const ProjectorDisplay: React.FC = () => {
 
   const isKrampusProminentScreen = round.gameStage === 'LOBBY' || isStandbyPrep;
 
-  // Sorted leaderboard (Rank 1 to 4 by Holy Coins, tie-break by Nice Shields)
-  const sortedTeams = useMemo(() => {
-    return TEAM_ORDER.map((id) => teams[id]).sort((a, b) => {
-      if (b.coins !== a.coins) return b.coins - a.coins;
-      return b.shields - a.shields;
-    });
+  // Shared Standard Competition Ranking ("1224" ranking by Holy Coins)
+  const rankedTeams = useMemo(() => {
+    return computeSharedTeamsRanking(teams);
   }, [teams]);
 
   // Trigger confetti on Finale or Leaderboard ceremony
@@ -2586,7 +2586,6 @@ export const ProjectorDisplay: React.FC = () => {
           (() => {
             const tf = round.toyFactory;
             const datasets = state.toyFactoryDatasets || [];
-            const activeDataset = datasets.find((d) => d.id === tf.selectedDatasetId) || null;
             const activePairing = tf.pairings[tf.roundIndex - 1] || tf.pairings[0];
             const sortingTeamId = activePairing?.sortingTeamId || 'team1';
             const holdingTeamId = activePairing?.holdingTeamId || 'team2';
@@ -2629,8 +2628,8 @@ export const ProjectorDisplay: React.FC = () => {
                   </div>
                 )}
 
-                {/* Pairings + Topic Banner (NEVER reveal answers during action) */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {/* 2-Column Pairings Banner: Left = SORTING, Right = DATA-HOLDING */}
+                <div className="grid grid-cols-2 gap-4">
                   <div className="rounded-3xl bg-emerald-950/75 border-4 border-black shadow-[6px_6px_0px_#000] p-4 flex items-center gap-3">
                     <span className="text-4xl">{sortingTeam?.icon}</span>
                     <div className="min-w-0">
@@ -2641,24 +2640,6 @@ export const ProjectorDisplay: React.FC = () => {
                         {sortingTeam?.name}
                       </div>
                     </div>
-                  </div>
-
-                  <div className="rounded-3xl bg-purple-950/85 border-4 border-black shadow-[6px_6px_0px_#000] p-4 text-center flex flex-col justify-center">
-                    {activeDataset ? (
-                      <>
-                        <div className="text-xs font-mono font-black text-purple-300 uppercase">
-                          หัวข้อภารกิจ
-                        </div>
-                        <div className="text-xl font-black text-amber-300">{activeDataset.title}</div>
-                        <div className="text-sm font-bold text-white mt-0.5">
-                          กติกา: {activeDataset.direction}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="text-lg font-black text-amber-300 animate-pulse">
-                        ⏳ รอทีมจัดเรียงเลือกหัวข้อ (1 ใน 5)...
-                      </div>
-                    )}
                   </div>
 
                   <div className="rounded-3xl bg-amber-950/75 border-4 border-black shadow-[6px_6px_0px_#000] p-4 flex items-center gap-3">
@@ -3054,13 +3035,9 @@ export const ProjectorDisplay: React.FC = () => {
             </div>
           </div>
 
-          {/* Sorted 1st to 4th Leaderboard Pills */}
+          {/* Sorted Shared-Rank Leaderboard Pills */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 w-full">
-            {sortedTeams.map((team, index) => {
-              const rank = index + 1;
-              const isNaughty = rank === 4 || team.coins <= 0 || team.shields <= 0;
-              const isNiceLeader = rank === 1 && !isNaughty;
-
+            {rankedTeams.map(({ team, rank, rankLabel, isNiceLeader, isNaughty }) => {
               return (
                 <div
                   key={team.id}
@@ -3074,7 +3051,7 @@ export const ProjectorDisplay: React.FC = () => {
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
                     <span
-                      className={`w-7 h-7 rounded-lg font-mono font-black text-sm flex items-center justify-center shrink-0 ${
+                      className={`px-2 min-w-[1.75rem] h-7 rounded-lg font-mono font-black text-xs flex items-center justify-center shrink-0 whitespace-nowrap ${
                         rank === 1
                           ? 'bg-amber-400 text-slate-950'
                           : isNaughty
@@ -3082,7 +3059,7 @@ export const ProjectorDisplay: React.FC = () => {
                           : 'bg-slate-800 text-slate-200'
                       }`}
                     >
-                      #{rank}
+                      {rankLabel}
                     </span>
                     <TeamSouthParkAvatar slotNumber={team.number} className="w-9 h-9 shrink-0" />
                     <div className="truncate">
@@ -3124,12 +3101,11 @@ export const ProjectorDisplay: React.FC = () => {
       {/* ============================================================
           4A. SIMPLIFIED FINAL LEADERBOARD (END OF GAME 4 / FINALE)
               Displays ONLY the final ranking order (1st, 2nd, 3rd, 4th)
-              and team names/avatars with zero cluttered stats or coin breakdowns.
+              with shared competition ranks and team names/avatars.
       ============================================================ */}
       {round.gameStage === 'FINALE' &&
         (() => {
-          const finaleTeams = computeFinaleTeamsRanking(state);
-          const rankLabels = ['1ST', '2ND', '3RD', '4TH'];
+          const finaleRanked = computeFinaleSharedRanking(state);
           return (
             <div className="fixed inset-0 z-40 bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 overflow-y-auto">
               <div className="max-w-4xl w-full rounded-3xl bg-black border-4 border-amber-400 shadow-[0_0_90px_rgba(245,158,11,0.35)] p-8 md:p-12 space-y-8">
@@ -3143,8 +3119,7 @@ export const ProjectorDisplay: React.FC = () => {
                 </div>
 
                 <div className="space-y-4">
-                  {finaleTeams.map((team, idx) => {
-                    const rank = idx + 1;
+                  {finaleRanked.map(({ team, rank, ordinalLabel }) => {
                     const isChampion = rank === 1;
                     return (
                       <div
@@ -3157,7 +3132,7 @@ export const ProjectorDisplay: React.FC = () => {
                       >
                         <div className="flex items-center gap-6 min-w-0">
                           <div
-                            className={`w-20 h-20 rounded-2xl font-mono font-black text-2xl md:text-3xl flex items-center justify-center border-4 shrink-0 ${
+                            className={`px-3 min-w-[5rem] h-20 rounded-2xl font-mono font-black text-xl md:text-2xl flex items-center justify-center border-4 shrink-0 whitespace-nowrap ${
                               isChampion
                                 ? 'bg-amber-400 text-black border-white'
                                 : rank === 2
@@ -3167,7 +3142,7 @@ export const ProjectorDisplay: React.FC = () => {
                                 : 'bg-slate-900 text-slate-300 border-slate-700'
                             }`}
                           >
-                            {rankLabels[idx] || `#${rank}`}
+                            {ordinalLabel}
                           </div>
                           <TeamSouthParkAvatar
                             slotNumber={team.number}
@@ -3214,8 +3189,7 @@ export const ProjectorDisplay: React.FC = () => {
             </div>
 
             <div className="space-y-4">
-              {sortedTeams.map((team, idx) => {
-                const rank = idx + 1;
+              {rankedTeams.map(({ team, rank, rankLabel, isNiceLeader, isNaughty }) => {
                 const isFirst = rank === 1;
 
                 return (
@@ -3224,25 +3198,41 @@ export const ProjectorDisplay: React.FC = () => {
                     className={`flex flex-col sm:flex-row items-center justify-between gap-4 p-5 rounded-2xl border-2 transition-all ${
                       isFirst
                         ? 'bg-gradient-to-r from-amber-950/90 via-emerald-950/70 to-slate-900 border-amber-400 shadow-[0_0_35px_rgba(234,179,8,0.35)] scale-[1.01]'
+                        : isNaughty
+                        ? 'bg-gradient-to-r from-red-950/80 to-slate-900 border-red-600/80'
                         : 'bg-slate-900/90 border-slate-700'
                     }`}
                   >
                     <div className="flex items-center gap-5">
                       <div
-                        className={`w-14 h-14 rounded-2xl font-mono font-black text-2xl flex items-center justify-center border-2 ${
+                        className={`px-3 min-w-[3.5rem] h-14 rounded-2xl font-mono font-black text-xl flex items-center justify-center border-2 whitespace-nowrap ${
                           isFirst
                             ? 'bg-amber-400 text-slate-950 border-white'
+                            : isNaughty
+                            ? 'bg-red-600 text-white border-red-300'
                             : 'bg-slate-800 text-slate-200 border-slate-600'
                         }`}
                       >
-                        #{rank}
+                        {rankLabel}
                       </div>
                       <TeamSouthParkAvatar slotNumber={team.number} className="w-14 h-14 shrink-0" />
                       <span className="text-4xl">{team.icon}</span>
                       <div>
-                        <span className="text-2xl md:text-3xl font-black text-white">
-                          {team.name}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-2xl md:text-3xl font-black text-white">
+                            {team.name}
+                          </span>
+                          {isNiceLeader && (
+                            <span className="text-xs font-extrabold uppercase px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                              🌟 Nice List
+                            </span>
+                          )}
+                          {isNaughty && (
+                            <span className="text-xs font-extrabold uppercase px-2 py-0.5 rounded-lg bg-red-600/30 text-red-200 border border-red-500/50">
+                              👹 Naughty List
+                            </span>
+                          )}
+                        </div>
                         <div className="text-sm text-slate-300 mt-1">
                           Team {team.number} • เกราะเด็กดี: 🛡️×{team.shields}
                         </div>

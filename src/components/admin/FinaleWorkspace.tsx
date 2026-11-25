@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Crown, Map, RotateCcw, Trophy, Clipboard, Download, Check } from 'lucide-react';
 import { useGame } from '../../context/GameContext';
-import { computeFinaleTeamsRanking } from '../../logic/adminFlowLogic';
+import { computeFinaleSharedRanking } from '../../logic/adminFlowLogic';
 import { SafeActionButton } from '../SafeActionButton';
 import { TeamSouthParkAvatar } from '../SouthParkArt';
 
@@ -15,8 +15,7 @@ export const FinaleWorkspace: React.FC = () => {
 
   const { teams, round } = state;
   const championId = round.lastMan?.winnerTeamId;
-  const finaleTeams = computeFinaleTeamsRanking(state);
-  const rankLabels = ['1ST', '2ND', '3RD', '4TH'];
+  const finaleRanked = computeFinaleSharedRanking(state);
 
   const [copied, setCopied] = useState(false);
 
@@ -25,10 +24,10 @@ export const FinaleWorkspace: React.FC = () => {
       '🎄🏆 สรุปอันดับสุดท้าย "THE KRAMPUS EVE" 👹🏆',
       '==========================================',
     ];
-    finaleTeams.forEach((t, idx) => {
+    finaleRanked.forEach(({ team: t, rank, ordinalLabel }) => {
       const medal =
-        idx === 0 ? '🥇 1ST' : idx === 1 ? '🥈 2ND' : idx === 2 ? '🥉 3RD' : '4TH';
-      lines.push(`${medal}: ${t.icon} ${t.name}`);
+        rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '🏅';
+      lines.push(`${medal} ${ordinalLabel}: ${t.icon} ${t.name}`);
     });
     lines.push('==========================================');
     lines.push('ขอบคุณผู้กล้าทุกคนที่ร่วมเอาชีวิตรอดในคืนคริสต์มาสอีฟ!');
@@ -45,10 +44,10 @@ export const FinaleWorkspace: React.FC = () => {
       event: 'THE KRAMPUS EVE',
       timestamp: new Date().toISOString(),
       championId,
-      championName: championId ? teams[championId]?.name : finaleTeams[0]?.name || null,
-      finalRankings: finaleTeams.map((t, idx) => ({
-        rank: idx + 1,
-        rankLabel: rankLabels[idx] || `#${idx + 1}`,
+      championName: championId ? teams[championId]?.name : finaleRanked[0]?.team.name || null,
+      finalRankings: finaleRanked.map(({ team: t, rank, ordinalLabel }) => ({
+        rank,
+        rankLabel: ordinalLabel,
         teamId: t.id,
         name: t.name,
         icon: t.icon,
@@ -136,8 +135,8 @@ export const FinaleWorkspace: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {finaleTeams.map((t, idx) => {
-            const isWinner = idx === 0;
+          {finaleRanked.map(({ team: t, rank, ordinalLabel }) => {
+            const isWinner = rank === 1;
             return (
               <div
                 key={t.id}
@@ -149,13 +148,13 @@ export const FinaleWorkspace: React.FC = () => {
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <span
-                    className={`w-12 h-12 rounded-xl border-2 flex items-center justify-center font-mono font-black text-sm shrink-0 ${
+                    className={`px-2.5 min-w-[3rem] h-12 rounded-xl border-2 flex items-center justify-center font-mono font-black text-xs shrink-0 whitespace-nowrap ${
                       isWinner
                         ? 'bg-amber-400 text-slate-950 border-white'
                         : 'bg-slate-900 border-slate-700 text-amber-300'
                     }`}
                   >
-                    {rankLabels[idx] || `#${idx + 1}`}
+                    {ordinalLabel}
                   </span>
                   <TeamSouthParkAvatar slotNumber={t.number} className="w-12 h-12 shrink-0" />
                   <div className="flex items-center gap-2 min-w-0">

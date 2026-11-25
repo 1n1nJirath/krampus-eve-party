@@ -6,6 +6,10 @@ import {
   scoreChronoTeam,
 } from '../data/initialData';
 import { applyChronoClaimToState, applyChronoTrapsToState } from '../logic/chronoLogic';
+import {
+  computeFinaleSharedRanking,
+  computeSharedTeamsRanking,
+} from '../logic/adminFlowLogic';
 import { KrampusGameState } from '../types/game';
 
 function makeChronoState(): KrampusGameState {
@@ -79,5 +83,45 @@ describe('Suite 3: Game 2 — THE CHRONO CRUSH (Updated Rules)', () => {
     state.round.chronoTrapsPlaced = { team2: { team1: 1 } };
     expect(scoreChronoTeam(state.round, 'team1', 2005, 5).delta).toBe(1200);
     expect(scoreChronoTeam(state.round, 'team1', 2006, 5).delta).toBe(600);
+  });
+
+  it('computeSharedTeamsRanking & computeChronoRankings handle 2-way tie for 1st, 3-way tie for 2nd, and 4-way tie using Standard Competition Ranking', () => {
+    // Case A: 4-way tie at 1,000 coins -> all 4 teams share #1 ร่วม (Nice List) and 0 teams get Naughty List
+    const fourWayState = makeChronoState();
+    const fourWay = computeSharedTeamsRanking(fourWayState.teams);
+    expect(fourWay.map((e) => e.rank)).toEqual([1, 1, 1, 1]);
+    expect(fourWay.map((e) => e.rankLabel)).toEqual(['#1 ร่วม', '#1 ร่วม', '#1 ร่วม', '#1 ร่วม']);
+    expect(fourWay.every((e) => e.isNiceLeader && !e.isNaughty)).toBe(true);
+
+    // Case B: 3-way tie for 2nd (1300, 1000, 1000, 1000) -> ranks #1, #2, #2, #2 (no team gets #4 / Naughty List!)
+    const threeWayState = makeChronoState();
+    threeWayState.teams.team1.coins = 1300;
+    threeWayState.teams.team2.coins = 1000;
+    threeWayState.teams.team3.coins = 1000;
+    threeWayState.teams.team4.coins = 1000;
+    const threeWay = computeSharedTeamsRanking(threeWayState.teams);
+    expect(threeWay.map((e) => e.rank)).toEqual([1, 2, 2, 2]);
+    expect(threeWay.map((e) => e.rankLabel)).toEqual(['#1', '#2 ร่วม', '#2 ร่วม', '#2 ร่วม']);
+    expect(threeWay.every((e) => !e.isNaughty)).toBe(true);
+
+    const { quotas } = computeChronoRankings(threeWayState.teams);
+    expect(quotas).toEqual({ team1: 3, team2: 2, team3: 2, team4: 2 });
+
+    // Case C: 2-way tie for 1st (1500, 1500, 1000, 800) -> ranks #1, #1, #3, #4
+    const twoWayState = makeChronoState();
+    twoWayState.teams.team1.coins = 1500;
+    twoWayState.teams.team2.coins = 1500;
+    twoWayState.teams.team3.coins = 1000;
+    twoWayState.teams.team4.coins = 800;
+    const twoWay = computeSharedTeamsRanking(twoWayState.teams);
+    expect(twoWay.map((e) => e.rank)).toEqual([1, 1, 3, 4]);
+    expect(twoWay.map((e) => e.rankLabel)).toEqual(['#1 ร่วม', '#1 ร่วม', '#3', '#4']);
+    expect(twoWay[0].isNiceLeader).toBe(true);
+    expect(twoWay[1].isNiceLeader).toBe(true);
+    expect(twoWay[2].isNaughty).toBe(false);
+    expect(twoWay[3].isNaughty).toBe(true);
+
+    const finaleTwoWay = computeFinaleSharedRanking(twoWayState);
+    expect(finaleTwoWay.map((e) => e.ordinalLabel)).toEqual(['1ST ร่วม', '1ST ร่วม', '3RD', '4TH']);
   });
 });

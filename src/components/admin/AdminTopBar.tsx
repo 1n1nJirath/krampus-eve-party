@@ -12,7 +12,12 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import { useGame } from '../../context/GameContext';
+import {
+  FIREBASE_DEFAULT_PRESET,
+  isFirebaseDatabaseUrl,
+  SUPABASE_ORIGINAL_PRESET,
+  useGame,
+} from '../../context/GameContext';
 import { AdminTabId, stageToAdminTab } from '../../logic/adminFlowLogic';
 import { SafeActionButton } from '../SafeActionButton';
 
@@ -45,6 +50,8 @@ export const AdminTopBar: React.FC<AdminTopBarProps> = ({
   const {
     state,
     connectionMode,
+    supabaseConfig,
+    saveSupabaseConfig,
     setShowLeaderboardOverlay,
     setDisplayMode,
     forceSyncAllScreens,
@@ -52,6 +59,9 @@ export const AdminTopBar: React.FC<AdminTopBarProps> = ({
   } = useGame();
   const onAirTab = stageToAdminTab(state.round.gameStage);
   const currentDisplayMode = state.displayMode === 'tv' ? 'tv' : 'projector';
+  const isUsingFirebase = isFirebaseDatabaseUrl(supabaseConfig.url);
+  const isUsingOriginalSupabase =
+    supabaseConfig.url.trim() === SUPABASE_ORIGINAL_PRESET.url;
 
   const syncLabel =
     connectionMode === 'LOCAL_SERVER'
@@ -71,18 +81,44 @@ export const AdminTopBar: React.FC<AdminTopBarProps> = ({
             👹
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
               <h1 className="font-black text-sm xl:text-base text-white tracking-tight">
                 GM CONTROL DECK
               </h1>
-              <button
-                type="button"
-                onClick={() => onOpenSettings('CLOUD')}
-                title="คลิกเพื่อตั้งค่า Cloud Sync"
-                className="px-2 py-0.5 rounded-full bg-emerald-950 hover:bg-emerald-900 border border-emerald-500/50 text-emerald-300 font-mono text-[10px] font-bold transition"
-              >
-                ● {syncLabel}
-              </button>
+              <div className="inline-flex items-center rounded-full bg-slate-900 border border-slate-700 p-0.5 gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => saveSupabaseConfig(FIREBASE_DEFAULT_PRESET)}
+                  title="สลับไปใช้ Firebase Realtime DB (ทุกหน้าจอจะย้ายตามอัตโนมัติโดยข้อมูลไม่หาย)"
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-black transition cursor-pointer ${
+                    supabaseConfig.enabled && isUsingFirebase
+                      ? 'bg-amber-400 text-slate-950 shadow'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  🔥 Firebase
+                </button>
+                <button
+                  type="button"
+                  onClick={() => saveSupabaseConfig(SUPABASE_ORIGINAL_PRESET)}
+                  title="สลับไปใช้ Supabase โปรเจกต์เดิม (ทุกหน้าจอจะย้ายตามอัตโนมัติโดยข้อมูลไม่หาย)"
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-black transition cursor-pointer ${
+                    supabaseConfig.enabled && isUsingOriginalSupabase
+                      ? 'bg-emerald-400 text-slate-950 shadow'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  ⚡ Supabase เดิม
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenSettings('CLOUD')}
+                  title="ตั้งค่า URL / Key ของ Database เอง"
+                  className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold text-sky-300 hover:bg-slate-800 transition cursor-pointer"
+                >
+                  ● {syncLabel} ⚙️
+                </button>
+              </div>
             </div>
             <p className="text-[11px] text-slate-400 hidden sm:block">
               สลับแท็บเพื่อดู/เตรียมงานได้โดยไม่ตัดจอผู้เล่น

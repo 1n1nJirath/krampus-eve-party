@@ -112,10 +112,22 @@ export function getStoredTeamSessionToken(teamId: TeamId): string | undefined {
 }
 
 const STORAGE_KEY = 'krampus_eve_state_v2';
-const SUPABASE_CONFIG_KEY = 'krampus_firebase_config_v3';
+const SUPABASE_CONFIG_KEY = 'krampus_cloud_config_v4';
 const DEFAULT_SUPABASE_URL =
   'https://krampus-eve-party-default-rtdb.asia-southeast1.firebasedatabase.app';
 const DEFAULT_SUPABASE_ANON_KEY = '';
+
+export const FIREBASE_DEFAULT_PRESET: SupabaseConfig = {
+  url: 'https://krampus-eve-party-default-rtdb.asia-southeast1.firebasedatabase.app',
+  anonKey: '',
+  enabled: true,
+};
+
+export const SUPABASE_ORIGINAL_PRESET: SupabaseConfig = {
+  url: 'https://evljkqbafnicjnwgezzr.supabase.co',
+  anonKey: 'sb_publishable_H5-jncML0hgIl45te9k2dQ_2LbgCmQy',
+  enabled: true,
+};
 
 export function isFirebaseDatabaseUrl(url: string): boolean {
   const clean = (url || '').trim().toLowerCase();
@@ -759,19 +771,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>(() => {
     const env = (import.meta as any).env || {};
-    // Always prioritize Firebase URL (do NOT let legacy Vercel VITE_SUPABASE_URL override Firebase!)
     const envUrl = env.VITE_FIREBASE_DATABASE_URL || DEFAULT_SUPABASE_URL;
     const envKey = env.VITE_FIREBASE_API_KEY || DEFAULT_SUPABASE_ANON_KEY;
     try {
       const saved = localStorage.getItem(SUPABASE_CONFIG_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (
-          parsed &&
-          typeof parsed.url === 'string' &&
-          !parsed.url.includes('evljkqbafnicjnwgezzr.supabase.co') &&
-          !parsed.url.includes('iztkrbcrsjasxqbtqjye.supabase.co')
-        ) {
+        if (parsed && typeof parsed.url === 'string' && parsed.url.trim().length > 0) {
           return parsed;
         }
       }
@@ -1329,6 +1335,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         } else if (msg.type === 'ACTION_REJECTED' && msg.payload) {
           handleActionRejectedRef.current(msg.payload);
+        } else if (msg.type === 'CLOUD_CONFIG_SWITCH' && msg.config) {
+          if (clientRoleRef.current !== 'HOST') {
+            setSupabaseConfig(msg.config);
+            try {
+              localStorage.setItem(SUPABASE_CONFIG_KEY, JSON.stringify(msg.config));
+            } catch {
+              // ignore
+            }
+          }
         }
       };
       bcRef.current = bc;
@@ -1518,6 +1533,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const requestStateRef = ref(db, 'rooms/krampus_eve_room/requestState');
         const playerActionsRef = ref(db, 'rooms/krampus_eve_room/playerActions');
         const rejectionsRef = ref(db, 'rooms/krampus_eve_room/rejections');
+        const cloudSwitchRef = ref(db, 'rooms/krampus_eve_room/activeCloudConfig');
 
         const flushFirebaseHostSync = () => {
           if (unmounted || clientRoleRef.current !== 'HOST') return;
@@ -1624,6 +1640,30 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }
             }
           });
+          onValue(cloudSwitchRef, (snap) => {
+            if (unmounted || clientRoleRef.current === 'HOST') return;
+            const remoteCfg = snap.val() as (SupabaseConfig & { updatedAt?: number }) | null;
+            if (
+              remoteCfg &&
+              typeof remoteCfg.url === 'string' &&
+              remoteCfg.url.trim().length > 0 &&
+              (remoteCfg.url !== supabaseConfig.url ||
+                remoteCfg.anonKey !== supabaseConfig.anonKey ||
+                remoteCfg.enabled !== supabaseConfig.enabled)
+            ) {
+              const nextCfg: SupabaseConfig = {
+                url: remoteCfg.url,
+                anonKey: remoteCfg.anonKey || '',
+                enabled: Boolean(remoteCfg.enabled),
+              };
+              setSupabaseConfig(nextCfg);
+              try {
+                localStorage.setItem(SUPABASE_CONFIG_KEY, JSON.stringify(nextCfg));
+              } catch {
+                // ignore
+              }
+            }
+          });
           startHydrationRequestWithBackoff(null);
         }
 
@@ -1638,6 +1678,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           off(requestStateRef);
           off(playerActionsRef);
           off(rejectionsRef);
+          off(cloudSwitchRef);
           firebaseDbRef.current = null;
           if (app) {
             deleteApp(app).catch(() => {});
@@ -1722,6 +1763,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (clientRoleRef.current === 'HOST') return;
           handleActionRejectedRef.current(payload);
         })
+        .on('broadcast', { event: 'CLOUD_CONFIG_SWITCH' }, ({ payload }) => {
+          if (clientRoleRef.current === 'HOST' || !payload?.url) return;
+          const nextCfg: SupabaseConfig = {
+            url: String(payload.url),
+            anonKey: String(payload.anonKey || ''),
+            enabled: Boolean(payload.enabled),
+          };
+          setSupabaseConfig(nextCfg);
+          try {
+            localStorage.setItem(SUPABASE_CONFIG_KEY, JSON.stringify(nextCfg));
+          } catch {
+            // ignore
+          }
+        })
         .subscribe((status) => {
           if (unmounted) return;
           if (status === 'SUBSCRIBED') {
@@ -1768,6 +1823,70 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ]);
 
   const saveSupabaseConfig = useCallback((cfg: SupabaseConfig) => {
+    // Bump stateVersion on Host when switching DB so the newly connected DB immediately wins version gate
+    if (clientRoleRef.current === 'HOST') {
+      const prev = stateRef.current;
+      const nextVersion = Math.max(prev.stateVersion || 0, prev.version || 0) + 100;
+      const now = Date.now();
+      const bumped: KrampusGameState = {
+        ...prev,
+        version: nextVersion,
+        stateVersion: nextVersion,
+        updatedAt: now,
+        serverTimestamp: now,
+      };
+      stateRef.current = bumped;
+      setState(bumped);
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(bumped));
+      } catch {
+        // ignore
+      }
+
+      // Notify all connected screens (/display & /play) across BroadcastChannel, Firebase, and Supabase
+      // to switch to the new DB seamlessly without manual setup
+      if (bcRef.current) {
+        try {
+          bcRef.current.postMessage({ type: 'CLOUD_CONFIG_SWITCH', config: cfg });
+        } catch {
+          // ignore
+        }
+      }
+      if (firebaseDbRef.current) {
+        set(ref(firebaseDbRef.current, 'rooms/krampus_eve_room/activeCloudConfig'), {
+          url: cfg.url,
+          anonKey: cfg.anonKey,
+          enabled: cfg.enabled,
+          updatedAt: now,
+        }).catch(() => {});
+      }
+      if (supaChannelRef.current) {
+        supaChannelRef.current
+          .send({
+            type: 'broadcast',
+            event: 'CLOUD_CONFIG_SWITCH',
+            payload: cfg,
+          })
+          .catch(() => {});
+      }
+      // Also update the beacon on the default Firebase RTDB via REST PUT so late-joining devices know which DB is active
+      if (FIREBASE_DEFAULT_PRESET.url) {
+        fetch(
+          `${FIREBASE_DEFAULT_PRESET.url.replace(/\/$/, '')}/rooms/krampus_eve_room/activeCloudConfig.json`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              url: cfg.url,
+              anonKey: cfg.anonKey,
+              enabled: cfg.enabled,
+              updatedAt: now,
+            }),
+          }
+        ).catch(() => {});
+      }
+    }
+
     setSupabaseConfig(cfg);
     try {
       localStorage.setItem(SUPABASE_CONFIG_KEY, JSON.stringify(cfg));

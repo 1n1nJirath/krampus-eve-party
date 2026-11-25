@@ -10,7 +10,12 @@ import {
   Wand2,
   X,
 } from 'lucide-react';
-import { useGame } from '../../context/GameContext';
+import {
+  FIREBASE_DEFAULT_PRESET,
+  isFirebaseDatabaseUrl,
+  SUPABASE_ORIGINAL_PRESET,
+  useGame,
+} from '../../context/GameContext';
 import { TEAM_ORDER } from '../../data/initialData';
 import { GameStage } from '../../types/game';
 import { SafeActionButton } from '../SafeActionButton';
@@ -391,66 +396,142 @@ export const SettingsEditorDrawer: React.FC<SettingsEditorDrawerProps> = ({
 
           {tab === 'CLOUD' && (
             <div className="space-y-4">
-              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
-                <h3 className="text-sm font-black text-white">
-                  🔥 ตั้งค่าระบบ Realtime Sync (Firebase Realtime Database / Local Server)
-                </h3>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  • <strong>Firebase Realtime Database (แนะนำ • ฟรี 10 GB/เดือน):</strong> ซิงก์ข้ามเครือข่าย 4G/5G ทั่วโลก พร้อมดึง State ล่าสุดให้อัตโนมัติทันทีที่ผู้เล่นเข้าห้อง
-                  <br />• <strong>วิธีเปิดใช้งานใน 1 นาที:</strong> เข้า <code className="text-amber-300">console.firebase.google.com</code> → สร้างโปรเจกต์ → เมนู <strong>Build &gt; Realtime Database</strong> → กด <strong>Create Database</strong> (เลือก <strong>Start in test mode</strong>) → คัดลอก URL มาวางด้านล่างได้เลย (ไม่ต้องใส่ API Key ก็ทำงานได้ทันที!)
-                </p>
-
-                <label className="flex items-center gap-2 text-xs font-bold text-amber-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={supaEnabledDraft}
-                    onChange={(e) => setSupaEnabledDraft(e.target.checked)}
-                    className="w-4 h-4 accent-amber-400"
-                  />
-                  เปิดใช้งาน Cloud Realtime Sync (Firebase / Supabase)
-                </label>
-
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3.5">
                 <div>
-                  <label className="text-xs text-slate-400">
-                    Firebase Realtime Database URL (หรือ Supabase URL):
-                  </label>
-                  <input
-                    type="text"
-                    value={supaUrlDraft}
-                    onChange={(e) => setSupaUrlDraft(e.target.value)}
-                    placeholder="https://your-project-default-rtdb.asia-southeast1.firebasedatabase.app"
-                    className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-white"
-                  />
+                  <h3 className="text-sm font-black text-white">
+                    🔄 สลับฐานข้อมูล Realtime แบบไร้รอยต่อ (Seamless DB Switcher)
+                  </h3>
+                  <p className="text-xs text-slate-300 leading-relaxed mt-1">
+                    กดเลือกฐานข้อมูลด้านล่างเพื่อย้ายระบบซิงก์ได้ทันทีโดย <strong>คะแนน/สถานะเกมปัจจุบันไม่หาย</strong> และหน้าจอ <code className="text-amber-300">/display</code> กับมือถือ <code className="text-amber-300">/play</code> ที่เปิดอยู่จะย้ายตามไปฐานข้อมูลใหม่อัตโนมัติ!
+                  </p>
                 </div>
 
-                <div>
-                  <label className="text-xs text-slate-400">
-                    API Key (สำหรับ Firebase เว้นว่างได้หากเปิด Test Mode / สำหรับ Supabase ใส่ Anon Key):
-                  </label>
-                  <input
-                    type="password"
-                    value={supaKeyDraft}
-                    onChange={(e) => setSupaKeyDraft(e.target.value)}
-                    placeholder="เว้นว่างได้สำหรับ Firebase Test Mode..."
-                    className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-white"
-                  />
+                {/* 1-Click DB Preset Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSupaUrlDraft(FIREBASE_DEFAULT_PRESET.url);
+                      setSupaKeyDraft(FIREBASE_DEFAULT_PRESET.anonKey);
+                      setSupaEnabledDraft(true);
+                      saveSupabaseConfig(FIREBASE_DEFAULT_PRESET);
+                    }}
+                    className={`p-3.5 rounded-2xl border-2 text-left transition cursor-pointer ${
+                      supabaseConfig.enabled && isFirebaseDatabaseUrl(supabaseConfig.url)
+                        ? 'bg-amber-950/60 border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.25)]'
+                        : 'bg-slate-900 hover:bg-slate-800 border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-amber-300">
+                        🔥 Firebase Realtime DB (หลัก)
+                      </span>
+                      {supabaseConfig.enabled && isFirebaseDatabaseUrl(supabaseConfig.url) && (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black">
+                          ใช้อยู่
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-slate-300 mt-1">
+                      Singapore (asia-southeast1) • โควตาฟรี 10 GB/เดือน
+                    </div>
+                    <div className="text-[10px] font-mono text-slate-400 truncate mt-1">
+                      {FIREBASE_DEFAULT_PRESET.url}
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSupaUrlDraft(SUPABASE_ORIGINAL_PRESET.url);
+                      setSupaKeyDraft(SUPABASE_ORIGINAL_PRESET.anonKey);
+                      setSupaEnabledDraft(true);
+                      saveSupabaseConfig(SUPABASE_ORIGINAL_PRESET);
+                    }}
+                    className={`p-3.5 rounded-2xl border-2 text-left transition cursor-pointer ${
+                      supabaseConfig.enabled &&
+                      supabaseConfig.url.trim() === SUPABASE_ORIGINAL_PRESET.url
+                        ? 'bg-emerald-950/60 border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.25)]'
+                        : 'bg-slate-900 hover:bg-slate-800 border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-emerald-300">
+                        ⚡ Supabase Cloud (ตัวเดิม)
+                      </span>
+                      {supabaseConfig.enabled &&
+                        supabaseConfig.url.trim() === SUPABASE_ORIGINAL_PRESET.url && (
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-400 text-slate-950 text-[10px] font-black">
+                            ใช้อยู่
+                          </span>
+                        )}
+                    </div>
+                    <div className="text-[11px] text-slate-300 mt-1">
+                      โปรเจกต์เดิม (evljkqbafnicjnwgezzr) • พร้อมสลับใช้งานทันที
+                    </div>
+                    <div className="text-[10px] font-mono text-slate-400 truncate mt-1">
+                      {SUPABASE_ORIGINAL_PRESET.url}
+                    </div>
+                  </button>
                 </div>
 
-                <SafeActionButton
-                  type="button"
-                  showSpinner={false}
-                  onClick={() => {
-                    saveSupabaseConfig({
-                      url: supaUrlDraft.trim(),
-                      anonKey: supaKeyDraft.trim(),
-                      enabled: supaEnabledDraft,
-                    });
-                    onClose();
-                  }}
-                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs"
-                >
-                  บันทึกการตั้งค่า Cloud Sync
-                </SafeActionButton>
+                <div className="border-t border-slate-800 pt-3 space-y-2.5">
+                  <div className="text-xs font-extrabold text-slate-300">
+                    🛠️ หรือกรอก URL / Key ของโปรเจกต์ใหม่เอง (รองรับทั้ง Firebase และ Supabase):
+                  </div>
+
+                  <label className="flex items-center gap-2 text-xs font-bold text-amber-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={supaEnabledDraft}
+                      onChange={(e) => setSupaEnabledDraft(e.target.checked)}
+                      className="w-4 h-4 accent-amber-400"
+                    />
+                    เปิดใช้งาน Cloud Realtime Sync (Firebase / Supabase)
+                  </label>
+
+                  <div>
+                    <label className="text-xs text-slate-400">
+                      Database URL (วางลิงก์ Firebase <code className="text-amber-300">.firebasedatabase.app</code> หรือ Supabase <code className="text-emerald-300">.supabase.co</code>):
+                    </label>
+                    <input
+                      type="text"
+                      value={supaUrlDraft}
+                      onChange={(e) => setSupaUrlDraft(e.target.value)}
+                      placeholder="https://your-project-default-rtdb.asia-southeast1.firebasedatabase.app"
+                      className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-slate-400">
+                      API Key / Anon Key (สำหรับ Firebase เว้นว่างได้ • สำหรับ Supabase ใส่ Anon Key):
+                    </label>
+                    <input
+                      type="text"
+                      value={supaKeyDraft}
+                      onChange={(e) => setSupaKeyDraft(e.target.value)}
+                      placeholder="เว้นว่างได้สำหรับ Firebase Test Mode หรือใส่ sb_publishable_..."
+                      className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-white"
+                    />
+                  </div>
+
+                  <SafeActionButton
+                    type="button"
+                    showSpinner={false}
+                    onClick={() => {
+                      saveSupabaseConfig({
+                        url: supaUrlDraft.trim(),
+                        anonKey: supaKeyDraft.trim(),
+                        enabled: supaEnabledDraft,
+                      });
+                      onClose();
+                    }}
+                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs"
+                  >
+                    บันทึก & สลับไปใช้ Database นี้ทันที
+                  </SafeActionButton>
+                </div>
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between">

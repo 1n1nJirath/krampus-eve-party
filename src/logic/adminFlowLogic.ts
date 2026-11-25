@@ -6,6 +6,7 @@ import {
   QuestionPreset,
   RoundConfig,
   Team,
+  TeamId,
 } from '../types/game';
 
 export type AdminTabId = 'LOBBY' | 'GAME1' | 'GAME2' | 'GAME3' | 'GAME4' | 'FINALE';
@@ -262,5 +263,143 @@ export function computeFinaleTeamsRanking(state: KrampusGameState): Team[] {
 
     if (b.coins !== a.coins) return b.coins - a.coins;
     return b.shields - a.shields;
+  });
+}
+
+export interface RankedTeamEntry {
+  team: Team;
+  /** Standard competition rank (1, 2, 3, or 4 — e.g. 1, 2, 2, 2 or 1, 1, 3, 4) */
+  rank: number;
+  /** True when 2 or more teams share this exact rank */
+  isTied: boolean;
+  /** Compact badge label, e.g. "#1" or "#1 ร่วม" */
+  rankLabel: string;
+  /** Ordinal badge label for Finale, e.g. "1ST" or "1ST ร่วม" */
+  ordinalLabel: string;
+  /** True when rank === 1 and team has positive coins & shields */
+  isNiceLeader: boolean;
+  /** True only when strictly sole 4th place (rank === 4) or coins <= 0 or shields <= 0 */
+  isNaughty: boolean;
+}
+
+const ORDINAL_BY_RANK: Record<number, string> = {
+  1: '1ST',
+  2: '2ND',
+  3: '3RD',
+  4: '4TH',
+};
+
+/**
+ * Pure Standard Competition Ranking ("1224" shared ranking) by Holy Coins.
+ * - Teams with identical `coins` share the exact same `rank` number.
+ * - Examples:
+ *   - 1300, 1000, 1000, 1000 -> ranks #1, #2, #2, #2 (no team gets #4 / Naughty List)
+ *   - 1500, 1500, 1000, 800  -> ranks #1, #1, #3, #4 (both #1 teams get Nice List)
+ *   - 1000, 1000, 1000, 1000 -> ranks #1, #1, #1, #1 (all 4 teams share #1 ร่วม)
+ */
+export function computeSharedTeamsRanking(
+  teams: Record<TeamId, Team>
+): RankedTeamEntry[] {
+  const sorted = TEAM_ORDER.map((id) => teams[id]).sort((a, b) => {
+    if (b.coins !== a.coins) return b.coins - a.coins;
+    if (b.shields !== a.shields) return b.shields - a.shields;
+    return a.number - b.number;
+  });
+
+  const rawRanks: number[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    if (i === 0) {
+      rawRanks.push(1);
+    } else if (sorted[i].coins === sorted[i - 1].coins) {
+      rawRanks.push(rawRanks[i - 1]);
+    } else {
+      rawRanks.push(i + 1);
+    }
+  }
+
+  const rankCounts = new Map<number, number>();
+  for (const r of rawRanks) {
+    rankCounts.set(r, (rankCounts.get(r) || 0) + 1);
+  }
+
+  return sorted.map((team, idx) => {
+    const rank = rawRanks[idx];
+    const isTied = (rankCounts.get(rank) || 0) > 1;
+    const baseOrdinal = ORDINAL_BY_RANK[rank] || `#${rank}`;
+    const isNaughty = rank === 4 || team.coins <= 0 || team.shields <= 0;
+    const isNiceLeader = rank === 1 && !isNaughty;
+
+    return {
+      team,
+      rank,
+      isTied,
+      rankLabel: isTied ? `#${rank} ร่วม` : `#${rank}`,
+      ordinalLabel: isTied ? `${baseOrdinal} ร่วม` : baseOrdinal,
+      isNiceLeader,
+      isNaughty,
+    };
+  });
+}
+
+/**
+ * Pure Finale Standard Competition Ranking ("1224" shared ranking) for the end of Game 4.
+ * Preserves shared ranks when non-champion teams tie on Game 4 progress & coins.
+ */
+export function computeFinaleSharedRanking(
+  state: KrampusGameState
+): RankedTeamEntry[] {
+  const sorted = computeFinaleTeamsRanking(state);
+  const championId = state.round.lastMan?.winnerTeamId;
+  const lmsStates = state.round.lastMan?.teamStates;
+
+  const isSameFinaleScore = (a: Team, b: Team): boolean => {
+    if (a.id === championId || b.id === championId) {
+      return a.id === b.id;
+    }
+    if (lmsStates && lmsStates[a.id] && lmsStates[b.id]) {
+      const tsA = lmsStates[a.id];
+      const tsB = lmsStates[b.id];
+      return (
+        tsA.isGhost === tsB.isGhost &&
+        tsA.step === tsB.step &&
+        tsA.hearts === tsB.hearts &&
+        a.coins === b.coins
+      );
+    }
+    return a.coins === b.coins;
+  };
+
+  const rawRanks: number[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    if (i === 0) {
+      rawRanks.push(1);
+    } else if (isSameFinaleScore(sorted[i], sorted[i - 1])) {
+      rawRanks.push(rawRanks[i - 1]);
+    } else {
+      rawRanks.push(i + 1);
+    }
+  }
+
+  const rankCounts = new Map<number, number>();
+  for (const r of rawRanks) {
+    rankCounts.set(r, (rankCounts.get(r) || 0) + 1);
+  }
+
+  return sorted.map((team, idx) => {
+    const rank = rawRanks[idx];
+    const isTied = (rankCounts.get(rank) || 0) > 1;
+    const baseOrdinal = ORDINAL_BY_RANK[rank] || `#${rank}`;
+    const isNaughty = rank === 4 || team.coins <= 0 || team.shields <= 0;
+    const isNiceLeader = rank === 1 && !isNaughty;
+
+    return {
+      team,
+      rank,
+      isTied,
+      rankLabel: isTied ? `#${rank} ร่วม` : `#${rank}`,
+      ordinalLabel: isTied ? `${baseOrdinal} ร่วม` : baseOrdinal,
+      isNiceLeader,
+      isNaughty,
+    };
   });
 }
