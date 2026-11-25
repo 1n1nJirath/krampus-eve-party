@@ -6,6 +6,7 @@ import {
   Monitor,
   Projector,
   QrCode,
+  RefreshCw,
   Settings,
   Trophy,
   Volume2,
@@ -41,8 +42,14 @@ export const AdminTopBar: React.FC<AdminTopBarProps> = ({
   onOpenSettings,
   onLockAdmin,
 }) => {
-  const { state, connectionMode, setShowLeaderboardOverlay, setDisplayMode, toggleSound } =
-    useGame();
+  const {
+    state,
+    connectionMode,
+    setShowLeaderboardOverlay,
+    setDisplayMode,
+    forceSyncAllScreens,
+    toggleSound,
+  } = useGame();
   const onAirTab = stageToAdminTab(state.round.gameStage);
   const currentDisplayMode = state.displayMode === 'tv' ? 'tv' : 'projector';
 
@@ -116,8 +123,19 @@ export const AdminTopBar: React.FC<AdminTopBarProps> = ({
           })}
         </nav>
 
-        {/* Right: Quick Utilities */}
-        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+        {/* Right: Quick Utilities (High-Readability Buttons) */}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <SafeActionButton
+            type="button"
+            showSpinner={false}
+            onClick={forceSyncAllScreens}
+            className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs md:text-sm flex items-center gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.4)] transition cursor-pointer"
+            title="บังคับส่งสถานะปัจจุบันไปยังจอ /display และมือถือ /play ทุกเครื่องทันที"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>ซิงก์ทุกจอ</span>
+          </SafeActionButton>
+
           <SafeActionButton
             type="button"
             showSpinner={false}

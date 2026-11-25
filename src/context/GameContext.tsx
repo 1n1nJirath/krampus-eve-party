@@ -112,7 +112,7 @@ export function getStoredTeamSessionToken(teamId: TeamId): string | undefined {
 }
 
 const STORAGE_KEY = 'krampus_eve_state_v2';
-const SUPABASE_CONFIG_KEY = 'krampus_firebase_config_v2';
+const SUPABASE_CONFIG_KEY = 'krampus_firebase_config_v3';
 const DEFAULT_SUPABASE_URL =
   'https://krampus-eve-party-default-rtdb.asia-southeast1.firebasedatabase.app';
 const DEFAULT_SUPABASE_ANON_KEY = '';
@@ -680,6 +680,8 @@ interface GameContextValue {
   autoApplyRoundScoring: (quixortOutcome?: 'PASS' | 'FAIL') => { summary: string[] };
   setShowLeaderboardOverlay: (show: boolean) => void;
   setDisplayMode: (mode: DisplayMode) => void;
+  forceSyncAllScreens: () => void;
+  toggleTeamTokenLock: (enabled: boolean) => void;
   rotateTeamSessionToken: (teamId: TeamId) => void;
   clearSecurityWarnings: () => void;
   setShowQrOverlay: (show: boolean) => void;
@@ -730,10 +732,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const parsed = JSON.parse(saved);
           if (parsed && parsed.teams && parsed.round) {
             const normalized = normalizeGameState(parsed);
+            // Keep token lock OFF by default unless explicitly enabled by Host
             return {
               ...normalized,
-              teamSessionTokens:
-                normalized.teamSessionTokens || createInitialTeamSessionTokens(),
+              teamSessionTokens: undefined,
             };
           }
         }
@@ -742,7 +744,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       return {
         ...INITIAL_GAME_STATE,
-        teamSessionTokens: createInitialTeamSessionTokens(),
+        teamSessionTokens: undefined,
       };
     }
     return createUnhydratedClientState(INITIAL_GAME_STATE);
@@ -757,15 +759,19 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>(() => {
     const env = (import.meta as any).env || {};
-    const envUrl =
-      env.VITE_FIREBASE_DATABASE_URL || env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
-    const envKey =
-      env.VITE_FIREBASE_API_KEY || env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
+    // Always prioritize Firebase URL (do NOT let legacy Vercel VITE_SUPABASE_URL override Firebase!)
+    const envUrl = env.VITE_FIREBASE_DATABASE_URL || DEFAULT_SUPABASE_URL;
+    const envKey = env.VITE_FIREBASE_API_KEY || DEFAULT_SUPABASE_ANON_KEY;
     try {
       const saved = localStorage.getItem(SUPABASE_CONFIG_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed.url === 'string') {
+        if (
+          parsed &&
+          typeof parsed.url === 'string' &&
+          !parsed.url.includes('evljkqbafnicjnwgezzr.supabase.co') &&
+          !parsed.url.includes('iztkrbcrsjasxqbtqjye.supabase.co')
+        ) {
           return parsed;
         }
       }
@@ -897,6 +903,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   // Host-only state broadcast helper (never called from /play or /display)
+  // Always broadcasts over BOTH local BroadcastChannel (0ms same-device sync) AND Cloud (Firebase/Supabase)
   const broadcastAuthoritativeState = useCallback(
     (stamped: KrampusGameState) => {
       if (clientRoleRef.current !== 'HOST') return;
@@ -906,13 +913,30 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // ignore quota errors
       }
 
+      // 1. Always broadcast to same-browser tabs (/display, /play on same computer) with 0ms latency
+      if (bcRef.current) {
+        try {
+          bcRef.current.postMessage({
+            type: 'STATE_SYNC',
+            state: stripStaticDataForSync(stamped),
+            serverNow: Date.now(),
+          });
+        } catch {
+          // ignore
+        }
+      }
+
+      // 2. Broadcast to Cloud (Firebase Realtime Database or Supabase)
       if (isSupabaseCloudActiveRef.current) {
         const payload = buildCompactSyncPayload(stamped);
         if (isFirebaseCloudActiveRef.current && firebaseDbRef.current) {
-          const cleanPayload = JSON.parse(JSON.stringify(payload));
-          set(ref(firebaseDbRef.current, 'rooms/krampus_eve_room/stateSync'), cleanPayload).catch(
-            () => {}
-          );
+          // Store state as JSON string (`stateJson`) so Firebase never drops empty objects `{}` or converts year maps to sparse arrays
+          set(ref(firebaseDbRef.current, 'rooms/krampus_eve_room/stateSync'), {
+            stateJson: JSON.stringify(payload.state),
+            serverNow: payload.serverNow,
+            stateVersion: payload.stateVersion,
+            updatedAt: payload.updatedAt,
+          }).catch(() => {});
           return;
         }
         if (supaChannelRef.current) {
@@ -925,18 +949,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             .catch(() => {});
         }
         return;
-      }
-
-      if (bcRef.current) {
-        try {
-          bcRef.current.postMessage({
-            type: 'STATE_SYNC',
-            state: stamped,
-            serverNow: Date.now(),
-          });
-        } catch {
-          // ignore
-        }
       }
 
       if (connectionModeRef.current === 'LOCAL_SERVER') {
@@ -1049,12 +1061,24 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const sendPlayerActionOverTransport = useCallback((event: PlayerActionEvent) => {
+    // 1. Always send over local BroadcastChannel for 0ms same-browser response
+    if (bcRef.current) {
+      try {
+        bcRef.current.postMessage({ type: 'PLAYER_ACTION', payload: event });
+      } catch {
+        // ignore
+      }
+    }
+
+    // 2. Send over Cloud (Firebase Realtime Database or Supabase)
     if (isSupabaseCloudActiveRef.current) {
       if (isFirebaseCloudActiveRef.current && firebaseDbRef.current) {
-        const cleanEvent = JSON.parse(JSON.stringify(event));
         set(
           ref(firebaseDbRef.current, `rooms/krampus_eve_room/playerActions/${event.actionId}`),
-          cleanEvent
+          {
+            eventJson: JSON.stringify(event),
+            timestamp: Date.now(),
+          }
         ).catch(() => {});
         return;
       }
@@ -1083,15 +1107,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           payload: event.payload,
         }),
       }).catch(() => {});
-      return;
-    }
-
-    if (bcRef.current) {
-      try {
-        bcRef.current.postMessage({ type: 'PLAYER_ACTION', payload: event });
-      } catch {
-        // ignore
-      }
     }
   }, []);
 
@@ -1291,16 +1306,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const handleActionRejectedRef = useRef(handleActionRejected);
   handleActionRejectedRef.current = handleActionRejected;
 
-  // 1. Setup BroadcastChannel + storage event listener (ONLY when Supabase Cloud Sync is OFF)
+  // 1. Setup BroadcastChannel + storage event listener (Always active for instant same-machine sync alongside Cloud)
   useEffect(() => {
-    if (isSupabaseCloudActive) {
-      if (bcRef.current) {
-        bcRef.current.close();
-        bcRef.current = null;
-      }
-      return;
-    }
-
     if (typeof BroadcastChannel !== 'undefined') {
       const bc = new BroadcastChannel('krampus_eve_sync');
       bc.onmessage = (ev) => {
@@ -1312,7 +1319,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (clientRoleRef.current === 'HOST') {
             bc.postMessage({
               type: 'STATE_SYNC',
-              state: stateRef.current,
+              state: stripStaticDataForSync(stateRef.current),
               serverNow: Date.now(),
             });
           }
@@ -1331,12 +1338,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const onStorage = (e: StorageEvent) => {
-      if (isSupabaseCloudActiveRef.current) return;
       if (clientRoleRef.current === 'HOST') return;
       if (e.key === STORAGE_KEY && e.newValue) {
         try {
           const parsed = JSON.parse(e.newValue);
-          applyIncomingStateRef.current(parsed);
+          applyIncomingStateRef.current(stripStaticDataForSync(parsed));
         } catch {
           // ignore
         }
@@ -1348,7 +1354,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       bcRef.current = null;
       window.removeEventListener('storage', onStorage);
     };
-  }, [isSupabaseCloudActive]);
+  }, []);
 
   // 2. Setup Local Server SSE (/api/events) ONLY when Supabase Cloud Sync is OFF
   useEffect(() => {
@@ -1517,7 +1523,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (unmounted || clientRoleRef.current !== 'HOST') return;
           lastRequestStateReplyAtRef.current = Date.now();
           const payload = buildCompactSyncPayload(stateRef.current);
-          set(stateSyncRef, JSON.parse(JSON.stringify(payload))).catch(() => {});
+          set(stateSyncRef, {
+            stateJson: JSON.stringify(payload.state),
+            serverNow: payload.serverNow,
+            stateVersion: payload.stateVersion,
+            updatedAt: payload.updatedAt,
+          }).catch(() => {});
         };
 
         const sendThrottledFirebaseHostSync = () => {
@@ -1541,14 +1552,45 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
 
         if (clientRoleRef.current === 'HOST') {
-          flushFirebaseHostSync();
+          // Ensure Host stateVersion strictly exceeds any prior stateVersion stored in Firebase
+          onValue(
+            stateSyncRef,
+            (snap) => {
+              if (unmounted) return;
+              const remote = snap.val();
+              const remoteVer = Number(remote?.stateVersion || 0);
+              if (remoteVer >= (stateRef.current.stateVersion || 0)) {
+                const bumped: KrampusGameState = {
+                  ...stateRef.current,
+                  version: remoteVer + 1,
+                  stateVersion: remoteVer + 1,
+                  updatedAt: Date.now(),
+                  serverTimestamp: Date.now(),
+                };
+                stateRef.current = bumped;
+                setState(bumped);
+              }
+              flushFirebaseHostSync();
+            },
+            { onlyOnce: true }
+          );
           onValue(requestStateRef, (snap) => {
             if (unmounted || !snap.exists()) return;
             sendThrottledFirebaseHostSync();
           });
           onChildAdded(playerActionsRef, (snap) => {
             if (unmounted) return;
-            const ev = snap.val() as PlayerActionEvent | null;
+            const rawVal = snap.val();
+            let ev: PlayerActionEvent | null = null;
+            if (rawVal?.eventJson && typeof rawVal.eventJson === 'string') {
+              try {
+                ev = JSON.parse(rawVal.eventJson) as PlayerActionEvent;
+              } catch {
+                ev = null;
+              }
+            } else if (rawVal?.teamId && rawVal?.type) {
+              ev = rawVal as PlayerActionEvent;
+            }
             if (ev && ev.teamId && ev.type) {
               handleIncomingPlayerActionRef.current(ev);
             }
@@ -1558,8 +1600,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           onValue(stateSyncRef, (snap) => {
             if (unmounted) return;
             const payload = snap.val();
-            if (payload?.state) {
-              applyIncomingStateRef.current(payload.state, payload.serverNow);
+            if (!payload) return;
+            let incomingState = payload.state;
+            if (typeof payload.stateJson === 'string') {
+              try {
+                incomingState = JSON.parse(payload.stateJson);
+              } catch {
+                incomingState = null;
+              }
+            }
+            if (incomingState) {
+              applyIncomingStateRef.current(incomingState, payload.serverNow);
             }
           });
           onChildAdded(rejectionsRef, (snap) => {
@@ -4341,6 +4392,42 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [commitState]
   );
 
+  const forceSyncAllScreens = useCallback(() => {
+    if (clientRoleRef.current !== 'HOST') return;
+    const prev = stateRef.current;
+    const nextVersion = Math.max(prev.stateVersion || 0, prev.version || 0) + 100;
+    const now = Date.now();
+    const stamped: KrampusGameState = {
+      ...prev,
+      version: nextVersion,
+      stateVersion: nextVersion,
+      updatedAt: now,
+      serverTimestamp: now,
+    };
+    stateRef.current = stamped;
+    setState(stamped);
+    broadcastAuthoritativeState(stamped);
+  }, [broadcastAuthoritativeState]);
+
+  const toggleTeamTokenLock = useCallback((enabled: boolean) => {
+    if (clientRoleRef.current !== 'HOST') return;
+    const prev = stateRef.current;
+    const nextState: KrampusGameState = {
+      ...prev,
+      teamSessionTokens: enabled
+        ? prev.teamSessionTokens || createInitialTeamSessionTokens()
+        : undefined,
+      securityWarnings: enabled ? prev.securityWarnings : [],
+    };
+    stateRef.current = nextState;
+    setState(nextState);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const rotateTeamSessionToken = useCallback((teamId: TeamId) => {
     if (clientRoleRef.current !== 'HOST') return;
     const prev = stateRef.current;
@@ -4378,10 +4465,10 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const resetAllGameData = useCallback(() => {
-    commitState(() => ({
+    commitState((prev) => ({
       ...INITIAL_GAME_STATE,
       teams: structuredClone(INITIAL_TEAMS),
-      teamSessionTokens: createInitialTeamSessionTokens(),
+      teamSessionTokens: prev.teamSessionTokens ? createInitialTeamSessionTokens() : undefined,
       securityWarnings: [],
       serverTimestamp: Date.now(),
     }));
@@ -4482,6 +4569,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         autoApplyRoundScoring,
         setShowLeaderboardOverlay,
         setDisplayMode,
+        forceSyncAllScreens,
+        toggleTeamTokenLock,
         rotateTeamSessionToken,
         clearSecurityWarnings,
         setShowQrOverlay,

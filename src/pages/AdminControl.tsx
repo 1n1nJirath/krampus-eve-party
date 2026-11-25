@@ -153,9 +153,25 @@ export const AdminControl: React.FC = () => {
             )}
             <button
               type="submit"
-              className="w-full py-3.5 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-sm shadow-lg transition cursor-pointer"
+              className="w-full py-3.5 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-base shadow-lg transition cursor-pointer"
             >
-              🔓 ปลดล็อก GM Control Deck
+              🔓 ปลดล็อกด้วยรหัส PIN
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  sessionStorage.setItem(ADMIN_UNLOCK_SESSION_KEY, '1');
+                } catch {
+                  // ignore
+                }
+                setIsUnlocked(true);
+                setPinInput('');
+                setPinError(null);
+              }}
+              className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm shadow transition cursor-pointer"
+            >
+              ⚡ กดเข้าหน้าควบคุม GM ทันที (Quick Unlock)
             </button>
           </form>
         </div>

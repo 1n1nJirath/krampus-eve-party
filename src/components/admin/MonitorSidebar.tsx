@@ -59,6 +59,7 @@ export const MonitorSidebar: React.FC = () => {
     lmsMinigameAction,
     lmsUseJetpack,
     triggerKrampusAlert,
+    toggleTeamTokenLock,
     rotateTeamSessionToken,
     clearSecurityWarnings,
   } = useGame();
@@ -1489,43 +1490,63 @@ export const MonitorSidebar: React.FC = () => {
         </div>
       </div>
 
-      {/* 5. ANTI-SPOOFING TEAM SESSION TOKENS & SECURITY MONITOR */}
-      <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3 space-y-2.5">
-        <div className="flex items-center justify-between">
-          <div className="text-[11px] font-extrabold text-emerald-400 uppercase flex items-center gap-1.5">
-            <span>🛡️ Team Session Tokens (Anti-Spoofing)</span>
+      {/* 5. ANTI-SPOOFING TEAM SESSION TOKENS & SECURITY MONITOR (OPT-IN) */}
+      <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3.5 space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="text-xs font-extrabold text-emerald-400 flex items-center gap-1.5">
+              <span>🛡️ ล็อก Token ประจำทีม (กันสวมรอย)</span>
+            </div>
+            <div className="text-[11px] text-slate-400 mt-0.5">
+              {state.teamSessionTokens
+                ? 'เปิดอยู่: ผู้เล่นต้องสแกน QR รายทีมที่มี Token เท่านั้น'
+                : 'ปิดอยู่ (แนะนำ): ผู้เล่นทุกเครื่องเข้า /play กดส่งคำตอบได้ทันที'}
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={() => toggleTeamTokenLock(!Boolean(state.teamSessionTokens))}
+            className={`px-3 py-1.5 rounded-xl text-xs font-black border shrink-0 transition ${
+              state.teamSessionTokens
+                ? 'bg-emerald-500 text-slate-950 border-white'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-600'
+            }`}
+          >
+            {state.teamSessionTokens ? 'เปิดล็อกอยู่' : 'ปิดล็อก (อิสระ)'}
+          </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-1.5">
-          {TEAM_ORDER.map((tid) => {
-            const t = teams[tid];
-            const token = state.teamSessionTokens?.[tid] || '------';
-            return (
-              <div
-                key={tid}
-                className="rounded-xl bg-slate-950 border border-slate-800 px-2.5 py-2 flex items-center justify-between gap-1.5"
-              >
-                <div className="min-w-0">
-                  <div className="text-[10px] font-bold text-slate-300 truncate">
-                    {t.icon} {t.name}
-                  </div>
-                  <div className="font-mono text-xs font-black text-amber-300 tracking-wider">
-                    {token}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => rotateTeamSessionToken(tid)}
-                  className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-[10px] font-black text-amber-300 border border-amber-500/40 shrink-0 transition"
-                  title="สุ่ม Token ประจำทีมใหม่ทันที"
+        {state.teamSessionTokens && (
+          <div className="grid grid-cols-2 gap-1.5 pt-1">
+            {TEAM_ORDER.map((tid) => {
+              const t = teams[tid];
+              const token = state.teamSessionTokens?.[tid] || '------';
+              return (
+                <div
+                  key={tid}
+                  className="rounded-xl bg-slate-950 border border-slate-800 px-2.5 py-2 flex items-center justify-between gap-1.5"
                 >
-                  🔄 Rotate
-                </button>
-              </div>
-            );
-          })}
-        </div>
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-bold text-slate-300 truncate">
+                      {t.icon} {t.name}
+                    </div>
+                    <div className="font-mono text-xs font-black text-amber-300 tracking-wider">
+                      {token}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => rotateTeamSessionToken(tid)}
+                    className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-[10px] font-black text-amber-300 border border-amber-500/40 shrink-0 transition"
+                    title="สุ่ม Token ประจำทีมใหม่ทันที"
+                  >
+                    🔄 Rotate
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {state.securityWarnings && state.securityWarnings.length > 0 && (
           <div className="rounded-xl bg-red-950/90 border border-red-500/60 p-2.5 space-y-1.5">
