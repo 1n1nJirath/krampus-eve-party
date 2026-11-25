@@ -1,5 +1,16 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createClient, RealtimeChannel } from '@supabase/supabase-js';
+import { deleteApp, FirebaseApp, initializeApp } from 'firebase/app';
+import {
+  Database,
+  getDatabase,
+  off,
+  onChildAdded,
+  onValue,
+  ref,
+  remove,
+  set,
+} from 'firebase/database';
 import {
   ChoiceOption,
   ChronoSubRound,
@@ -101,9 +112,15 @@ export function getStoredTeamSessionToken(teamId: TeamId): string | undefined {
 }
 
 const STORAGE_KEY = 'krampus_eve_state_v2';
-const SUPABASE_CONFIG_KEY = 'krampus_supabase_config_v2';
-const DEFAULT_SUPABASE_URL = 'https://evljkqbafnicjnwgezzr.supabase.co';
-const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_H5-jncML0hgIl45te9k2dQ_2LbgCmQy';
+const SUPABASE_CONFIG_KEY = 'krampus_firebase_config_v2';
+const DEFAULT_SUPABASE_URL =
+  'https://krampus-eve-party-default-rtdb.asia-southeast1.firebasedatabase.app';
+const DEFAULT_SUPABASE_ANON_KEY = '';
+
+export function isFirebaseDatabaseUrl(url: string): boolean {
+  const clean = (url || '').trim().toLowerCase();
+  return clean.includes('firebaseio.com') || clean.includes('firebasedatabase.app');
+}
 
 export interface SupabaseConfig {
   url: string;
@@ -535,7 +552,7 @@ interface GameContextValue {
   actionSyncError: string | null;
   clearActionSyncError: () => void;
   lanIp: string;
-  connectionMode: 'LOCAL_SERVER' | 'SUPABASE_CLOUD' | 'BROWSER_SYNC';
+  connectionMode: 'LOCAL_SERVER' | 'FIREBASE_CLOUD' | 'SUPABASE_CLOUD' | 'BROWSER_SYNC';
   isConnected: boolean;
   syncStalled: boolean;
   requestManualSync: () => void;
@@ -732,18 +749,23 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [lanIp, setLanIp] = useState<string>('localhost');
-  const [connectionMode, setConnectionMode] = useState<'LOCAL_SERVER' | 'SUPABASE_CLOUD' | 'BROWSER_SYNC'>('BROWSER_SYNC');
+  const [connectionMode, setConnectionMode] = useState<
+    'LOCAL_SERVER' | 'FIREBASE_CLOUD' | 'SUPABASE_CLOUD' | 'BROWSER_SYNC'
+  >('BROWSER_SYNC');
   const [isConnected, setIsConnected] = useState<boolean>(true);
   const clockOffsetRef = useRef<number>(0);
 
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>(() => {
-    const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
-    const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
+    const env = (import.meta as any).env || {};
+    const envUrl =
+      env.VITE_FIREBASE_DATABASE_URL || env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+    const envKey =
+      env.VITE_FIREBASE_API_KEY || env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
     try {
       const saved = localStorage.getItem(SUPABASE_CONFIG_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && parsed.url && parsed.anonKey) {
+        if (parsed && typeof parsed.url === 'string') {
           return parsed;
         }
       }
@@ -753,19 +775,26 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return {
       url: envUrl,
       anonKey: envKey,
-      enabled: Boolean(envUrl && envKey),
+      enabled: Boolean(envUrl && (isFirebaseDatabaseUrl(envUrl) || envKey)),
     };
   });
 
-  const isSupabaseCloudActive = Boolean(
-    supabaseConfig.enabled && supabaseConfig.url && supabaseConfig.anonKey
+  const isFirebaseCloudActive = Boolean(
+    supabaseConfig.enabled && supabaseConfig.url && isFirebaseDatabaseUrl(supabaseConfig.url)
   );
+  const isSupabaseCloudActive = Boolean(
+    supabaseConfig.enabled &&
+      supabaseConfig.url &&
+      (isFirebaseCloudActive || supabaseConfig.anonKey)
+  );
+  const isFirebaseCloudActiveRef = useRef<boolean>(isFirebaseCloudActive);
+  isFirebaseCloudActiveRef.current = isFirebaseCloudActive;
   const isSupabaseCloudActiveRef = useRef<boolean>(isSupabaseCloudActive);
   isSupabaseCloudActiveRef.current = isSupabaseCloudActive;
 
-  const connectionModeRef = useRef<'LOCAL_SERVER' | 'SUPABASE_CLOUD' | 'BROWSER_SYNC'>(
-    connectionMode
-  );
+  const connectionModeRef = useRef<
+    'LOCAL_SERVER' | 'FIREBASE_CLOUD' | 'SUPABASE_CLOUD' | 'BROWSER_SYNC'
+  >(connectionMode);
   connectionModeRef.current = connectionMode;
 
   const stateRef = useRef<KrampusGameState>(state);
@@ -773,6 +802,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const bcRef = useRef<BroadcastChannel | null>(null);
   const supaChannelRef = useRef<RealtimeChannel | null>(null);
+  const firebaseDbRef = useRef<Database | null>(null);
 
   const getAuthoritativeNow = useCallback(() => {
     return Date.now() + clockOffsetRef.current;
@@ -877,8 +907,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (isSupabaseCloudActiveRef.current) {
+        const payload = buildCompactSyncPayload(stamped);
+        if (isFirebaseCloudActiveRef.current && firebaseDbRef.current) {
+          const cleanPayload = JSON.parse(JSON.stringify(payload));
+          set(ref(firebaseDbRef.current, 'rooms/krampus_eve_room/stateSync'), cleanPayload).catch(
+            () => {}
+          );
+          return;
+        }
         if (supaChannelRef.current) {
-          const payload = buildCompactSyncPayload(stamped);
           supaChannelRef.current
             .send({
               type: 'broadcast',
@@ -1013,6 +1050,14 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const sendPlayerActionOverTransport = useCallback((event: PlayerActionEvent) => {
     if (isSupabaseCloudActiveRef.current) {
+      if (isFirebaseCloudActiveRef.current && firebaseDbRef.current) {
+        const cleanEvent = JSON.parse(JSON.stringify(event));
+        set(
+          ref(firebaseDbRef.current, `rooms/krampus_eve_room/playerActions/${event.actionId}`),
+          cleanEvent
+        ).catch(() => {});
+        return;
+      }
       if (supaChannelRef.current) {
         supaChannelRef.current
           .send({
@@ -1155,6 +1200,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const emitActionRejected = useCallback((actionId: string, teamId: TeamId, reason?: string) => {
     const payload = { actionId, teamId, reason };
     if (isSupabaseCloudActiveRef.current) {
+      if (isFirebaseCloudActiveRef.current && firebaseDbRef.current) {
+        set(
+          ref(firebaseDbRef.current, `rooms/krampus_eve_room/rejections/${actionId}`),
+          JSON.parse(JSON.stringify({ ...payload, timestamp: Date.now() }))
+        ).catch(() => {});
+        return;
+      }
       supaChannelRef.current
         ?.send({ type: 'broadcast', event: 'ACTION_REJECTED', payload })
         .catch(() => {});
@@ -1368,7 +1420,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSyncStalled(false);
 
       const sendRequest = () => {
-        if (channel) {
+        if (isFirebaseCloudActiveRef.current && firebaseDbRef.current) {
+          set(ref(firebaseDbRef.current, 'rooms/krampus_eve_room/requestState'), {
+            requestedAt: Date.now(),
+          }).catch(() => {});
+        } else if (channel) {
           channel
             .send({
               type: 'broadcast',
@@ -1423,15 +1479,129 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     startHydrationRequestWithBackoff(supaChannelRef.current);
   }, [startHydrationRequestWithBackoff]);
 
-  // 3. Setup Supabase Realtime Broadcast (Host-Authoritative Single Source of Truth)
+  // 3. Setup Firebase Realtime Database OR Supabase Realtime Broadcast (Host-Authoritative Single Source of Truth)
   useEffect(() => {
-    if (!supabaseConfig.enabled || !supabaseConfig.url || !supabaseConfig.anonKey) {
+    const cleanUrl = (supabaseConfig.url || '').trim();
+    const isFirebase = isFirebaseDatabaseUrl(cleanUrl);
+
+    if (!supabaseConfig.enabled || !cleanUrl || (!isFirebase && !supabaseConfig.anonKey)) {
       supaChannelRef.current = null;
+      firebaseDbRef.current = null;
       return;
     }
 
     let unmounted = false;
 
+    // 3A. FIREBASE REALTIME DATABASE TRANSPORT (Primary — 10 GB/mo free quota + instant snapshot hydration)
+    if (isFirebase) {
+      let app: FirebaseApp | null = null;
+      try {
+        app = initializeApp(
+          {
+            databaseURL: cleanUrl.replace(/\/$/, ''),
+            ...(supabaseConfig.anonKey ? { apiKey: supabaseConfig.anonKey.trim() } : {}),
+          },
+          `krampus_rtdb_${Date.now()}`
+        );
+        const db = getDatabase(app);
+        firebaseDbRef.current = db;
+        setConnectionMode('FIREBASE_CLOUD');
+        setIsConnected(true);
+
+        const stateSyncRef = ref(db, 'rooms/krampus_eve_room/stateSync');
+        const requestStateRef = ref(db, 'rooms/krampus_eve_room/requestState');
+        const playerActionsRef = ref(db, 'rooms/krampus_eve_room/playerActions');
+        const rejectionsRef = ref(db, 'rooms/krampus_eve_room/rejections');
+
+        const flushFirebaseHostSync = () => {
+          if (unmounted || clientRoleRef.current !== 'HOST') return;
+          lastRequestStateReplyAtRef.current = Date.now();
+          const payload = buildCompactSyncPayload(stateRef.current);
+          set(stateSyncRef, JSON.parse(JSON.stringify(payload))).catch(() => {});
+        };
+
+        const sendThrottledFirebaseHostSync = () => {
+          if (clientRoleRef.current !== 'HOST' || unmounted) return;
+          const now = Date.now();
+          const elapsed = now - lastRequestStateReplyAtRef.current;
+
+          if (elapsed >= HOST_REQUEST_STATE_THROTTLE_MS) {
+            if (requestStateTrailingTimerRef.current) {
+              clearTimeout(requestStateTrailingTimerRef.current);
+              requestStateTrailingTimerRef.current = null;
+            }
+            flushFirebaseHostSync();
+          } else if (!requestStateTrailingTimerRef.current) {
+            const waitMs = HOST_REQUEST_STATE_THROTTLE_MS - elapsed;
+            requestStateTrailingTimerRef.current = setTimeout(() => {
+              requestStateTrailingTimerRef.current = null;
+              flushFirebaseHostSync();
+            }, waitMs);
+          }
+        };
+
+        if (clientRoleRef.current === 'HOST') {
+          flushFirebaseHostSync();
+          onValue(requestStateRef, (snap) => {
+            if (unmounted || !snap.exists()) return;
+            sendThrottledFirebaseHostSync();
+          });
+          onChildAdded(playerActionsRef, (snap) => {
+            if (unmounted) return;
+            const ev = snap.val() as PlayerActionEvent | null;
+            if (ev && ev.teamId && ev.type) {
+              handleIncomingPlayerActionRef.current(ev);
+            }
+            remove(snap.ref).catch(() => {});
+          });
+        } else {
+          onValue(stateSyncRef, (snap) => {
+            if (unmounted) return;
+            const payload = snap.val();
+            if (payload?.state) {
+              applyIncomingStateRef.current(payload.state, payload.serverNow);
+            }
+          });
+          onChildAdded(rejectionsRef, (snap) => {
+            if (unmounted) return;
+            const rej = snap.val();
+            if (rej?.actionId) {
+              const hadPending = Boolean(pendingActionsRef.current[rej.actionId]);
+              handleActionRejectedRef.current(rej);
+              if (hadPending) {
+                remove(snap.ref).catch(() => {});
+              }
+            }
+          });
+          startHydrationRequestWithBackoff(null);
+        }
+
+        return () => {
+          unmounted = true;
+          clearBackoffTimer();
+          if (requestStateTrailingTimerRef.current) {
+            clearTimeout(requestStateTrailingTimerRef.current);
+            requestStateTrailingTimerRef.current = null;
+          }
+          off(stateSyncRef);
+          off(requestStateRef);
+          off(playerActionsRef);
+          off(rejectionsRef);
+          firebaseDbRef.current = null;
+          if (app) {
+            deleteApp(app).catch(() => {});
+          }
+        };
+      } catch {
+        firebaseDbRef.current = null;
+        if (app) {
+          deleteApp(app).catch(() => {});
+        }
+        return;
+      }
+    }
+
+    // 3B. SUPABASE REALTIME BROADCAST FALLBACK
     try {
       const supabase = createClient(supabaseConfig.url, supabaseConfig.anonKey);
       const channel = supabase.channel('krampus_eve_room', {

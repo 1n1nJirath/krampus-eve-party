@@ -49,6 +49,8 @@ export const AdminTopBar: React.FC<AdminTopBarProps> = ({
   const syncLabel =
     connectionMode === 'LOCAL_SERVER'
       ? 'Local <30ms'
+      : connectionMode === 'FIREBASE_CLOUD'
+      ? '🔥 Firebase Cloud'
       : connectionMode === 'SUPABASE_CLOUD'
       ? 'Supabase Cloud'
       : 'Browser Sync';

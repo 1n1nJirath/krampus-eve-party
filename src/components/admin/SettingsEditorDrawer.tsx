@@ -393,11 +393,11 @@ export const SettingsEditorDrawer: React.FC<SettingsEditorDrawerProps> = ({
             <div className="space-y-4">
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
                 <h3 className="text-sm font-black text-white">
-                  ☁️ ตั้งค่าระบบ Realtime Sync (Local Server & Supabase Cloud)
+                  🔥 ตั้งค่าระบบ Realtime Sync (Firebase Realtime Database / Local Server)
                 </h3>
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  • <strong>Local Realtime Server:</strong> ทำงานทันทีเมื่อต่อ Wi-Fi / Hotspot เดียวกัน
-                  <br />• <strong>Supabase Cloud:</strong> ซิงก์ข้ามเครือข่าย 4G/5G ทั่วโลกอัตโนมัติ
+                  • <strong>Firebase Realtime Database (แนะนำ • ฟรี 10 GB/เดือน):</strong> ซิงก์ข้ามเครือข่าย 4G/5G ทั่วโลก พร้อมดึง State ล่าสุดให้อัตโนมัติทันทีที่ผู้เล่นเข้าห้อง
+                  <br />• <strong>วิธีเปิดใช้งานใน 1 นาที:</strong> เข้า <code className="text-amber-300">console.firebase.google.com</code> → สร้างโปรเจกต์ → เมนู <strong>Build &gt; Realtime Database</strong> → กด <strong>Create Database</strong> (เลือก <strong>Start in test mode</strong>) → คัดลอก URL มาวางด้านล่างได้เลย (ไม่ต้องใส่ API Key ก็ทำงานได้ทันที!)
                 </p>
 
                 <label className="flex items-center gap-2 text-xs font-bold text-amber-300 cursor-pointer">
@@ -407,27 +407,31 @@ export const SettingsEditorDrawer: React.FC<SettingsEditorDrawerProps> = ({
                     onChange={(e) => setSupaEnabledDraft(e.target.checked)}
                     className="w-4 h-4 accent-amber-400"
                   />
-                  เปิดใช้งาน Supabase Realtime Broadcast
+                  เปิดใช้งาน Cloud Realtime Sync (Firebase / Supabase)
                 </label>
 
                 <div>
-                  <label className="text-xs text-slate-400">Supabase Project URL:</label>
+                  <label className="text-xs text-slate-400">
+                    Firebase Realtime Database URL (หรือ Supabase URL):
+                  </label>
                   <input
                     type="text"
                     value={supaUrlDraft}
                     onChange={(e) => setSupaUrlDraft(e.target.value)}
-                    placeholder="https://xxxx.supabase.co"
+                    placeholder="https://your-project-default-rtdb.asia-southeast1.firebasedatabase.app"
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-white"
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs text-slate-400">Supabase Publishable / Anon Key:</label>
+                  <label className="text-xs text-slate-400">
+                    API Key (สำหรับ Firebase เว้นว่างได้หากเปิด Test Mode / สำหรับ Supabase ใส่ Anon Key):
+                  </label>
                   <input
                     type="password"
                     value={supaKeyDraft}
                     onChange={(e) => setSupaKeyDraft(e.target.value)}
-                    placeholder="sb_publishable_..."
+                    placeholder="เว้นว่างได้สำหรับ Firebase Test Mode..."
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-white"
                   />
                 </div>
