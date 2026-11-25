@@ -59,6 +59,8 @@ export const MonitorSidebar: React.FC = () => {
     lmsMinigameAction,
     lmsUseJetpack,
     triggerKrampusAlert,
+    rotateTeamSessionToken,
+    clearSecurityWarnings,
   } = useGame();
 
   const { round, teams, submissions, buzzerQueue, transactions } = state;
@@ -1485,6 +1487,72 @@ export const MonitorSidebar: React.FC = () => {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* 5. ANTI-SPOOFING TEAM SESSION TOKENS & SECURITY MONITOR */}
+      <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3 space-y-2.5">
+        <div className="flex items-center justify-between">
+          <div className="text-[11px] font-extrabold text-emerald-400 uppercase flex items-center gap-1.5">
+            <span>🛡️ Team Session Tokens (Anti-Spoofing)</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-1.5">
+          {TEAM_ORDER.map((tid) => {
+            const t = teams[tid];
+            const token = state.teamSessionTokens?.[tid] || '------';
+            return (
+              <div
+                key={tid}
+                className="rounded-xl bg-slate-950 border border-slate-800 px-2.5 py-2 flex items-center justify-between gap-1.5"
+              >
+                <div className="min-w-0">
+                  <div className="text-[10px] font-bold text-slate-300 truncate">
+                    {t.icon} {t.name}
+                  </div>
+                  <div className="font-mono text-xs font-black text-amber-300 tracking-wider">
+                    {token}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => rotateTeamSessionToken(tid)}
+                  className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-[10px] font-black text-amber-300 border border-amber-500/40 shrink-0 transition"
+                  title="สุ่ม Token ประจำทีมใหม่ทันที"
+                >
+                  🔄 Rotate
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {state.securityWarnings && state.securityWarnings.length > 0 && (
+          <div className="rounded-xl bg-red-950/90 border border-red-500/60 p-2.5 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black text-red-300 uppercase">
+                ⚠️ บล็อกคำสั่งที่ Token ไม่ถูกต้อง ({state.securityWarnings.length})
+              </span>
+              <button
+                type="button"
+                onClick={clearSecurityWarnings}
+                className="text-[10px] font-bold text-red-200 hover:text-white underline"
+              >
+                ล้างประวัติ
+              </button>
+            </div>
+            <div className="max-h-28 overflow-y-auto space-y-1">
+              {state.securityWarnings.slice(0, 6).map((w) => (
+                <div
+                  key={w.id}
+                  className="text-[10px] text-red-100 bg-black/40 rounded px-2 py-1 font-mono"
+                >
+                  [{teams[w.teamId]?.name || w.teamId}] {w.actionType}: {w.reason}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </aside>
   );

@@ -2,6 +2,7 @@ import React from 'react';
 import {
   BookOpen,
   ExternalLink,
+  Lock,
   Monitor,
   Projector,
   QrCode,
@@ -20,6 +21,7 @@ interface AdminTopBarProps {
   onOpenQr: () => void;
   onOpenManual: () => void;
   onOpenSettings: (tab?: 'PRESETS' | 'FREESTYLE' | 'TEAMS' | 'CLOUD') => void;
+  onLockAdmin?: () => void;
 }
 
 const MAIN_TABS: Array<{ id: AdminTabId; label: string; shortLabel: string }> = [
@@ -37,6 +39,7 @@ export const AdminTopBar: React.FC<AdminTopBarProps> = ({
   onOpenQr,
   onOpenManual,
   onOpenSettings,
+  onLockAdmin,
 }) => {
   const { state, connectionMode, setShowLeaderboardOverlay, setDisplayMode, toggleSound } =
     useGame();
@@ -211,6 +214,17 @@ export const AdminTopBar: React.FC<AdminTopBarProps> = ({
               <VolumeX className="w-4 h-4 text-red-400" />
             )}
           </button>
+          {onLockAdmin && (
+            <button
+              type="button"
+              onClick={onLockAdmin}
+              className="px-2.5 py-1.5 rounded-xl bg-red-950/90 hover:bg-red-900 text-red-200 border border-red-500/50 font-extrabold text-xs flex items-center gap-1 transition"
+              title="ล็อกหน้าจอ GM Control Deck ด้วยรหัส PIN ทันที"
+            >
+              <Lock className="w-3.5 h-3.5 text-amber-300" />
+              <span>🔒 Lock Admin</span>
+            </button>
+          )}
         </div>
       </div>
     </header>

@@ -4,6 +4,7 @@ import { buildSnakeDraftOrder } from '../logic/doorsLogic';
 import {
   applyPlayerAction,
   computeSecondsLeft,
+  createInitialTeamSessionTokens,
   createUnhydratedClientState,
   isPendingActionConfirmed,
   rehydrateStateFromLocal,
@@ -485,5 +486,164 @@ describe('Suite 8: Host-Authoritative Realtime Sync & Monotonic Versioning', () 
     expect(state.transactions).toHaveLength(40);
     expect(state.processedActionIds).toHaveLength(50);
     expect(state.round.lastMan.killFeed).toHaveLength(30);
+  });
+
+  it('Zero-Leak Sanitization: strips answer keys and hidden secrets during ACTIVE and reveals them only during REVEALED', () => {
+    const state = makeActiveState();
+    state.teamSessionTokens = createInitialTeamSessionTokens();
+    state.round.status = 'ACTIVE';
+    state.round.safeRankMin = 1;
+    state.round.safeRankMax = 3;
+    state.round.targetYear = 1997;
+    state.round.correctChoices = ['A'];
+    state.round.choices = [
+      { key: 'A', label: 'Door A (Opened)', rank: 1, votes: 42, isCorrect: true, isOpened: true },
+      { key: 'B', label: 'Door B (Closed)', rank: 8, votes: 2, isTrap: true, isOpened: false },
+    ];
+    state.round.toyFactory = {
+      roundIndex: 1,
+      pairings: [{ sortingTeamId: 'team1', holdingTeamId: 'team2' }],
+      usedDatasetIds: ['tf-1'],
+      selectedDatasetId: 'tf-1',
+      phase: 'ACTION',
+      prepEndsAt: null,
+      bufferEndsAt: null,
+      assignments: [
+        { memberName: 'Alice', itemId: 'i1', label: 'Item 1', realValue: '1990', isMystery: true, mysteryClue: 'Clue' },
+      ],
+      shuffleUsedByTeams: [],
+      shuffleUsedThisRound: false,
+      revealSlots: [
+        { index: 0, itemId: 'i1', holderName: 'Alice', label: 'Item 1', realValue: '1990', isMystery: true, revealed: false, verdict: 'CORRECT' },
+      ],
+    };
+    state.round.lastMan = {
+      phase: 'PART1_MINIGAME',
+      part1Round: 1,
+      part2QuestionIndex: 0,
+      krampusStep: 0,
+      winnerTeamId: null,
+      miseryPullTeamId: null,
+      miseryEndsAt: null,
+      roundStock: {
+        CURSE_BOX: 2,
+        SNIPER_SHOT: 2,
+        MIRROR_SHIELD: 2,
+        HELL_CHAINS: 1,
+        EXECUTIONER_BRIBE: 1,
+        REVIVE_POTION: 1,
+        JETPACK: 1,
+      },
+      gameStock: { HELL_CHAINS: 2, JETPACK: 2 },
+      killFeed: [],
+      poisonedChalices: [2, 4],
+      chalicePicks: { team1: 2 },
+      splitStealPicks: { team2: 'STEAL' },
+      dareVotes: { team3: 'EXECUTE' },
+      krampusDiceRoll: null,
+      teamDiceRolls: {},
+      greedTaxReport: [],
+      teamStates: {
+        team1: { hearts: 4, isGhost: false, inKillingFloor: true, mirrorShield: false, activeCurse: null, jetpacks: 0, step: 0 },
+        team2: { hearts: 4, isGhost: false, inKillingFloor: true, mirrorShield: false, activeCurse: null, jetpacks: 0, step: 0 },
+        team3: { hearts: 4, isGhost: false, inKillingFloor: false, mirrorShield: false, activeCurse: null, jetpacks: 0, step: 0 },
+        team4: { hearts: 4, isGhost: false, inKillingFloor: false, mirrorShield: false, activeCurse: null, jetpacks: 0, step: 0 },
+      },
+    };
+
+    const liveCompact = stripStaticDataForSync(state);
+    const liveClient = rehydrateStateFromLocal(liveCompact);
+
+    // Host-only session tokens never leak
+    expect((liveCompact as unknown as Record<string, unknown>).teamSessionTokens).toBeUndefined();
+    expect(liveClient.teamSessionTokens).toBeUndefined();
+
+    // Game 1 unopened door secrets & safe range stripped during ACTIVE
+    expect(liveCompact.round.safeRankMin).toBeUndefined();
+    expect(liveCompact.round.safeRankMax).toBeUndefined();
+    expect(liveClient.round.choices[0].rank).toBe(1); // opened door keeps rank
+    expect(liveClient.round.choices[1].rank).toBeUndefined(); // unopened door stripped
+    expect(liveClient.round.choices[1].isTrap).toBeUndefined();
+
+    // Game 2 targetYear stripped during ACTIVE
+    expect(liveCompact.round.targetYear).toBeUndefined();
+    expect(liveClient.round.targetYear).toBe(0);
+
+    // Game 3 mystery solution & unrevealed slot verdict stripped during ACTIVE
+    expect(liveClient.round.toyFactory?.assignments[0].realValue).toBe('');
+    expect(liveClient.round.toyFactory?.revealSlots[0].realValue).toBe('');
+    expect(liveClient.round.toyFactory?.revealSlots[0].verdict).toBeUndefined();
+    expect(liveClient.toyFactoryDatasets?.[0].items[0].realValue).toBe('');
+
+    // Game 4 trivia correctKey & secret minigame choices stripped during ACTIVE
+    expect(liveClient.round.correctChoices).toEqual([]);
+    expect(liveClient.lastManPart1Questions?.[0].correctKey).toBe('');
+    expect(liveClient.lastManPart2Questions?.[0].correctKey).toBe('');
+    expect(liveClient.round.lastMan?.poisonedChalices).toEqual([]);
+    expect(liveClient.round.lastMan?.chalicePicks).toEqual({});
+    expect(liveClient.round.lastMan?.splitStealPicks).toEqual({});
+
+    // Now Host triggers REVEAL -> all answer keys are present
+    const revealedHost = structuredClone(state);
+    revealedHost.round.status = 'REVEALED';
+    revealedHost.round.lastMan!.phase = 'PART1_MINIGAME_REVEAL';
+
+    const revCompact = stripStaticDataForSync(revealedHost);
+    const revClient = rehydrateStateFromLocal(revCompact);
+
+    expect(revClient.round.safeRankMin).toBe(1);
+    expect(revClient.round.safeRankMax).toBe(3);
+    expect(revClient.round.choices[1].rank).toBe(8);
+    expect(revClient.round.targetYear).toBe(1997);
+    expect(revClient.round.correctChoices).toEqual(['A']);
+    expect(revClient.round.toyFactory?.assignments[0].realValue).toBe('1990');
+    expect(revClient.round.toyFactory?.revealSlots[0].verdict).toBe('CORRECT');
+    expect(revClient.lastManPart1Questions?.[0].correctKey).not.toBe('');
+    expect(revClient.round.lastMan?.poisonedChalices).toEqual([2, 4]);
+    expect(revClient.round.lastMan?.splitStealPicks.team2).toBe('STEAL');
+  });
+
+  it('Anti-Team Spoofing: applyPlayerAction validates per-team sessionToken and rejects missing or mismatched tokens', () => {
+    const state = makeActiveState();
+    state.teamSessionTokens = {
+      team1: 'T1PASS',
+      team2: 'T2PASS',
+      team3: 'T3PASS',
+      team4: 'T4PASS',
+    };
+
+    const baseAction: PlayerActionEvent = {
+      type: 'SUBMIT_ANSWER',
+      teamId: 'team1',
+      payload: { value: 'A' },
+      clientTimestamp: 102_000,
+      actionId: 'spoof-attempt-1',
+      roundId: 'round-live-1',
+    };
+
+    // 1. Missing token -> REJECTED with INVALID_TEAM_TOKEN
+    const missingRes = applyPlayerAction(state, baseAction, 102_100);
+    expect(missingRes.status).toBe('REJECTED');
+    expect(missingRes.reason).toBe('INVALID_TEAM_TOKEN');
+    expect(missingRes.nextState.submissions.team1).toBeUndefined();
+
+    // 2. Mismatched token (e.g. Team 2 player edited URL to ?team=1) -> REJECTED
+    const wrongRes = applyPlayerAction(
+      state,
+      { ...baseAction, actionId: 'spoof-attempt-2', teamToken: 'T2PASS' },
+      102_200
+    );
+    expect(wrongRes.status).toBe('REJECTED');
+    expect(wrongRes.reason).toBe('INVALID_TEAM_TOKEN');
+    expect(wrongRes.nextState.submissions.team1).toBeUndefined();
+
+    // 3. Matching token -> APPLIED
+    const validRes = applyPlayerAction(
+      state,
+      { ...baseAction, actionId: 'valid-attempt-3', teamToken: 'T1PASS' },
+      102_300
+    );
+    expect(validRes.status).toBe('APPLIED');
+    expect(validRes.nextState.submissions.team1?.value).toBe('A');
   });
 });

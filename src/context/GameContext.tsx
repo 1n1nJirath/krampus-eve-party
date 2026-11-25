@@ -56,7 +56,9 @@ import {
 import {
   applyPlayerAction,
   CompactSyncState,
+  createInitialTeamSessionTokens,
   createUnhydratedClientState,
+  generateTeamSessionToken,
   HOST_ECONOMY_DEBOUNCE_MS,
   HOST_REQUEST_STATE_THROTTLE_MS,
   isPendingActionConfirmed,
@@ -70,7 +72,33 @@ import {
 } from '../logic/syncLogic';
 import { triggerHaptic } from '../utils/haptics';
 
-export { stripStaticDataForSync, rehydrateStateFromLocal };
+export {
+  stripStaticDataForSync,
+  rehydrateStateFromLocal,
+  generateTeamSessionToken,
+  createInitialTeamSessionTokens,
+};
+
+const TEAM_TOKEN_SESSION_PREFIX = 'krampus_team_token_';
+
+export function storeTeamSessionToken(teamId: TeamId, token: string): void {
+  const clean = token.trim().toUpperCase();
+  if (!clean || typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(`${TEAM_TOKEN_SESSION_PREFIX}${teamId}`, clean);
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function getStoredTeamSessionToken(teamId: TeamId): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  try {
+    return sessionStorage.getItem(`${TEAM_TOKEN_SESSION_PREFIX}${teamId}`) || undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 const STORAGE_KEY = 'krampus_eve_state_v2';
 const SUPABASE_CONFIG_KEY = 'krampus_supabase_config_v2';
@@ -635,6 +663,8 @@ interface GameContextValue {
   autoApplyRoundScoring: (quixortOutcome?: 'PASS' | 'FAIL') => { summary: string[] };
   setShowLeaderboardOverlay: (show: boolean) => void;
   setDisplayMode: (mode: DisplayMode) => void;
+  rotateTeamSessionToken: (teamId: TeamId) => void;
+  clearSecurityWarnings: () => void;
   setShowQrOverlay: (show: boolean) => void;
   setGameStage: (stage: GameStage, syncPreset?: boolean) => void;
   triggerKrampusAlert: (msg: string | null) => void;
@@ -682,13 +712,21 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (saved) {
           const parsed = JSON.parse(saved);
           if (parsed && parsed.teams && parsed.round) {
-            return normalizeGameState(parsed);
+            const normalized = normalizeGameState(parsed);
+            return {
+              ...normalized,
+              teamSessionTokens:
+                normalized.teamSessionTokens || createInitialTeamSessionTokens(),
+            };
           }
         }
       } catch {
         // ignore
       }
-      return INITIAL_GAME_STATE;
+      return {
+        ...INITIAL_GAME_STATE,
+        teamSessionTokens: createInitialTeamSessionTokens(),
+      };
     }
     return createUnhydratedClientState(INITIAL_GAME_STATE);
   });
@@ -996,6 +1034,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           teamId: event.teamId,
           action: event.type,
           actionId: event.actionId,
+          teamToken: event.teamToken,
           payload: event.payload,
         }),
       }).catch(() => {});
@@ -1049,6 +1088,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           clientTimestamp: retried.clientTimestamp,
           actionId: retried.actionId,
           roundId: retried.roundId,
+          teamToken: retried.teamToken,
         });
         scheduleRetry(actionId);
       }, PLAYER_ACTION_RETRY_MS);
@@ -1069,6 +1109,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           clientTimestamp: now,
           actionId,
           roundId: stateRef.current.round.id,
+          teamToken: stateRef.current.teamSessionTokens?.[teamId],
         };
         commitState((prev) => {
           const res = applyPlayerAction(prev, event, now);
@@ -1084,6 +1125,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setActionSyncError(null);
       const actionId = createActionId(teamId, type, now);
+      const teamToken = getStoredTeamSessionToken(teamId);
       const event: PlayerActionEvent = {
         type,
         teamId,
@@ -1091,6 +1133,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         clientTimestamp: now,
         actionId,
         roundId: stateRef.current.round.id,
+        teamToken,
       };
 
       const pending: PendingPlayerAction = {
@@ -1142,6 +1185,30 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         commitState(() => res.nextState);
       } else if (res.status === 'DUPLICATE') {
         broadcastAuthoritativeState(stateRef.current);
+      } else if (res.reason === 'INVALID_TEAM_TOKEN') {
+        // Silently reject invalid/missing team session token without broadcasting STATE_SYNC,
+        // and record a security warning in the Host's Admin Monitor.
+        const warning = {
+          id: `sec-${hostNow}-${Math.random().toString(36).slice(2, 6)}`,
+          timestamp: hostNow,
+          teamId: event.teamId,
+          actionType: event.type,
+          reason: event.teamToken
+            ? `Token ไม่ตรงกัน (${event.teamToken})`
+            : 'ไม่มี Team Session Token (อาจเปลี่ยน URL เอง)',
+        };
+        const updatedHostState: KrampusGameState = {
+          ...stateRef.current,
+          securityWarnings: [warning, ...(stateRef.current.securityWarnings || [])].slice(0, 25),
+        };
+        stateRef.current = updatedHostState;
+        setState(updatedHostState);
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedHostState));
+        } catch {
+          // ignore
+        }
+        emitActionRejected(event.actionId, event.teamId, res.reason);
       } else {
         emitActionRejected(event.actionId, event.teamId, res.reason);
         broadcastAuthoritativeState(stateRef.current);
@@ -1155,6 +1222,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (clientRoleRef.current === 'HOST') return;
       if (!payload?.actionId) return;
       clearPendingAction(payload.actionId);
+      if (payload.reason === 'INVALID_TEAM_TOKEN') {
+        setActionSyncError(
+          'โทเคนประจำทีมไม่ถูกต้องหรือถูกเปลี่ยนใหม่ กรุณาสแกน QR Code ประจำทีมจาก Host อีกครั้ง'
+        );
+        triggerHaptic('ERROR');
+      }
     },
     [clearPendingAction]
   );
@@ -4098,10 +4171,48 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [commitState]
   );
 
+  const rotateTeamSessionToken = useCallback((teamId: TeamId) => {
+    if (clientRoleRef.current !== 'HOST') return;
+    const prev = stateRef.current;
+    const currentTokens = prev.teamSessionTokens || createInitialTeamSessionTokens();
+    const nextToken = generateTeamSessionToken();
+    const nextState: KrampusGameState = {
+      ...prev,
+      teamSessionTokens: {
+        ...currentTokens,
+        [teamId]: nextToken,
+      },
+    };
+    stateRef.current = nextState;
+    setState(nextState);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const clearSecurityWarnings = useCallback(() => {
+    if (clientRoleRef.current !== 'HOST') return;
+    const nextState: KrampusGameState = {
+      ...stateRef.current,
+      securityWarnings: [],
+    };
+    stateRef.current = nextState;
+    setState(nextState);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const resetAllGameData = useCallback(() => {
     commitState(() => ({
       ...INITIAL_GAME_STATE,
       teams: structuredClone(INITIAL_TEAMS),
+      teamSessionTokens: createInitialTeamSessionTokens(),
+      securityWarnings: [],
       serverTimestamp: Date.now(),
     }));
   }, [commitState]);
@@ -4201,6 +4312,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         autoApplyRoundScoring,
         setShowLeaderboardOverlay,
         setDisplayMode,
+        rotateTeamSessionToken,
+        clearSecurityWarnings,
         setShowQrOverlay,
         setGameStage,
         triggerKrampusAlert,

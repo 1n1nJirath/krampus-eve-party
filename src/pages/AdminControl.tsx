@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
+import { Lock, ShieldAlert, X } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import { AdminTabId, stageToAdminTab } from '../logic/adminFlowLogic';
 import { QrCodeModal } from '../components/QrCodeModal';
@@ -17,8 +17,37 @@ import {
   SettingsEditorDrawer,
 } from '../components/admin/SettingsEditorDrawer';
 
+const ADMIN_UNLOCK_SESSION_KEY = 'krampus_admin_unlocked';
+const DEFAULT_DEV_ADMIN_PIN = '2512';
+
+function getConfiguredAdminPin(): string {
+  const envObj = (import.meta as unknown as {
+    env?: { VITE_ADMIN_PIN?: string; DEV?: boolean };
+  }).env;
+  const rawPin = envObj?.VITE_ADMIN_PIN?.trim();
+  if (!rawPin) {
+    if (envObj?.DEV) {
+      console.warn(
+        `[Security] VITE_ADMIN_PIN is not set; falling back to default dev PIN '${DEFAULT_DEV_ADMIN_PIN}'.`
+      );
+    }
+    return DEFAULT_DEV_ADMIN_PIN;
+  }
+  return rawPin;
+}
+
 export const AdminControl: React.FC = () => {
   const { state } = useGame();
+  const [expectedPin] = useState<string>(() => getConfiguredAdminPin());
+  const [isUnlocked, setIsUnlocked] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem(ADMIN_UNLOCK_SESSION_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [pinInput, setPinInput] = useState<string>('');
+  const [pinError, setPinError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AdminTabId>(() =>
     stageToAdminTab(state.round.gameStage)
   );
@@ -57,6 +86,83 @@ export const AdminControl: React.FC = () => {
     setSettingsDrawer({ open: true, initialTab });
   };
 
+  const handleUnlockSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pinInput.trim() === expectedPin) {
+      try {
+        sessionStorage.setItem(ADMIN_UNLOCK_SESSION_KEY, '1');
+      } catch {
+        // ignore
+      }
+      setIsUnlocked(true);
+      setPinInput('');
+      setPinError(null);
+    } else {
+      setPinError('รหัส PIN ไม่ถูกต้อง กรุณาลองอีกครั้ง');
+      setPinInput('');
+    }
+  };
+
+  const handleLockAdmin = () => {
+    try {
+      sessionStorage.removeItem(ADMIN_UNLOCK_SESSION_KEY);
+    } catch {
+      // ignore
+    }
+    setIsUnlocked(false);
+    setPinInput('');
+    setPinError(null);
+  };
+
+  if (!isUnlocked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#070a12] text-slate-100 p-4 select-none">
+        <div className="w-full max-w-md rounded-3xl bg-slate-900/95 border-2 border-amber-500/60 shadow-[0_0_60px_rgba(220,38,38,0.3)] p-7 space-y-5 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-red-950 border-2 border-amber-400 flex items-center justify-center mx-auto shadow-lg">
+            <Lock className="w-8 h-8 text-amber-300" />
+          </div>
+          <div className="space-y-1">
+            <div className="inline-block px-3 py-0.5 rounded-full bg-red-950 border border-red-500/40 text-amber-300 font-mono text-[11px] font-bold uppercase tracking-widest">
+              GM SECURITY GATE
+            </div>
+            <h1 className="text-2xl font-black text-white">THE KRAMPUS EVE • /admin</h1>
+            <p className="text-xs text-slate-400">
+              กรุณากรอกรหัส PIN สำหรับ Host (GM) เพื่อเข้าสู่แผงควบคุมและเฉลยคำตอบ
+            </p>
+          </div>
+
+          <form onSubmit={handleUnlockSubmit} className="space-y-4">
+            <input
+              type="password"
+              inputMode="numeric"
+              autoFocus
+              value={pinInput}
+              onChange={(e) => {
+                setPinInput(e.target.value);
+                if (pinError) setPinError(null);
+              }}
+              placeholder="••••"
+              maxLength={12}
+              className="w-full px-4 py-3.5 rounded-2xl bg-slate-950 border-2 border-slate-700 focus:border-amber-400 focus:outline-none text-center font-mono text-2xl font-black tracking-[0.4em] text-amber-300"
+            />
+            {pinError && (
+              <div className="rounded-xl bg-red-950/90 border border-red-500 px-3 py-2 text-xs font-bold text-red-200 flex items-center justify-center gap-1.5">
+                <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />
+                <span>{pinError}</span>
+              </div>
+            )}
+            <button
+              type="submit"
+              className="w-full py-3.5 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-sm shadow-lg transition cursor-pointer"
+            >
+              🔓 ปลดล็อก GM Control Deck
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen lg:h-screen lg:overflow-hidden flex flex-col bg-[#090d16] text-slate-100">
       <AdminTopBar
@@ -65,6 +171,7 @@ export const AdminControl: React.FC = () => {
         onOpenQr={() => setQrOpen(true)}
         onOpenManual={() => setManualOpen(true)}
         onOpenSettings={(tab) => openSettings(tab || 'PRESETS')}
+        onLockAdmin={handleLockAdmin}
       />
 
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row">

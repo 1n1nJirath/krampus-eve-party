@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { X, Smartphone, ExternalLink, Copy, Check, Wifi } from 'lucide-react';
+import { X, Smartphone, ExternalLink, Copy, Check, Wifi, RefreshCw } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import { TEAM_ORDER } from '../data/initialData';
 
@@ -10,7 +10,7 @@ interface QrCodeModalProps {
 }
 
 export const QrCodeModal: React.FC<QrCodeModalProps> = ({ isOpen, onClose }) => {
-  const { state, lanIp } = useGame();
+  const { state, lanIp, rotateTeamSessionToken } = useGame();
   const port = window.location.port ? `:${window.location.port}` : '';
   const defaultOrigin =
     window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
@@ -104,7 +104,10 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({ isOpen, onClose }) => 
           <div className="lg:col-span-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
             {TEAM_ORDER.map((tid) => {
               const team = state.teams[tid];
-              const teamUrl = `${baseUrl}/play?team=${team.number}`;
+              const token = state.teamSessionTokens?.[tid];
+              const tokenQuery = token ? `&token=${encodeURIComponent(token)}` : '';
+              const teamUrl = `${baseUrl}/play?team=${team.number}${tokenQuery}`;
+              const relativeTeamUrl = `/play?team=${team.number}${tokenQuery}`;
               return (
                 <div
                   key={tid}
@@ -114,6 +117,11 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({ isOpen, onClose }) => 
                     <div className="text-2xl mb-0.5">{team.icon}</div>
                     <div className="font-extrabold text-sm text-white line-clamp-1">{team.name}</div>
                     <div className="text-xs font-mono text-amber-400">Team {team.number}</div>
+                    {token && (
+                      <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-950/90 border border-emerald-500/40 text-[10px] font-mono text-emerald-300">
+                        <span>🔑 {token}</span>
+                      </div>
+                    )}
                   </div>
                   <div className="p-2.5 bg-white rounded-xl shadow">
                     <QRCodeSVG value={teamUrl} size={120} level="M" />
@@ -124,10 +132,19 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({ isOpen, onClose }) => 
                       className="w-full py-1.5 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-mono text-slate-300 flex items-center justify-center gap-1 border border-slate-800"
                     >
                       {copiedUrl === teamUrl ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      ?team={team.number}
+                      คัดลอกลิงก์ + Token
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => rotateTeamSessionToken(tid)}
+                      className="w-full py-1.5 px-2 rounded-lg bg-amber-950/70 hover:bg-amber-900/80 border border-amber-500/40 text-amber-200 text-xs font-bold flex items-center justify-center gap-1 transition"
+                      title="สุ่ม Token ใหม่ทันที (ลิงก์/QR เดิมจะถูกยกเลิก)"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>🔄 Rotate Token</span>
                     </button>
                     <a
-                      href={`/play?team=${team.number}`}
+                      href={relativeTeamUrl}
                       target="_blank"
                       rel="noreferrer"
                       className="w-full py-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white flex items-center justify-center gap-1"

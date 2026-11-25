@@ -135,9 +135,35 @@ export function computeSecondsLeft(
   return Math.max(0, Math.ceil((timerEndAt - nowMs) / 1000));
 }
 
+const TOKEN_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/**
+ * Generates a random 6-character uppercase alphanumeric session token for a team.
+ */
+export function generateTeamSessionToken(): string {
+  let token = '';
+  for (let i = 0; i < 6; i++) {
+    token += TOKEN_ALPHABET[Math.floor(Math.random() * TOKEN_ALPHABET.length)];
+  }
+  return token;
+}
+
+/**
+ * Generates an initial map of 6-character session tokens for all 4 teams.
+ */
+export function createInitialTeamSessionTokens(): Record<TeamId, string> {
+  return {
+    team1: generateTeamSessionToken(),
+    team2: generateTeamSessionToken(),
+    team3: generateTeamSessionToken(),
+    team4: generateTeamSessionToken(),
+  };
+}
+
 /**
  * Pure Host-side reducer that applies an incoming `PLAYER_ACTION` event.
- * Enforces idempotency via `processedActionIds` so retries never double-execute.
+ * Enforces per-team session token validation (when `prev.teamSessionTokens` is set)
+ * and idempotency via `processedActionIds` so retries never double-execute.
  */
 export function applyPlayerAction(
   prev: KrampusGameState,
@@ -150,6 +176,11 @@ export function applyPlayerAction(
 } {
   if (!event || !event.teamId || !event.type) {
     return { status: 'REJECTED', nextState: prev, reason: 'INVALID_EVENT' };
+  }
+
+  const expectedToken = prev.teamSessionTokens?.[event.teamId];
+  if (expectedToken && event.teamToken !== expectedToken) {
+    return { status: 'REJECTED', nextState: prev, reason: 'INVALID_TEAM_TOKEN' };
   }
 
   if (event.actionId && (prev.processedActionIds || []).includes(event.actionId)) {
@@ -438,11 +469,13 @@ export const SYNC_MAX_PROCESSED_ACTION_IDS = 12;
 
 export type CompactTransaction = Omit<CoinTransaction, 'prevBalances' | 'prevShields'>;
 
-export interface CompactRoundConfig extends Omit<RoundConfig, 'title' | 'subtitle' | 'questionText' | 'choices'> {
+export interface CompactRoundConfig
+  extends Omit<RoundConfig, 'title' | 'subtitle' | 'questionText' | 'choices' | 'targetYear'> {
   title?: string;
   subtitle?: string;
   questionText?: string;
   choices?: ChoiceOption[];
+  targetYear?: number;
   /** When `choices` matches the preset's static choices, only opened door keys are sent. */
   openedDoorKeys?: string[];
 }
@@ -456,6 +489,8 @@ export interface CompactSyncState
     | 'lastManPart2Questions'
     | 'transactions'
     | 'round'
+    | 'teamSessionTokens'
+    | 'securityWarnings'
   > {
   round: CompactRoundConfig;
   transactions: CompactTransaction[];
@@ -501,24 +536,67 @@ function choicesMatchPresetStatic(
   return true;
 }
 
+function sanitizeChoiceForSync(choice: ChoiceOption, isRevealed: boolean): ChoiceOption {
+  if (isRevealed || choice.isOpened) {
+    return choice;
+  }
+  const { rank: _r, votes: _v, isCorrect: _c, isTrap: _t, ...publicChoice } = choice;
+  void _r;
+  void _v;
+  void _c;
+  void _t;
+  return publicChoice;
+}
+
 /**
- * Strips all static/preset data already present in `src/data/initialData.ts`
- * and caps unbounded arrays (`transactions`, `killFeed`, `processedActionIds`)
+ * Strips all static/preset data already present in `src/data/initialData.ts`,
+ * sanitizes all unrevealed answer keys / hidden secrets (Zero-Leak Anti-DevTools),
+ * excludes Host-only session tokens, and caps unbounded arrays (`transactions`, `killFeed`, `processedActionIds`)
  * before broadcasting `STATE_SYNC` over Supabase Realtime.
  *
  * Reduces payload size from ~35-50 KB down to ~1.5-2.5 KB (90%+ egress reduction).
  */
 export function stripStaticDataForSync(state: KrampusGameState): CompactSyncState {
-  // 1. Diff custom-edited datasets/question banks against defaults (omit if unchanged)
-  const toyFactoryDatasetOverrides = (state.toyFactoryDatasets || []).filter(
-    (d) => DEFAULT_TOY_DATASET_JSON_BY_ID.get(d.id) !== JSON.stringify(d)
-  );
-  const lastManPart1QuestionOverrides = (state.lastManPart1Questions || []).filter(
-    (q) => DEFAULT_LMS_P1_JSON_BY_ID.get(q.id) !== JSON.stringify(q)
-  );
-  const lastManPart2QuestionOverrides = (state.lastManPart2Questions || []).filter(
-    (q) => DEFAULT_LMS_P2_JSON_BY_ID.get(q.id) !== JSON.stringify(q)
-  );
+  const isRevealed = state.round.status === 'REVEALED';
+  const lmsPhase = state.round.lastMan?.phase;
+  const isLmsP1Revealed = isRevealed || lmsPhase === 'PART1_TRIVIA_REVEAL';
+  const isLmsP2Revealed = isRevealed || lmsPhase === 'PART2_REVEAL' || lmsPhase === 'CHAMPION';
+  const isLmsMinigameRevealed = isRevealed || lmsPhase === 'PART1_MINIGAME_REVEAL';
+
+  // 1. Diff custom-edited datasets/question banks against defaults (omit if unchanged, sanitize secrets if unrevealed)
+  const toyFactoryDatasetOverrides = (state.toyFactoryDatasets || [])
+    .filter((d) => DEFAULT_TOY_DATASET_JSON_BY_ID.get(d.id) !== JSON.stringify(d))
+    .map((d) =>
+      isRevealed
+        ? d
+        : {
+            ...d,
+            items: d.items.map(({ realValue: _rv, ...restItem }) => {
+              void _rv;
+              return { ...restItem, realValue: '' };
+            }),
+          }
+    );
+  const lastManPart1QuestionOverrides = (state.lastManPart1Questions || [])
+    .filter((q) => DEFAULT_LMS_P1_JSON_BY_ID.get(q.id) !== JSON.stringify(q))
+    .map((q) =>
+      isLmsP1Revealed
+        ? q
+        : ({
+            ...q,
+            correctKey: '' as unknown as LastManPart1Question['correctKey'],
+          } as LastManPart1Question)
+    );
+  const lastManPart2QuestionOverrides = (state.lastManPart2Questions || [])
+    .filter((q) => DEFAULT_LMS_P2_JSON_BY_ID.get(q.id) !== JSON.stringify(q))
+    .map((q) =>
+      isLmsP2Revealed
+        ? q
+        : ({
+            ...q,
+            correctKey: '' as unknown as LastManPart2Question['correctKey'],
+          } as LastManPart2Question)
+    );
 
   // 2. Compact round: strip static preset strings & choices if unchanged from DEFAULT_PRESETS
   const preset = state.round.presetId ? DEFAULT_PRESET_BY_ID.get(state.round.presetId) : undefined;
@@ -529,10 +607,64 @@ export function stripStaticDataForSync(state: KrampusGameState): CompactSyncStat
           lastMan: {
             ...state.round.lastMan,
             killFeed: (state.round.lastMan.killFeed || []).slice(0, SYNC_MAX_KILL_FEED),
+            ...(isLmsMinigameRevealed
+              ? {}
+              : {
+                  poisonedChalices: [],
+                  chalicePicks: {},
+                  splitStealPicks: {},
+                  dareVotes: {},
+                }),
+          },
+        }
+      : {}),
+    ...(state.round.toyFactory
+      ? {
+          toyFactory: {
+            ...state.round.toyFactory,
+            assignments: (state.round.toyFactory.assignments || []).map((a) => {
+              const hideRealValue =
+                !isRevealed &&
+                (a.isMystery ||
+                  (state.round.toyFactory?.phase !== 'PREP_10S' &&
+                    state.round.toyFactory?.phase !== 'SHUFFLE_BUFFER_10S'));
+              if (!hideRealValue) return a;
+              return { ...a, realValue: '' };
+            }),
+            revealSlots: (state.round.toyFactory.revealSlots || []).map((slot) => {
+              if (isRevealed || slot.revealed) return slot;
+              const { verdict: _v, ...restSlot } = slot;
+              void _v;
+              return { ...restSlot, realValue: '' };
+            }),
           },
         }
       : {}),
   };
+
+  // Zero-Leak Sanitization when round is NOT revealed
+  if (!isRevealed) {
+    compactRound.correctChoices = [];
+    compactRound.trapChoices = [];
+    delete compactRound.safeRankMin;
+    delete compactRound.safeRankMax;
+    delete compactRound.targetYear;
+
+    if (compactRound.choices) {
+      compactRound.choices = compactRound.choices.map((c) => sanitizeChoiceForSync(c, false));
+    }
+
+    if (compactRound.snakeDraftPicks) {
+      const openedKeys = new Set(
+        (state.round.choices || []).filter((c) => c.isOpened).map((c) => c.key)
+      );
+      compactRound.snakeDraftPicks = compactRound.snakeDraftPicks.map((p) =>
+        openedKeys.has(p.doorKey)
+          ? p
+          : ({ teamId: p.teamId, doorKey: p.doorKey } as unknown as typeof p)
+      );
+    }
+  }
 
   if (preset) {
     if (compactRound.title === preset.title) delete compactRound.title;
@@ -651,9 +783,13 @@ export function rehydrateStateFromLocal(
   const rawRound = (raw.round || {}) as Partial<CompactRoundConfig & RoundConfig>;
   const matchedPreset = rawRound.presetId ? DEFAULT_PRESET_BY_ID.get(rawRound.presetId) : undefined;
   const baseRound = createRoundFromPreset(matchedPreset || DEFAULT_PRESETS[0]);
+  const isRevealed = rawRound.status === 'REVEALED';
+  const lmsPhase = rawRound.lastMan?.phase;
+  const isLmsP1Revealed = isRevealed || lmsPhase === 'PART1_TRIVIA_REVEAL';
+  const isLmsP2Revealed = isRevealed || lmsPhase === 'PART2_REVEAL' || lmsPhase === 'CHAMPION';
 
   const openedSet = new Set(rawRound.openedDoorKeys || []);
-  const rehydratedChoices: ChoiceOption[] = Array.isArray(rawRound.choices)
+  const rawChoicesList: ChoiceOption[] = Array.isArray(rawRound.choices)
     ? rawRound.choices
     : matchedPreset?.choices
     ? matchedPreset.choices.map((c) => ({
@@ -661,6 +797,9 @@ export function rehydrateStateFromLocal(
         isOpened: openedSet.has(c.key) || Boolean(c.isOpened),
       }))
     : baseRound.choices;
+  const rehydratedChoices: ChoiceOption[] = rawChoicesList.map((c) =>
+    sanitizeChoiceForSync(c, isRevealed)
+  );
 
   const { openedDoorKeys: _omitOpenedKeys, ...restRound } = rawRound;
   void _omitOpenedKeys;
@@ -673,24 +812,43 @@ export function rehydrateStateFromLocal(
       ? restRound.timerStartedAt + mergedDuration * 1000
       : null;
 
-  // 3. Rehydrate datasets & question banks (support both compact overrides & legacy full arrays)
-  const toyFactoryDatasets = raw.toyFactoryDatasetOverrides
+  // 3. Rehydrate datasets & question banks (support both compact overrides & legacy full arrays,
+  // while keeping secret answer keys sanitized on non-host clients until revealed)
+  const rawToyFactoryDatasets = raw.toyFactoryDatasetOverrides
     ? mergeById(DEFAULT_TOY_FACTORY_DATASETS, raw.toyFactoryDatasetOverrides)
     : raw.toyFactoryDatasets && raw.toyFactoryDatasets.length > 0
     ? raw.toyFactoryDatasets
     : DEFAULT_TOY_FACTORY_DATASETS;
+  const toyFactoryDatasets = isRevealed
+    ? rawToyFactoryDatasets
+    : rawToyFactoryDatasets.map((d) => ({
+        ...d,
+        items: d.items.map((it) => ({ ...it, realValue: '' })),
+      }));
 
-  const lastManPart1Questions = raw.lastManPart1QuestionOverrides
+  const rawLastManPart1Questions = raw.lastManPart1QuestionOverrides
     ? mergeById(DEFAULT_LAST_MAN_PART1_QUESTIONS, raw.lastManPart1QuestionOverrides)
     : raw.lastManPart1Questions && raw.lastManPart1Questions.length > 0
     ? raw.lastManPart1Questions
     : DEFAULT_LAST_MAN_PART1_QUESTIONS;
+  const lastManPart1Questions = isLmsP1Revealed
+    ? rawLastManPart1Questions
+    : rawLastManPart1Questions.map((q) => ({
+        ...q,
+        correctKey: '' as unknown as LastManPart1Question['correctKey'],
+      }));
 
-  const lastManPart2Questions = raw.lastManPart2QuestionOverrides
+  const rawLastManPart2Questions = raw.lastManPart2QuestionOverrides
     ? mergeById(DEFAULT_LAST_MAN_PART2_QUESTIONS, raw.lastManPart2QuestionOverrides)
     : raw.lastManPart2Questions && raw.lastManPart2Questions.length > 0
     ? raw.lastManPart2Questions
     : DEFAULT_LAST_MAN_PART2_QUESTIONS;
+  const lastManPart2Questions = isLmsP2Revealed
+    ? rawLastManPart2Questions
+    : rawLastManPart2Questions.map((q) => ({
+        ...q,
+        correctKey: '' as unknown as LastManPart2Question['correctKey'],
+      }));
 
   // 4. Rehydrate transactions (fill empty prevBalances for type safety on non-host clients)
   const emptyBalances: Record<TeamId, number> = {
@@ -747,6 +905,11 @@ export function rehydrateStateFromLocal(
       subtitle: restRound.subtitle ?? baseRound.subtitle,
       questionText: restRound.questionText ?? baseRound.questionText,
       choices: rehydratedChoices,
+      correctChoices: isRevealed ? restRound.correctChoices ?? baseRound.correctChoices : [],
+      trapChoices: isRevealed ? restRound.trapChoices ?? baseRound.trapChoices : [],
+      safeRankMin: isRevealed ? restRound.safeRankMin ?? baseRound.safeRankMin : undefined,
+      safeRankMax: isRevealed ? restRound.safeRankMax ?? baseRound.safeRankMax : undefined,
+      targetYear: isRevealed ? restRound.targetYear ?? baseRound.targetYear : 0,
       timerEndAt: derivedTimerEndAt,
       eightDoorsSubRound: restRound.eightDoorsSubRound || 'SUB1_SURVIVAL',
       auctionIteration: restRound.auctionIteration || 1,

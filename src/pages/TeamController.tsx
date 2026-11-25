@@ -15,7 +15,7 @@ import {
   AlertTriangle,
   X,
 } from 'lucide-react';
-import { useGame } from '../context/GameContext';
+import { useGame, storeTeamSessionToken } from '../context/GameContext';
 import {
   BLACK_MARKET_ITEMS,
   CURSE_CATALOG,
@@ -61,14 +61,38 @@ export const TeamController: React.FC = () => {
   } = useGame();
   const { round, teams, submissions, buzzerQueue } = state;
 
-  // Read ?team=1..4 from URL query parameter or localStorage
+  // Read ?team=1..4 & ?token=XXXXXX from URL query parameter or localStorage
   const [selectedTeamId, setSelectedTeamId] = useState<TeamId | null>(() => {
     const params = new URLSearchParams(window.location.search);
     const tParam = params.get('team');
-    if (tParam === '1' || tParam === 'team1') return 'team1';
-    if (tParam === '2' || tParam === 'team2') return 'team2';
-    if (tParam === '3' || tParam === 'team3') return 'team3';
-    if (tParam === '4' || tParam === 'team4') return 'team4';
+    const urlToken = params.get('token');
+    let resolvedTid: TeamId | null = null;
+    if (tParam === '1' || tParam === 'team1') resolvedTid = 'team1';
+    else if (tParam === '2' || tParam === 'team2') resolvedTid = 'team2';
+    else if (tParam === '3' || tParam === 'team3') resolvedTid = 'team3';
+    else if (tParam === '4' || tParam === 'team4') resolvedTid = 'team4';
+
+    if (resolvedTid) {
+      try {
+        localStorage.setItem('krampus_selected_team', resolvedTid);
+      } catch {
+        // ignore
+      }
+      if (urlToken) {
+        storeTeamSessionToken(resolvedTid, urlToken);
+        // Clean token from the visible address bar so onlookers cannot copy it
+        params.delete('token');
+        const cleanQuery = params.toString();
+        const cleanUrl = `${window.location.pathname}${cleanQuery ? `?${cleanQuery}` : ''}${window.location.hash}`;
+        try {
+          window.history.replaceState({}, '', cleanUrl);
+        } catch {
+          // ignore
+        }
+      }
+      return resolvedTid;
+    }
+
     const saved = localStorage.getItem('krampus_selected_team') as TeamId | null;
     if (saved && TEAM_ORDER.includes(saved)) return saved;
     return null;

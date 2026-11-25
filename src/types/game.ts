@@ -347,6 +347,14 @@ export interface QuestionPreset {
 
 export type DisplayMode = 'tv' | 'projector';
 
+export interface SecurityWarningEntry {
+  id: string;
+  timestamp: number;
+  teamId: TeamId;
+  actionType: PlayerActionType;
+  reason: string;
+}
+
 export interface KrampusGameState {
   version: number;
   stateVersion: number;
@@ -370,6 +378,10 @@ export interface KrampusGameState {
   lastManPart1Questions?: LastManPart1Question[];
   lastManPart2Questions?: LastManPart2Question[];
   processedActionIds?: string[];
+  /** Host-only per-team 6-char session tokens to prevent URL team spoofing (never broadcast in STATE_SYNC) */
+  teamSessionTokens?: Record<TeamId, string>;
+  /** Host-only security warning log for rejected/invalid token actions */
+  securityWarnings?: SecurityWarningEntry[];
 }
 
 // ==========================================
@@ -426,6 +438,8 @@ export interface PlayerActionEvent {
   clientTimestamp: number;
   actionId: string;
   roundId?: string;
+  /** Per-team 6-character session token required when Host token enforcement is active */
+  teamToken?: string;
 }
 
 export interface PendingPlayerAction extends PlayerActionEvent {
