@@ -59,6 +59,11 @@ export const MonitorSidebar: React.FC = () => {
     lmsMinigameAction,
     lmsUseJetpack,
     triggerKrampusAlert,
+    triggerSoundboardSfx,
+    setImageOverlay,
+    checkpoints,
+    saveCheckpoint,
+    restoreCheckpoint,
     toggleTeamTokenLock,
     rotateTeamSessionToken,
     clearSecurityWarnings,
@@ -87,6 +92,10 @@ export const MonitorSidebar: React.FC = () => {
   const [customCoinInput, setCustomCoinInput] = useState('100');
   const [alertDraft, setAlertDraft] = useState(
     '👹 ครามปุสกำลังออกล่า! รักษาเกราะเด็กดีและเหรียญศักดิ์สิทธิ์ของพวกเจ้าให้ดี!'
+  );
+  const [imageUrlDraft, setImageUrlDraft] = useState(state.imageOverlayUrl || '');
+  const [imageCaptionDraft, setImageCaptionDraft] = useState(
+    state.imageOverlayCaption || 'ภาพประกอบโจทย์ / เฉลย'
   );
 
   const phaseMeta = {
@@ -1488,6 +1497,144 @@ export const MonitorSidebar: React.FC = () => {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* 4B. MC SOUNDBOARD & FULL-SCREEN IMAGE LIGHTBOX OVERLAY */}
+      <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="text-[11px] font-extrabold text-amber-300 uppercase flex items-center gap-1.5">
+            <span>🎛️ MC Soundboard (ยิงเสียงออกลำโพง /display)</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => triggerSoundboardSfx('TIMEOUT_GONG')}
+            className="px-2 py-0.5 rounded-lg bg-red-950 hover:bg-red-900 border border-red-500/70 text-[10px] font-black text-red-200 cursor-pointer"
+          >
+            🔊 Test Timeout SFX
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            onClick={() => triggerSoundboardSfx('DRUMROLL')}
+            className="py-1.5 px-2 rounded-xl bg-slate-950 hover:bg-amber-950/70 border border-amber-500/40 text-xs font-extrabold text-amber-200 flex items-center justify-center gap-1.5 transition cursor-pointer"
+          >
+            <span>🥁 รัวกลองลุ้น</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => triggerSoundboardSfx('FANFARE')}
+            className="py-1.5 px-2 rounded-xl bg-slate-950 hover:bg-emerald-950/70 border border-emerald-500/40 text-xs font-extrabold text-emerald-200 flex items-center justify-center gap-1.5 transition cursor-pointer"
+          >
+            <span>🎺 แตรชัยชนะ</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => triggerSoundboardSfx('KRAMPUS_LAUGH')}
+            className="py-1.5 px-2 rounded-xl bg-slate-950 hover:bg-purple-950/70 border border-purple-500/40 text-xs font-extrabold text-purple-200 flex items-center justify-center gap-1.5 transition cursor-pointer"
+          >
+            <span>👹 เสียงหัวเราะปีศาจ</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => triggerSoundboardSfx('FAIL_HORN')}
+            className="py-1.5 px-2 rounded-xl bg-slate-950 hover:bg-rose-950/70 border border-rose-500/40 text-xs font-extrabold text-rose-200 flex items-center justify-center gap-1.5 transition cursor-pointer"
+          >
+            <span>❌ แตรแป้ก/พลาด</span>
+          </button>
+        </div>
+
+        {/* Full-Screen Image Lightbox Overlay Controller (Great for Game 3 or Visual Clues) */}
+        <div className="pt-2 border-t border-slate-800 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-extrabold text-sky-300">
+              🖼️ ขึ้นรูปโจทย์ / รูปเฉลยเต็มจอบน /display
+            </span>
+            {state.imageOverlayUrl && (
+              <span className="px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[10px] font-black animate-pulse">
+                กำลังโชว์รูปบนจอ
+              </span>
+            )}
+          </div>
+          <input
+            type="text"
+            value={imageUrlDraft}
+            onChange={(e) => setImageUrlDraft(e.target.value)}
+            className="w-full px-2.5 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
+            placeholder="วาง URL รูปภาพ หรือ /assets/art/..."
+          />
+          <div className="flex gap-1.5">
+            <input
+              type="text"
+              value={imageCaptionDraft}
+              onChange={(e) => setImageCaptionDraft(e.target.value)}
+              className="flex-1 min-w-0 px-2.5 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white"
+              placeholder="คำอธิบายใต้ภาพ..."
+            />
+            <SafeActionButton
+              type="button"
+              showSpinner={false}
+              onClick={() =>
+                setImageOverlay(
+                  state.imageOverlayUrl ? null : imageUrlDraft || '/assets/art/bg-game3-toy.webp',
+                  imageCaptionDraft
+                )
+              }
+              className={`px-3 py-1.5 rounded-xl font-black text-xs shrink-0 transition cursor-pointer ${
+                state.imageOverlayUrl
+                  ? 'bg-red-600 hover:bg-red-500 text-white'
+                  : 'bg-sky-500 hover:bg-sky-400 text-slate-950'
+              }`}
+            >
+              {state.imageOverlayUrl ? 'ปิดรูปบนจอ' : 'โชว์รูปเต็มจอ!'}
+            </SafeActionButton>
+          </div>
+        </div>
+      </div>
+
+      {/* 4C. AUTO-CHECKPOINT / GM TIME MACHINE */}
+      <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-[11px] font-extrabold text-emerald-300 uppercase flex items-center gap-1.5">
+            <span>⏪ จุดเซฟย้อนเวลา (GM Time Machine)</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => saveCheckpoint()}
+            className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] cursor-pointer transition"
+          >
+            + เซฟจุดนี้ทันที
+          </button>
+        </div>
+        {checkpoints.length === 0 ? (
+          <div className="text-[11px] text-slate-400 bg-slate-950 rounded-xl p-2 text-center border border-slate-800">
+            ระบบจะเซฟอัตโนมัติทุกครั้งก่อนกดเริ่มจับเวลาหรือจบเกมหลัก (สูงสุด 6 จุดล่าสุด)
+          </div>
+        ) : (
+          <div className="space-y-1 max-h-36 overflow-y-auto">
+            {checkpoints.map((cp) => (
+              <div
+                key={cp.id}
+                className="flex items-center justify-between gap-2 rounded-xl bg-slate-950 border border-slate-800 px-2.5 py-1.5"
+              >
+                <div className="min-w-0">
+                  <div className="text-[11px] font-bold text-white truncate">{cp.label}</div>
+                  <div className="text-[10px] font-mono text-slate-400">
+                    {new Date(cp.timestamp).toLocaleTimeString('th-TH')}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => restoreCheckpoint(cp.id)}
+                  className="px-2 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[10px] shrink-0 cursor-pointer transition"
+                >
+                  ⏪ ย้อนกลับ
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 5. ANTI-SPOOFING TEAM SESSION TOKENS & SECURITY MONITOR (OPT-IN) */}

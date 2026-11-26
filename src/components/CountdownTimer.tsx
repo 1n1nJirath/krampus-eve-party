@@ -1,161 +1,141 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Timer, AlertTriangle, Lock } from 'lucide-react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useGame } from '../context/GameContext';
 import { computeSecondsLeft } from '../logic/syncLogic';
 import { soundFX } from '../utils/sound';
+import { bgmEngine } from '../utils/bgm';
 import { triggerHaptic } from '../utils/haptics';
 
 interface CountdownTimerProps {
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'lg';
   autoLockOnZero?: boolean;
 }
 
 export const CountdownTimer: React.FC<CountdownTimerProps> = ({
-  size = 'lg',
+  size = 'md',
   autoLockOnZero = false,
 }) => {
   const { state, isHost, getAuthoritativeNow, lockRound } = useGame();
   const { round } = state;
-
-  const effectiveEndAt =
-    round.status === 'ACTIVE'
-      ? round.timerEndAt ??
-        (round.timerStartedAt !== null
-          ? round.timerStartedAt + round.durationSeconds * 1000
-          : null)
-      : null;
-
-  const getStaticSeconds = () =>
-    round.status === 'IDLE'
-      ? round.durationSeconds
-      : Math.max(0, Math.ceil((round.timerRemainingMs ?? 0) / 1000));
-
-  const [secondsLeft, setSecondsLeft] = useState<number>(() =>
-    effectiveEndAt !== null
-      ? computeSecondsLeft(effectiveEndAt, getAuthoritativeNow())
-      : getStaticSeconds()
-  );
-
+  const [displaySeconds, setDisplaySeconds] = useState<number>(round.durationSeconds);
   const lastSecRef = useRef<number>(-1);
-  const autoLockedKeyRef = useRef<string | null>(null);
+  const autoLockedRoundKeyRef = useRef<string | null>(null);
+  const timeUpFiredKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (round.status !== 'ACTIVE' || effectiveEndAt === null) {
-      const staticSecs =
-        round.status === 'IDLE'
-          ? round.durationSeconds
-          : Math.max(0, Math.ceil((round.timerRemainingMs ?? 0) / 1000));
-      setSecondsLeft(staticSecs);
-      lastSecRef.current = -1;
+    lastSecRef.current = -1;
+    soundFX.cancelScheduledCountdown();
+  }, [round.id, round.status, round.timerEndAt, round.timerStartedAt]);
+
+  useEffect(() => {
+    if (round.status !== 'ACTIVE' || (round.timerEndAt === null && round.timerStartedAt === null)) {
+      soundFX.cancelScheduledCountdown();
+      if (round.timerRemainingMs !== null) {
+        setDisplaySeconds(Math.max(0, Math.ceil(round.timerRemainingMs / 1000)));
+      } else {
+        setDisplaySeconds(round.durationSeconds);
+      }
       return;
     }
 
-    const lockKey = `${round.id}:${effectiveEndAt}`;
+    const effectiveEndAt =
+      typeof round.timerEndAt === 'number'
+        ? round.timerEndAt
+        : (round.timerStartedAt as number) + round.durationSeconds * 1000;
 
     const tick = () => {
-      const secsLeft = computeSecondsLeft(effectiveEndAt, getAuthoritativeNow());
-      setSecondsLeft(secsLeft);
+      const now = getAuthoritativeNow();
+      const secsLeft = computeSecondsLeft(effectiveEndAt, now);
+      setDisplaySeconds(secsLeft);
 
-      if (
-        secsLeft !== lastSecRef.current &&
-        secsLeft > 0 &&
-        secsLeft <= round.durationSeconds
-      ) {
+      if (secsLeft !== lastSecRef.current) {
         lastSecRef.current = secsLeft;
-        if (secsLeft <= 10) {
-          soundFX.playTick(secsLeft <= 5);
+        if (secsLeft > 0 && secsLeft <= 10) {
+          soundFX.playCountdownTick(secsLeft);
+          // Switch BGM to PANIC track on final 10 seconds
+          bgmEngine.syncWithGameState(round.gameStage, round.status, secsLeft, false);
+          // Mobile haptic pulse on final 5 seconds
           if (secsLeft <= 5) {
-            triggerHaptic('PANIC');
+            triggerHaptic('TIMER_URGENT');
           }
         }
       }
 
-      if (
-        secsLeft <= 0 &&
-        autoLockOnZero &&
-        isHost &&
-        round.status === 'ACTIVE' &&
-        autoLockedKeyRef.current !== lockKey
-      ) {
-        autoLockedKeyRef.current = lockKey;
-        lockRound();
+      if (secsLeft === 0 && round.status === 'ACTIVE') {
+        const lockKey = `${round.id}:${effectiveEndAt}`;
+        if (timeUpFiredKeyRef.current !== lockKey) {
+          timeUpFiredKeyRef.current = lockKey;
+          soundFX.playTimeUp();
+          triggerHaptic('ERROR');
+        }
+        if (autoLockOnZero && isHost && autoLockedRoundKeyRef.current !== lockKey) {
+          autoLockedRoundKeyRef.current = lockKey;
+          lockRound();
+        }
       }
     };
 
     tick();
-    const interval = setInterval(tick, 200);
-    return () => clearInterval(interval);
+    const interval = setInterval(tick, 150);
+    return () => {
+      clearInterval(interval);
+    };
   }, [
     round.id,
     round.status,
-    round.durationSeconds,
+    round.timerEndAt,
+    round.timerStartedAt,
     round.timerRemainingMs,
-    effectiveEndAt,
-    getAuthoritativeNow,
+    round.durationSeconds,
+    round.gameStage,
     autoLockOnZero,
     isHost,
+    getAuthoritativeNow,
     lockRound,
   ]);
 
-  const totalSec = Math.max(1, round.durationSeconds);
-  const progressPct = Math.min(100, Math.max(0, (secondsLeft / totalSec) * 100));
-  const mins = Math.floor(secondsLeft / 60);
-  const secs = secondsLeft % 60;
-  const isUrgent = round.status === 'ACTIVE' && secondsLeft > 0 && secondsLeft < 10;
-  const isTimeUp =
-    (round.status === 'LOCKED' && secondsLeft === 0) ||
-    (round.status === 'ACTIVE' && effectiveEndAt !== null && secondsLeft === 0);
+  const mins = Math.floor(displaySeconds / 60);
+  const secs = displaySeconds % 60;
+  const formatted = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+  const isUrgent = round.status === 'ACTIVE' && displaySeconds <= 10 && displaySeconds > 0;
+  const isCriticalFinal5 = round.status === 'ACTIVE' && displaySeconds <= 5 && displaySeconds > 0;
+  const isEnded = displaySeconds === 0 && (round.status === 'LOCKED' || round.status === 'ACTIVE');
 
   const sizeClasses = {
-    sm: 'text-xl px-3 py-1',
-    md: 'text-2xl px-4 py-1.5',
-    lg: 'text-4xl px-5 py-2.5',
-    xl: 'text-5xl md:text-6xl px-7 py-3',
+    sm: 'text-xl px-3 py-1 rounded-lg',
+    md: 'text-3xl px-4 py-2 rounded-xl',
+    lg: 'text-5xl md:text-6xl px-6 py-3 rounded-2xl',
   }[size];
 
   return (
-    <div className="flex flex-col items-center">
+    <>
+      {/* Full-Screen Pulsing Crimson Vignette on /display during final 5 seconds */}
+      {size === 'lg' && isCriticalFinal5 && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed inset-0 z-40 animate-final-5s-vignette"
+        />
+      )}
       <div
-        className={`relative flex items-center gap-3 rounded-2xl border-2 font-mono font-extrabold tracking-wider transition-all duration-200 ${sizeClasses} ${
-          isUrgent
-            ? 'bg-red-950/90 border-red-500 text-red-300 shadow-[0_0_30px_rgba(239,68,68,0.65)] animate-pulse'
+        className={`font-mono font-black tracking-wider border-2 transition-all duration-300 select-none flex items-center justify-center gap-2 ${sizeClasses} ${
+          isEnded
+            ? 'bg-red-950/90 border-red-500 text-red-300 shadow-[0_0_30px_rgba(239,68,68,0.65)]'
+            : isCriticalFinal5
+            ? 'bg-red-700/95 border-yellow-300 text-white animate-pulse shadow-[0_0_45px_rgba(239,68,68,0.95)] scale-105'
+            : isUrgent
+            ? 'bg-red-900/85 border-amber-400 text-amber-200 animate-pulse shadow-[0_0_35px_rgba(220,38,38,0.8)]'
             : round.status === 'ACTIVE'
-            ? 'bg-slate-900/90 border-amber-500/80 text-amber-300 shadow-[0_0_20px_rgba(234,179,8,0.25)]'
-            : round.status === 'REVEALED'
-            ? 'bg-emerald-950/80 border-emerald-500/70 text-emerald-300'
-            : 'bg-slate-900/80 border-slate-700 text-slate-300'
+            ? 'bg-slate-900/90 border-amber-500/70 text-amber-300 shadow-[0_0_20px_rgba(245,158,11,0.3)]'
+            : 'bg-slate-900/70 border-slate-700 text-slate-300'
         }`}
       >
-        {isUrgent ? (
-          <AlertTriangle className="w-7 h-7 text-red-400 animate-bounce shrink-0" />
-        ) : round.status === 'LOCKED' || isTimeUp ? (
-          <Lock className="w-6 h-6 text-amber-400 shrink-0" />
-        ) : (
-          <Timer className="w-6 h-6 text-amber-400 shrink-0" />
-        )}
-
-        <span>
-          {String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}
-        </span>
-
-        {isTimeUp && (
-          <span className="ml-2 text-xs md:text-sm font-sans uppercase px-2.5 py-0.5 rounded-full bg-red-600 text-white font-bold">
-            หมดเวลา!
+        <span>{formatted}</span>
+        {round.status === 'LOCKED' && (
+          <span className="text-xs font-sans uppercase tracking-widest px-2 py-0.5 bg-red-600 text-white rounded-full">
+            LOCKED
           </span>
         )}
       </div>
-
-      {/* Progress bar */}
-      <div className="w-full h-2 bg-slate-800/90 rounded-full overflow-hidden mt-1.5 border border-slate-700/60">
-        <div
-          className={`h-full transition-all duration-200 ${
-            isUrgent
-              ? 'bg-gradient-to-r from-red-600 to-amber-500'
-              : 'bg-gradient-to-r from-emerald-600 via-amber-500 to-amber-300'
-          }`}
-          style={{ width: `${progressPct}%` }}
-        />
-      </div>
-    </div>
+    </>
   );
 };

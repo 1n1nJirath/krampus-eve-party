@@ -55,6 +55,7 @@ export const AdminTopBar: React.FC<AdminTopBarProps> = ({
     setShowLeaderboardOverlay,
     setDisplayMode,
     forceSyncAllScreens,
+    triggerSoundboardSfx,
     toggleSound,
   } = useGame();
   const onAirTab = stageToAdminTab(state.round.gameStage);
@@ -256,6 +257,15 @@ export const AdminTopBar: React.FC<AdminTopBarProps> = ({
           >
             <Settings className="w-3.5 h-3.5 text-amber-400" />
             <span className="hidden xl:inline">Editor / Settings</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => triggerSoundboardSfx('TIMEOUT_GONG')}
+            className="px-2.5 py-1.5 rounded-xl bg-amber-950/90 hover:bg-amber-900 border border-amber-400/70 text-amber-200 font-extrabold text-xs flex items-center gap-1 transition cursor-pointer"
+            title="ทดสอบเสียงออดหมดเวลา + ระฆังโกธิค (ดังทั้งเครื่องนี้และจอ /display)"
+          >
+            <span>🔊 Test Timeout SFX</span>
           </button>
 
           <button

@@ -34,6 +34,8 @@ class BgmManager {
   private synthGain: GainNode | null = null;
   private synthOscillators: OscillatorNode[] = [];
   private fallbackInterval: any = null;
+  private duckTimer: ReturnType<typeof setTimeout> | null = null;
+  private isDucked: boolean = false;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -178,12 +180,52 @@ class BgmManager {
 
   public stop() {
     this.currentTrack = 'OFF';
+    if (this.duckTimer) {
+      clearTimeout(this.duckTimer);
+      this.duckTimer = null;
+    }
+    this.isDucked = false;
     if (this.audioElement) {
       this.audioElement.pause();
       this.audioElement.currentTime = 0;
     }
     this.stopFallbackSynth();
     this.notify();
+  }
+
+  /**
+   * Temporarily ducks/mutes BGM for `durationMs` so critical alarms (e.g., 00:00 Timeout Gong/Buzzer)
+   * cut through venue speakers with maximum clarity.
+   */
+  public duck(durationMs: number = 1600) {
+    if (this.muted) return;
+    if (this.duckTimer) {
+      clearTimeout(this.duckTimer);
+      this.duckTimer = null;
+    }
+    this.isDucked = true;
+    const duckedVol = Math.max(0, this.volume * 0.08);
+    if (this.audioElement) {
+      this.audioElement.volume = duckedVol;
+    }
+    if (this.synthGain && this.audioCtx) {
+      const now = this.audioCtx.currentTime;
+      this.synthGain.gain.cancelScheduledValues(now);
+      this.synthGain.gain.setValueAtTime(duckedVol * 0.15, now);
+    }
+
+    this.duckTimer = setTimeout(() => {
+      this.duckTimer = null;
+      this.isDucked = false;
+      if (this.muted) return;
+      if (this.audioElement) {
+        this.audioElement.volume = this.volume;
+      }
+      if (this.synthGain && this.audioCtx) {
+        const restoreNow = this.audioCtx.currentTime;
+        this.synthGain.gain.setValueAtTime(this.volume * 0.15, restoreNow);
+      }
+    }, durationMs);
   }
 
   /**

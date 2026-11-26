@@ -34,8 +34,11 @@ import { LastManShopItemId, TeamId } from '../types/game';
 import { CountdownTimer } from '../components/CountdownTimer';
 import { TeamSouthParkAvatar } from '../components/SouthParkArt';
 import { SafeActionButton, useSafeClick } from '../components/SafeActionButton';
+import { MobileMansionDoorButton } from '../components/MansionDoorCard';
+import { useScreenWakeLock } from '../utils/useScreenWakeLock';
 
 export const TeamController: React.FC = () => {
+  useScreenWakeLock(true);
   const {
     state,
     pendingActions,
@@ -977,33 +980,21 @@ export const TeamController: React.FC = () => {
                 <div className="grid grid-cols-2 gap-2.5">
                   {round.choices.slice(0, round.choiceCount).map((choice) => {
                     const isSelected = draftChoice === choice.key;
+                    const rank = choice.rank ?? round.choiceCount;
+                    const isSafe = rank >= safeMin && rank <= safeMax;
                     return (
-                      <button
+                      <MobileMansionDoorButton
                         key={choice.key}
-                        type="button"
+                        doorKey={choice.key}
+                        label={choice.label}
+                        isOpened={Boolean(choice.isOpened)}
+                        rank={choice.rank}
+                        isSafe={isSafe}
+                        isSelected={isSelected}
+                        selectedBadgeText={isSelected ? '🚪 เลือกบานนี้' : undefined}
+                        selectedVariant="GOLD"
                         onClick={() => setDraftChoice(choice.key)}
-                        disabled={Boolean(choice.isOpened)}
-                        className={`p-3 rounded-2xl border-2 text-left transition-all flex items-center gap-2.5 active:scale-[0.98] ${
-                          choice.isOpened
-                            ? 'bg-slate-950 border-slate-800 opacity-40 cursor-not-allowed'
-                            : isSelected
-                            ? 'bg-amber-500/25 border-amber-400 shadow-[0_0_20px_rgba(234,179,8,0.4)]'
-                            : 'bg-slate-900/95 border-slate-700 hover:border-slate-500'
-                        }`}
-                      >
-                        <span
-                          className={`w-10 h-10 rounded-xl font-mono font-black text-lg flex items-center justify-center shrink-0 ${
-                            isSelected
-                              ? 'bg-amber-400 text-slate-950'
-                              : 'bg-red-950 text-amber-300 border border-amber-500/40'
-                          }`}
-                        >
-                          {choice.key}
-                        </span>
-                        <span className="font-bold text-xs md:text-sm text-white line-clamp-2">
-                          {choice.isOpened ? `[#${choice.rank}] ${choice.label}` : choice.label}
-                        </span>
-                      </button>
+                      />
                     );
                   })}
                 </div>
@@ -1141,33 +1132,21 @@ export const TeamController: React.FC = () => {
                   <div className="grid grid-cols-2 gap-2.5">
                     {round.choices.slice(0, round.choiceCount).map((choice) => {
                       const isSelected = draftChoice === choice.key;
+                      const rank = choice.rank ?? round.choiceCount;
+                      const isSafe = rank >= safeMin && rank <= safeMax;
                       return (
-                        <button
+                        <MobileMansionDoorButton
                           key={choice.key}
-                          type="button"
+                          doorKey={choice.key}
+                          label={choice.label}
+                          isOpened={Boolean(choice.isOpened)}
+                          rank={choice.rank}
+                          isSafe={isSafe}
+                          isSelected={isSelected}
+                          selectedBadgeText={isSelected ? '👑 เปิดบานนี้' : undefined}
+                          selectedVariant="GOLD"
                           onClick={() => setDraftChoice(choice.key)}
-                          disabled={Boolean(choice.isOpened)}
-                          className={`p-3 rounded-2xl border-2 text-left transition-all flex items-center gap-2.5 ${
-                            choice.isOpened
-                              ? 'bg-slate-950 border-slate-800 opacity-35 cursor-not-allowed'
-                              : isSelected
-                              ? 'bg-amber-500/25 border-amber-400 shadow-[0_0_20px_rgba(234,179,8,0.4)]'
-                              : 'bg-slate-900/95 border-slate-700'
-                          }`}
-                        >
-                          <span
-                            className={`w-10 h-10 rounded-xl font-mono font-black text-lg flex items-center justify-center shrink-0 ${
-                              isSelected
-                                ? 'bg-amber-400 text-slate-950'
-                                : 'bg-red-950 text-amber-300 border border-amber-500/40'
-                            }`}
-                          >
-                            {choice.key}
-                          </span>
-                          <span className="font-bold text-xs md:text-sm text-white line-clamp-2">
-                            {choice.isOpened ? `[#${choice.rank}] เปิดแล้ว` : choice.label}
-                          </span>
-                        </button>
+                        />
                       );
                     })}
                   </div>
@@ -1306,11 +1285,25 @@ export const TeamController: React.FC = () => {
                   {round.choices.slice(0, round.choiceCount).map((choice) => {
                     const isPicked1 = draftRank1Door === choice.key;
                     const isPicked8 = draftRank8Door === choice.key;
+                    const rank = choice.rank ?? round.choiceCount;
+                    const isSafe = rank === 1 || rank === round.choiceCount;
                     return (
-                      <button
+                      <MobileMansionDoorButton
                         key={choice.key}
-                        type="button"
-                        disabled={Boolean(choice.isOpened)}
+                        doorKey={choice.key}
+                        label={choice.label}
+                        isOpened={Boolean(choice.isOpened)}
+                        rank={choice.rank}
+                        isSafe={isSafe}
+                        isSelected={isPicked1 || isPicked8}
+                        selectedBadgeText={
+                          isPicked1
+                            ? '★ อันดับ #1'
+                            : isPicked8
+                            ? `💀 อันดับ #${round.choiceCount}`
+                            : undefined
+                        }
+                        selectedVariant={isPicked1 ? 'EMERALD' : isPicked8 ? 'CRIMSON' : 'GOLD'}
                         onClick={() => {
                           if (activePolaritySlot === 'RANK1') {
                             if (draftRank8Door === choice.key) setDraftRank8Door(null);
@@ -1321,43 +1314,7 @@ export const TeamController: React.FC = () => {
                             setDraftRank8Door(choice.key);
                           }
                         }}
-                        className={`p-2.5 rounded-2xl border-2 text-left transition flex items-center gap-2 ${
-                          choice.isOpened
-                            ? 'bg-slate-950 border-slate-800 opacity-35 cursor-not-allowed'
-                            : isPicked1
-                            ? 'bg-emerald-900/60 border-emerald-400'
-                            : isPicked8
-                            ? 'bg-red-900/60 border-red-400'
-                            : 'bg-slate-900 border-slate-700'
-                        }`}
-                      >
-                        <span
-                          className={`w-9 h-9 rounded-xl font-mono font-black text-base flex items-center justify-center shrink-0 ${
-                            isPicked1
-                              ? 'bg-emerald-400 text-slate-950'
-                              : isPicked8
-                              ? 'bg-red-500 text-white'
-                              : 'bg-slate-800 text-amber-300'
-                          }`}
-                        >
-                          {choice.key}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-xs font-bold text-white line-clamp-1">
-                            {choice.isOpened ? `[#${choice.rank}] เปิดแล้ว` : choice.label}
-                          </div>
-                          {isPicked1 && (
-                            <span className="text-[10px] font-black text-emerald-300">
-                              ★ เลือกเป็น #1
-                            </span>
-                          )}
-                          {isPicked8 && (
-                            <span className="text-[10px] font-black text-red-300">
-                              💀 เลือกเป็น #{round.choiceCount}
-                            </span>
-                          )}
-                        </div>
-                      </button>
+                      />
                     );
                   })}
                 </div>

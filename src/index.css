@@ -109,3 +109,68 @@
 [data-display-mode='tv'] .krampus-trivia-auto-hide {
   display: none;
 }
+
+/* ==========================================
+   Game 1: Dark Christmas Mansion 3D Doors
+   ========================================== */
+.door-perspective {
+  perspective: 1200px;
+}
+
+.door-leaf {
+  transform-origin: left center;
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+  will-change: transform;
+  transition: transform 0.68s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.45s ease;
+}
+
+.door-leaf-closed {
+  transform: rotateY(0deg);
+}
+
+.door-leaf-open {
+  transform: rotateY(-106deg);
+}
+
+@keyframes door-danger-shake {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+  15% {
+    transform: translate3d(-6px, 2px, 0) rotate(-0.8deg);
+  }
+  30% {
+    transform: translate3d(6px, -2px, 0) rotate(0.8deg);
+  }
+  45% {
+    transform: translate3d(-5px, -1px, 0) rotate(-0.5deg);
+  }
+  60% {
+    transform: translate3d(5px, 2px, 0) rotate(0.5deg);
+  }
+  75% {
+    transform: translate3d(-3px, 0, 0);
+  }
+}
+
+.animate-door-danger-shake {
+  animation: door-danger-shake 0.55s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+/* Final 5-Second Pulsing Red Border Vignette on /display */
+@keyframes final-5s-vignette {
+  0%, 100% {
+    box-shadow: inset 0 0 55px 14px rgba(220, 38, 38, 0.35);
+    border: 4px solid rgba(239, 68, 68, 0.45);
+  }
+  50% {
+    box-shadow: inset 0 0 110px 28px rgba(220, 38, 38, 0.85);
+    border: 6px solid rgba(250, 204, 21, 0.9);
+  }
+}
+
+.animate-final-5s-vignette {
+  animation: final-5s-vignette 0.5s ease-in-out infinite;
+}

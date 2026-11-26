@@ -355,6 +355,26 @@ export interface SecurityWarningEntry {
   reason: string;
 }
 
+export type SoundboardSfxType =
+  | 'DRUMROLL'
+  | 'FANFARE'
+  | 'KRAMPUS_LAUGH'
+  | 'FAIL_HORN'
+  | 'TIMEOUT_GONG';
+
+export interface SoundboardCue {
+  id: string;
+  sfx: SoundboardSfxType;
+  timestamp: number;
+}
+
+export interface HostCheckpoint {
+  id: string;
+  label: string;
+  timestamp: number;
+  stateSnapshot: KrampusGameState;
+}
+
 export interface KrampusGameState {
   version: number;
   stateVersion: number;
@@ -367,6 +387,12 @@ export interface KrampusGameState {
   displayMode?: DisplayMode;
   showLeaderboardOverlay: boolean;
   showQrOverlay?: boolean;
+  /** Optional full-screen clue/answer image overlay URL shown on /display */
+  imageOverlayUrl?: string | null;
+  /** Optional title/caption for the full-screen image overlay on /display */
+  imageOverlayCaption?: string | null;
+  /** Ephemeral soundboard cue triggered by Host from /admin so /display plays it once */
+  soundboardCue?: SoundboardCue | null;
   krampusAlertMessage: string | null;
   teams: Record<TeamId, Team>;
   round: RoundConfig;

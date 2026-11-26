@@ -19,6 +19,7 @@ import {
   DisplayMode,
   EightDoorsSubRound,
   GameStage,
+  HostCheckpoint,
   InputMode,
   KrampusGameState,
   LastManPart1Question,
@@ -30,6 +31,7 @@ import {
   PlayerActionType,
   QuestionPreset,
   RoundConfig,
+  SoundboardSfxType,
   Team,
   TeamId,
   ToyFactoryDataset,
@@ -112,6 +114,8 @@ export function getStoredTeamSessionToken(teamId: TeamId): string | undefined {
 }
 
 const STORAGE_KEY = 'krampus_eve_state_v2';
+const CHECKPOINTS_STORAGE_KEY = 'krampus_host_checkpoints_v1';
+const MAX_HOST_CHECKPOINTS = 6;
 const SUPABASE_CONFIG_KEY = 'krampus_cloud_config_v4';
 const DEFAULT_SUPABASE_URL =
   'https://krampus-eve-party-default-rtdb.asia-southeast1.firebasedatabase.app';
@@ -699,6 +703,11 @@ interface GameContextValue {
   setShowQrOverlay: (show: boolean) => void;
   setGameStage: (stage: GameStage, syncPreset?: boolean) => void;
   triggerKrampusAlert: (msg: string | null) => void;
+  triggerSoundboardSfx: (sfx: SoundboardSfxType) => void;
+  setImageOverlay: (url: string | null, caption?: string | null) => void;
+  checkpoints: HostCheckpoint[];
+  saveCheckpoint: (label?: string) => void;
+  restoreCheckpoint: (checkpointId: string) => void;
   toggleSound: () => void;
   resetAllGameData: () => void;
 }
@@ -997,6 +1006,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (prev.round.status !== 'REVEALED' && normalized.round.status === 'REVEALED') {
         soundFX.playReveal();
+      }
+      if (
+        normalized.soundboardCue &&
+        normalized.soundboardCue.id !== prev.soundboardCue?.id &&
+        Date.now() - normalized.soundboardCue.timestamp < 8000
+      ) {
+        soundFX.playSoundboard(normalized.soundboardCue.sfx);
       }
       if (normalized.buzzerQueue.length > prev.buzzerQueue.length) {
         soundFX.playBuzzer(normalized.buzzerQueue.length);
@@ -2319,6 +2335,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const finishEightDoorsGame = useCallback(() => {
+    pushHostCheckpoint('ก่อนจบเกม 1 (8 Doors)');
     commitState((prev) => finishMainGameToLobby(prev, 'POLL_MINE'));
   }, [commitState]);
 
@@ -2438,6 +2455,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const finishChronoGame = useCallback(() => {
+    pushHostCheckpoint('ก่อนจบเกม 2 (Chrono Crush)');
     commitState((prev) => finishMainGameToLobby(prev, 'TIMEJINX'));
   }, [commitState]);
 
@@ -2760,6 +2778,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const finishToyFactoryGame = useCallback(() => {
+    pushHostCheckpoint('ก่อนจบเกม 3 (Toy Factory)');
     commitState((prev) => finishMainGameToLobby(prev, 'QUIXORT'));
   }, [commitState]);
 
@@ -3004,6 +3023,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const startTimer = useCallback(
     (customDurationSeconds?: number) => {
       if (!acquireActionLock('host:startTimer', 400)) return;
+      pushHostCheckpoint(`ก่อนเริ่มจับเวลา (${stateRef.current.round.gameStage})`);
       const now = getAuthoritativeNow();
       commitState((prev) => {
         const isGame1Sub1Or2 =
@@ -4483,6 +4503,89 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [commitState]
   );
 
+  const [checkpoints, setCheckpoints] = useState<HostCheckpoint[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem(CHECKPOINTS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.slice(0, MAX_HOST_CHECKPOINTS);
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  });
+
+  function pushHostCheckpoint(label: string) {
+    if (clientRoleRef.current !== 'HOST') return;
+    const snap = structuredClone(stateRef.current);
+    const entry: HostCheckpoint = {
+      id: `cp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      label,
+      timestamp: Date.now(),
+      stateSnapshot: snap,
+    };
+    setCheckpoints((prev) => {
+      const next = [entry, ...prev].slice(0, MAX_HOST_CHECKPOINTS);
+      try {
+        localStorage.setItem(CHECKPOINTS_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }
+
+  const saveCheckpoint = useCallback((customLabel?: string) => {
+    const r = stateRef.current.round;
+    const defaultLabel = `${r.gameStage} • ${r.title || 'จุดเซฟด่วน'}`;
+    pushHostCheckpoint(customLabel?.trim() || defaultLabel);
+    soundFX.playSubmit();
+  }, []);
+
+  const restoreCheckpoint = useCallback(
+    (checkpointId: string) => {
+      if (clientRoleRef.current !== 'HOST') return;
+      const found = checkpoints.find((c) => c.id === checkpointId);
+      if (!found || !found.stateSnapshot) return;
+      soundFX.playReveal();
+      commitState((prev) => ({
+        ...structuredClone(found.stateSnapshot),
+        teamSessionTokens: prev.teamSessionTokens,
+        securityWarnings: prev.securityWarnings,
+      }));
+    },
+    [checkpoints, commitState]
+  );
+
+  const triggerSoundboardSfx = useCallback(
+    (sfx: SoundboardSfxType) => {
+      soundFX.playSoundboard(sfx);
+      const now = Date.now();
+      commitState((prev) => ({
+        ...prev,
+        soundboardCue: {
+          id: `sfx-${now}-${Math.random().toString(36).slice(2, 6)}`,
+          sfx,
+          timestamp: now,
+        },
+      }));
+    },
+    [commitState]
+  );
+
+  const setImageOverlay = useCallback(
+    (url: string | null, caption?: string | null) => {
+      commitState((prev) => ({
+        ...prev,
+        imageOverlayUrl: url ? url.trim() : null,
+        imageOverlayCaption: url ? (caption?.trim() || prev.round.title || 'ภาพประกอบโจทย์ / เฉลย') : null,
+      }));
+    },
+    [commitState]
+  );
+
   const triggerKrampusAlert = useCallback(
     (msg: string | null) => {
       if (msg) soundFX.playCoinChange(false);
@@ -4695,6 +4798,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setShowQrOverlay,
         setGameStage,
         triggerKrampusAlert,
+        triggerSoundboardSfx,
+        setImageOverlay,
+        checkpoints,
+        saveCheckpoint,
+        restoreCheckpoint,
         toggleSound,
         resetAllGameData,
       }}

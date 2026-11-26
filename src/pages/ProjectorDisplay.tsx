@@ -50,6 +50,8 @@ import {
 } from '../components/SouthParkArt';
 import { PhaseBriefingModal, getPhaseBriefingKey } from '../components/PhaseBriefingModal';
 import { SafeActionButton } from '../components/SafeActionButton';
+import { MansionDoorDisplayCard } from '../components/MansionDoorCard';
+import { useScreenWakeLock } from '../utils/useScreenWakeLock';
 import { DisplayMode, GameStage, TeamId } from '../types/game';
 
 const STAGE_META: Record<GameStage, { badge: string; name: string; color: string }> = {
@@ -92,6 +94,7 @@ const STAGE_META: Record<GameStage, { badge: string; name: string; color: string
 
 export const ProjectorDisplay: React.FC = () => {
   const { state, syncStalled, requestManualSync } = useGame();
+  useScreenWakeLock(true);
   const {
     round,
     teams,
@@ -433,6 +436,32 @@ export const ProjectorDisplay: React.FC = () => {
             <span className="text-2xl md:text-4xl font-black text-white tracking-wide">
               {krampusAlertMessage}
             </span>
+          </div>
+        </div>
+      )}
+
+      {/* Full-Screen Visual Clue / Answer Image Lightbox Overlay (Triggered from /admin) */}
+      {state.imageOverlayUrl && (
+        <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 md:p-10">
+          <div className="max-w-6xl w-full rounded-3xl bg-slate-950 border-4 border-amber-400 shadow-[0_0_80px_rgba(245,158,11,0.45)] p-5 md:p-8 flex flex-col items-center gap-4">
+            <div className="w-full flex items-center justify-between gap-4 border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="px-3 py-1 rounded-full bg-amber-400 text-black font-black text-xs md:text-sm uppercase">
+                  🖼️ VISUAL CLUE / ANSWER
+                </span>
+                <h3 className="text-xl md:text-3xl font-black text-white">
+                  {state.imageOverlayCaption || round.title || 'ภาพประกอบโจทย์ / เฉลย'}
+                </h3>
+              </div>
+              <CountdownTimer size="sm" />
+            </div>
+            <div className="w-full max-h-[72vh] flex items-center justify-center overflow-hidden rounded-2xl bg-black border-2 border-slate-800 p-2">
+              <img
+                src={state.imageOverlayUrl}
+                alt={state.imageOverlayCaption || 'Visual Clue'}
+                className="max-h-[68vh] w-auto max-w-full object-contain rounded-xl"
+              />
+            </div>
           </div>
         </div>
       )}
@@ -1129,121 +1158,69 @@ export const ProjectorDisplay: React.FC = () => {
               </div>
             )}
 
-            {/* Persistent 8-12 Door Board */}
+            {/* Persistent 8-12 3D Dark Christmas Mansion Door Board */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
               {round.choices.slice(0, round.choiceCount).map((choice) => {
                 const isOpened = Boolean(choice.isOpened);
                 const rank = choice.rank ?? round.choiceCount;
-                const isSafe = rank >= safeMin && rank <= safeMax;
-
-                // Color coding when opened: Green = Safe Zone, Red = Danger Zone
-                const openedColorClass = isSafe
-                  ? 'bg-gradient-to-br from-emerald-950 via-emerald-900/90 to-slate-950 border-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.45)]'
-                  : 'bg-gradient-to-br from-red-950 via-red-900/85 to-slate-950 border-red-500 shadow-[0_0_25px_rgba(239,68,68,0.4)]';
-
-                const rankBadgeClass = isSafe
-                  ? 'bg-emerald-400 text-slate-950 border-white'
-                  : 'bg-red-600 text-white border-red-300';
+                const isSafe =
+                  subRound === 'SUB3_POLARITY'
+                    ? rank === 1 || rank === round.choiceCount
+                    : rank >= safeMin && rank <= safeMax;
 
                 // Teams that picked this door in current sub-round
-                const teamsWhoPicked =
+                const pickedByBadges: Array<{ id: string; icon: string; name: string; tag?: string }> =
                   subRound === 'SUB1_SURVIVAL' || subRound === 'SUB2_SNAKE_DRAFT'
                     ? (round.snakeDraftPicks || [])
                         .filter((p) => p.doorKey === choice.key)
-                        .map((p) => p.teamId)
+                        .map((p, idx) => ({
+                          id: `${p.teamId}-${idx}`,
+                          icon: teams[p.teamId]?.icon || '🛡️',
+                          name: `T${teams[p.teamId]?.number || ''}`,
+                        }))
                     : round.status === 'REVEALED'
-                    ? TEAM_ORDER.filter((tid) => {
+                    ? TEAM_ORDER.flatMap((tid) => {
                         const sub = submissions[tid];
-                        if (!sub) return false;
+                        if (!sub) return [];
+                        const t = teams[tid];
                         if (subRound === 'SUB2_DOOR_AND_BET') {
-                          return (
-                            tid === round.auctionWinnerTeamId && String(sub.value) === choice.key
-                          );
+                          return tid === round.auctionWinnerTeamId &&
+                            String(sub.value) === choice.key
+                            ? [{ id: tid, icon: t.icon, name: `T${t.number}`, tag: '👑' }]
+                            : [];
                         }
                         if (subRound === 'SUB3_POLARITY') {
-                          return (
-                            String(sub.value) === choice.key ||
-                            String(sub.secondaryValue) === choice.key
-                          );
+                          const picked1 = String(sub.value) === choice.key;
+                          const pickedLast = String(sub.secondaryValue) === choice.key;
+                          if (!picked1 && !pickedLast) return [];
+                          return [
+                            {
+                              id: tid,
+                              icon: t.icon,
+                              name: `T${t.number}`,
+                              tag: picked1 ? '#1' : `#${round.choiceCount}`,
+                            },
+                          ];
                         }
-                        return false;
+                        return [];
                       })
                     : [];
 
                 return (
-                  <div
+                  <MansionDoorDisplayCard
                     key={choice.key}
-                    className={`relative rounded-2xl p-4 md:p-5 border-2 transition-all duration-500 min-h-[124px] flex flex-col justify-between ${
-                      isOpened
-                        ? openedColorClass
-                        : 'bg-slate-900/95 border-slate-700 hover:border-amber-500/60 shadow-lg'
-                    }`}
-                  >
-                    {!isOpened ? (
-                      /* Unopened Door State: Big A-L + Large Clear Label */
-                      <div className="flex items-center gap-4 my-auto">
-                        <div className="w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-red-950 text-amber-300 border-2 border-amber-500/60 font-mono font-black text-3xl md:text-4xl flex items-center justify-center shrink-0 shadow-lg">
-                          {choice.key}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs font-mono uppercase tracking-wider text-amber-400/90 font-bold">
-                            DOOR {choice.key} • ประตูยังไม่เปิด
-                          </div>
-                          <div className="text-lg md:text-xl font-extrabold text-white leading-snug mt-0.5">
-                            {choice.label}
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      /* Opened Door State: Giant Rank #1-#N in Center + Compact Option Label Below */
-                      <div className="flex flex-col items-center justify-center text-center my-auto py-1">
-                        <div className="w-full flex items-center justify-between text-xs font-mono font-bold mb-1">
-                          <span className="px-2 py-0.5 rounded bg-black/50 text-amber-300 border border-white/15">
-                            ประตู {choice.key}
-                          </span>
-                          <span
-                            className={`px-2.5 py-0.5 rounded-full font-extrabold ${
-                              isSafe
-                                ? 'bg-emerald-500/30 text-emerald-200 border border-emerald-400/50'
-                                : 'bg-red-500/30 text-red-200 border border-red-400/50'
-                            }`}
-                          >
-                            {isSafe
-                              ? `★ โซนปลอดภัย (#${safeMin}-#${safeMax})`
-                              : '💀 โซนอันตราย'}
-                          </span>
-                        </div>
-
-                        <div
-                          className={`px-6 py-1.5 rounded-2xl border-2 font-mono font-black text-4xl md:text-5xl tracking-tight shadow-xl my-1 ${rankBadgeClass}`}
-                        >
-                          [ #{rank} ]
-                        </div>
-
-                        <div className="text-sm md:text-base font-bold text-slate-100 mt-1 line-clamp-1">
-                          {choice.label}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Show which teams picked this door */}
-                    {teamsWhoPicked.length > 0 && (
-                      <div className="mt-2 pt-2 border-t border-white/15 flex flex-wrap justify-center gap-1.5">
-                        {teamsWhoPicked.map((tid, pIdx) => {
-                          const t = teams[tid];
-                          return (
-                            <span
-                              key={`${tid}-${pIdx}`}
-                              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-black/70 border border-amber-400 text-xs font-extrabold text-amber-200"
-                            >
-                              <span>{t.icon}</span>
-                              <span>Team {t.number}</span>
-                            </span>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
+                    doorKey={choice.key}
+                    label={choice.label}
+                    isOpened={isOpened}
+                    rank={choice.rank}
+                    isSafe={isSafe}
+                    isRank1={rank === 1}
+                    isRankLast={rank === round.choiceCount}
+                    choiceCount={round.choiceCount}
+                    subRound={subRound}
+                    isJustOpened={round.lastOpenedDoorKey === choice.key}
+                    pickedByBadges={pickedByBadges}
+                  />
                 );
               })}
             </div>
